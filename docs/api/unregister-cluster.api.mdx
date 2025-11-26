@@ -1,0 +1,71 @@
+---
+id: unregister-cluster
+title: "Unregister cluster"
+description: "Remove cluster registration from the control plane"
+sidebar_label: "Unregister cluster"
+hide_title: true
+hide_table_of_contents: true
+api: eJztWNtuGzcQ/RWC6YODriw5sYtk39TWaZ0mqGE7CFBbNUbkSMuIS9K8yFaE/fdiuKuLLRUBCjRPftKuhpw5c3g45OySR5gGXl7zX3QKEX3go4JLDMIrF5U1vOQXWNs5MtEOYB6nKkQPZGUTb2sWK2TCmuitZk6DQV5wBx5qzA7L6yU3UCMvuZK84IqcOogVL7jHu6Q8Sl5Gn/Bp5A4TUxJNVBOFnhc8iApr4OWSx4UjpyF6ZaY5ZozoaeLfQofba+h9Hfb+GvTejn78gTcFxweonaYpZIaxOHr1mjcjQhGcNQEDeX01OKaf/UiSadNHj5KFJASGMElaL8j/8eBod+YnAylW1quvKFmP1SoEZabMeqbMHLSSjOyUn8iU8oITl2gi+QLndGfofwnkcLlLgB1/QREfsXnN0XtLdNUYAkyRltV569BH1ebZDthD42P8pzSMCStpVTcMZugZ123rqNmE+qbP31MNpucRJIw1suyArWZvRznrKKLEMES2paqGnEZQOuxj4nG8oZSKHkF3sVYzCw5r0/kWO60Y1ziWfKJQS162OiaiIS8Gr1OIbIxM23v0AgIy0K4Ck2r0SrB7FStWLVyFJvCmaVcIQ7xV8tssXXRJb9TPJhn7OE2n7YQNUx7vOkU/LL7mUFHFbDldLc9WOt3a87Qlzi2tbIi3nuGDI02x95+vWLQzNPxxGjm0xMnxyU+8aZq8D/bsoAsMNnmBzNjIJjYZ+az0Z6V/N6UbG29XqtvIfK8od8T9ZaYHR6/W4n7778eDAEOexsgkaowo2UEFgYGIao7Md9HCy2fpP0v//5B+VujJYLCr0DNDVyPQLKCfo2cr5TzL8FmG36cCq06Bt0/VUvKhYcngg0NBJbOlzQqRvMe9Bbk29vXxSZZ7lkKsLJnamts2AhUveb9rWUJ/qWRDrUPWftuRJK95yasYXSj7fXDqcJbGaDDEQ2X786Mdis69lUnkrqf1w5tij5teiECMfcvdZTtsv6+y39dWgK5siOWbwZvBPg8faASTOEdtXY0mrn2NKFWRvIqLnOsYwaMfJmLlerRtvqT93e7R7UFruRCYVc9F7+0gXnQP76yvIfKSv/98tYOPLoyQO6T23sjsOIIyKNuusU9Xz762U2Xomtm+rrqrrCplJjZj6dT1R8co+xnEDI1kw/MzXnBa0jbi0eHgcLCDY9+0rO4aTLsGNMIbjBhWXW4omPOWNngo2L31M21BhoKBkQyktCYc3pgbc1WpkN05b+dKYmDABJroQed+71FX3O0op+2CgpKrNYKt2htuDAhvQ2B10lE5jfvwtdv9NxX/dKEX4kJjhjnR9r6F9uIFe4cQk8dwY3rsI/nqrXr4HBdJM2Q7bzPtjSGgZFR2ggOBTAWrMyQa9Lkjocsg6y1jWKMcJ6Ulqy3RcKBqmGLBpBUz9BOlsWjtDsTsJfkbEotbQNiBhAgEIRSr+szuEiZ6xygO86wLBN2LqkaG86z46BFqYnCugF1m/fcuyXJK9nCz6qdB5DOu+w6xlgSt3WVyznqq5I8381TFKo0Pha37q71MpU0rgSbglrePZ1dZr86GWIPZsnxafy5YLdxTdS43J/B/+9DSbdSID7HvNChDGHMiy64OXvOVaHjBSyXpeKbCQpblkhj/5HXT0N93CT2VjFHB5+AVnZi5gEgV6FnycgI6PP1Os53DwUV3L3jJ9n692Qu3+xPMgrYz6ERvvOAzXLQfjZpRU/AKQaLPeFrDUAh0cWvKzg2GSt36ePj19MPp1Slvmn8AJ6Wvlw==
+sidebar_class_name: "delete api-method"
+info_path: docs/api/kubenest-backend-api
+custom_edit_url: null
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Unregister cluster"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"delete"}
+  path={"/clusters/{id}"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Remove cluster registration from the control plane
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+  children={"Request"}
+>
+</Heading>
+
+<ParamsDetails
+  parameters={[{"name":"id","in":"path","required":true,"description":"Cluster identifier","schema":{"type":"string","pattern":"^cls_[a-zA-Z0-9]+$"},"example":"cls_abc123"}]}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  title={"Body"}
+  body={undefined}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  id={undefined}
+  label={undefined}
+  responses={{"204":{"description":"Cluster unregistered successfully"},"401":{"description":"Unauthorized - missing or invalid authentication","content":{"application/json":{"schema":{"type":"object","required":["error","message"],"properties":{"error":{"type":"string","description":"Error code","example":"validation_error"},"message":{"type":"string","description":"Human-readable error message","example":"Invalid request parameters"},"details":{"type":"object","description":"Additional error details","additionalProperties":true,"example":{"field":"name","reason":"must be lowercase alphanumeric with hyphens"}},"request_id":{"type":"string","description":"Request identifier for debugging","example":"req_abc123xyz"}},"title":"Error"},"example":{"error":"unauthorized","message":"Invalid or expired JWT token","request_id":"req_def456"}}}},"404":{"description":"Resource not found","content":{"application/json":{"schema":{"type":"object","required":["error","message"],"properties":{"error":{"type":"string","description":"Error code","example":"validation_error"},"message":{"type":"string","description":"Human-readable error message","example":"Invalid request parameters"},"details":{"type":"object","description":"Additional error details","additionalProperties":true,"example":{"field":"name","reason":"must be lowercase alphanumeric with hyphens"}},"request_id":{"type":"string","description":"Request identifier for debugging","example":"req_abc123xyz"}},"title":"Error"},"example":{"error":"not_found","message":"Resource not found","request_id":"req_jkl012"}}}},"409":{"description":"Cluster cannot be deleted (has active resources)","content":{"application/json":{"schema":{"type":"object","required":["error","message"],"properties":{"error":{"type":"string","description":"Error code","example":"validation_error"},"message":{"type":"string","description":"Human-readable error message","example":"Invalid request parameters"},"details":{"type":"object","description":"Additional error details","additionalProperties":true,"example":{"field":"name","reason":"must be lowercase alphanumeric with hyphens"}},"request_id":{"type":"string","description":"Request identifier for debugging","example":"req_abc123xyz"}},"title":"Error"}}}},"500":{"description":"Internal server error","content":{"application/json":{"schema":{"type":"object","required":["error","message"],"properties":{"error":{"type":"string","description":"Error code","example":"validation_error"},"message":{"type":"string","description":"Human-readable error message","example":"Invalid request parameters"},"details":{"type":"object","description":"Additional error details","additionalProperties":true,"example":{"field":"name","reason":"must be lowercase alphanumeric with hyphens"}},"request_id":{"type":"string","description":"Request identifier for debugging","example":"req_abc123xyz"}},"title":"Error"},"example":{"error":"internal_error","message":"An unexpected error occurred","request_id":"req_mno345"}}}}}}
+>
+  
+</StatusCodes>
+
+
+      

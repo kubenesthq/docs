@@ -1,0 +1,71 @@
+---
+id: delete-project
+title: "Delete project"
+description: "Delete a project and all associated resources"
+sidebar_label: "Delete project"
+hide_title: true
+hide_table_of_contents: true
+api: eJztWN9vGzcM/lcEdQ8pdo6dLt3ae8vQdEvXYkGSosCSLKAl2qdaJyn64cQx7n8fqDvbl9hDsYf1KU8+mRL5kfpIiVryCNPAy0t+6u1XFDHw64JLDMIrF5U1vOTvUGNEBsy1UxgYyUBrBiFYoSCiZB6DTV5g4AV34KHGiJ70LrmBGnnJleQFV6TPQax4wT3eJuVR8jL6hE+NdnCYkmiimij0vOBBVFgDL5c8LhwpDdErM802Y0RPC/8mlDeXMHg4Gvw1Gry9/vEH3hQc76F2mtZk+f3i4Zc3b3lzTTiCsyZgIL2vRof0sxuLzIGQLCQhMIRJ0npBug9HB9uLPhtIsbJePaBkA1arEJSZMuuZMnPQSjKSk3MC8pKCC2simki6wDndCYZfAylcbntvxwTrUSgvOXpvKVY1hgBTpO103jr0UbUuthN2xPAx/mOaxoSVyPvRy9AzrptWUbMx9U2dv6cazMAjSBhrZFkBW63uWznpQkSOYYisR6mGlEZQOuyKxGN7R1Iq+gTd2VqtLDisRae96LRMXONY8olCLXnZkpgCDXkzeJ1CZGNk2t6hFxCQgXYVmFSjV4LdqVixauEqNIE3TbtDGOKNkt+O0lnn9Ib6bJKxj9N02i7YRMrj7Q2MxcGrn+4XD9lUVDFLjlfb03On23ueeuTscWUTeOsZ3jviFPvw5YJFO0PDH7uRTUucHL7+mTdNk/NgR/KcdZWBGRvZxCYjn5n+zPTvxnRj482KdRua7yTlFrm/zvTo4NWa3G///WQQYEjTGNdnxF4FgYGIao7szvqZtiDDy2fqP1P//6B+Zujr0WiboSeG7kWgWUA/R89WzHmm4TMNv08FVh0Db56ypeRHhiWD9w4Flcw2bFaI5D3uLMi1sT8dvs50z1SIlSVRW3PbLqDiJR92jUoYLpVsqG/I3G/bkeQ1L3kVowvlcAhO7c/SGA2GuK/scH6wFaJTb2USNOhyiDfFDjWDEIEi9i115+203brK4VBbAbqyIZZvRm9GuzR8pBlM4hy1dTWauNZ1Ta6K5FVcZF/HCB79UaKoXF73xeeU322O9iet6UJgVg0XjdtJvOg+3ltfQ+Ql//DlYgsfXRghd0jtvZHZcQRlULKJtzUb0tVzqO1UGbpmtkOPUxUi+dBQlzixGUvHrj+6iLJfQczQSHZ0esILTlvaWjzYH+2PtnDsWpbZXYNp94BmeIMRAxM6kf1QrLrcUGzO7aJteaW0JuxfmStzUamQ1Tlv50piYMAEmuhB536Pqqu3mjkNBruMctouyCipWiPo1d5wZUB4GwKrk47KadyFr03331T804VBiAvdXi8m2t610F68YO8RYvIYrsyAfSJdg251axeJMyTrbi+DMQSUjMpOcCCQqWB1hkSTvnRB6DzIfMsY1ijHSWnJakth2FM1TLFg0ooZ+onSWLRyB2L2kvQdURR7QNiehAgEIRSr+sxuEyYaYxT7edUZgh5EVSPDeWZ89Ag1RXCugJ1n/g/OSXJM8nC16qdB5DOue4RYU4L27jw5Zz1V8sfJPFWxSuN9YevhKpeptGkl0ATsaft0cpH56myINZiepHsy6aj0lJnLzen7nx9XuvyMeB+HToMyBC3jX3bl75KvGMwLXipJpzLVE5IslxToz143Df19m9BTpbgu+By8ooMy1w2pAn1LXk5Ah6dvM334e2fddeAl2/lisxNu9yeYBWUx6EQjXvAZLtqHoua6KXiFINFnPK3gSAh0sbdk6+JCFW59Krw7/nh8ccyb5h/mtKd2
+sidebar_class_name: "delete api-method"
+info_path: docs/api/kubenest-backend-api
+custom_edit_url: null
+---
+
+import MethodEndpoint from "@theme/ApiExplorer/MethodEndpoint";
+import ParamsDetails from "@theme/ParamsDetails";
+import RequestSchema from "@theme/RequestSchema";
+import StatusCodes from "@theme/StatusCodes";
+import OperationTabs from "@theme/OperationTabs";
+import TabItem from "@theme/TabItem";
+import Heading from "@theme/Heading";
+
+<Heading
+  as={"h1"}
+  className={"openapi__heading"}
+  children={"Delete project"}
+>
+</Heading>
+
+<MethodEndpoint
+  method={"delete"}
+  path={"/projects/{id}"}
+  context={"endpoint"}
+>
+  
+</MethodEndpoint>
+
+
+
+Delete a project and all associated resources
+
+<Heading
+  id={"request"}
+  as={"h2"}
+  className={"openapi-tabs__heading"}
+  children={"Request"}
+>
+</Heading>
+
+<ParamsDetails
+  parameters={[{"name":"id","in":"path","required":true,"description":"Project identifier","schema":{"type":"string","pattern":"^proj_[a-zA-Z0-9]+$"},"example":"proj_xyz789"}]}
+>
+  
+</ParamsDetails>
+
+<RequestSchema
+  title={"Body"}
+  body={undefined}
+>
+  
+</RequestSchema>
+
+<StatusCodes
+  id={undefined}
+  label={undefined}
+  responses={{"204":{"description":"Project deleted successfully"},"401":{"description":"Unauthorized - missing or invalid authentication","content":{"application/json":{"schema":{"type":"object","required":["error","message"],"properties":{"error":{"type":"string","description":"Error code","example":"validation_error"},"message":{"type":"string","description":"Human-readable error message","example":"Invalid request parameters"},"details":{"type":"object","description":"Additional error details","additionalProperties":true,"example":{"field":"name","reason":"must be lowercase alphanumeric with hyphens"}},"request_id":{"type":"string","description":"Request identifier for debugging","example":"req_abc123xyz"}},"title":"Error"},"example":{"error":"unauthorized","message":"Invalid or expired JWT token","request_id":"req_def456"}}}},"404":{"description":"Resource not found","content":{"application/json":{"schema":{"type":"object","required":["error","message"],"properties":{"error":{"type":"string","description":"Error code","example":"validation_error"},"message":{"type":"string","description":"Human-readable error message","example":"Invalid request parameters"},"details":{"type":"object","description":"Additional error details","additionalProperties":true,"example":{"field":"name","reason":"must be lowercase alphanumeric with hyphens"}},"request_id":{"type":"string","description":"Request identifier for debugging","example":"req_abc123xyz"}},"title":"Error"},"example":{"error":"not_found","message":"Resource not found","request_id":"req_jkl012"}}}},"409":{"description":"Project cannot be deleted (has active workloads)","content":{"application/json":{"schema":{"type":"object","required":["error","message"],"properties":{"error":{"type":"string","description":"Error code","example":"validation_error"},"message":{"type":"string","description":"Human-readable error message","example":"Invalid request parameters"},"details":{"type":"object","description":"Additional error details","additionalProperties":true,"example":{"field":"name","reason":"must be lowercase alphanumeric with hyphens"}},"request_id":{"type":"string","description":"Request identifier for debugging","example":"req_abc123xyz"}},"title":"Error"}}}},"500":{"description":"Internal server error","content":{"application/json":{"schema":{"type":"object","required":["error","message"],"properties":{"error":{"type":"string","description":"Error code","example":"validation_error"},"message":{"type":"string","description":"Human-readable error message","example":"Invalid request parameters"},"details":{"type":"object","description":"Additional error details","additionalProperties":true,"example":{"field":"name","reason":"must be lowercase alphanumeric with hyphens"}},"request_id":{"type":"string","description":"Request identifier for debugging","example":"req_abc123xyz"}},"title":"Error"},"example":{"error":"internal_error","message":"An unexpected error occurred","request_id":"req_mno345"}}}}}}
+>
+  
+</StatusCodes>
+
+
+      
