@@ -1,0 +1,185 @@
+---
+title: Addons
+description: Backing services in kubenest — the AddonDefinition catalog, exports, standalone addon instances, revision history, and rollback.
+---
+
+import { Callout, Tabs } from 'nextra/components'
+
+# Addons
+
+An Addon is a backing service: PostgreSQL, Redis, Kafka, Elasticsearch, RabbitMQ — anything that your application components depend on but that is not itself an application. In kubenest, addons are packaged as Helm charts and deployed into the project's namespace by the operator via ArgoCD, alongside your application workloads.
+
+The key difference between an Addon and a Workload is what it produces. A Workload exposes a service to users (an API, a web UI, a background processor). An Addon produces **exports** — key-value outputs like connection strings, hostnames, and passwords — that downstream Workloads consume.
+
+## Two entry points for addons
+
+There are two ways to deploy an addon, depending on whether you want it tightly coupled to a specific App or shared across multiple Apps.
+
+### As a component in an App
+
+The most common pattern is to include an addon as a component in the same App as the workloads that depend on it. This bundles the addon's lifecycle with the App: deploy together, pause together, roll back together.
+
+```json filename="addon as App component"
+{
+  "name": "postgres",
+  "type": "addon",
+  "addon_spec": {
+    "type": "postgresql",
+    "chart": {
+      "repo": "https://charts.bitnami.com/bitnami",
+      "name": "postgresql",
+      "version": "13.4.4"
+    },
+    "values": {
+      "auth": {
+        "database": "myapp",
+        "username": "myapp"
+      }
+    }
+  }
+}
+```
+
+When deployed as a component, the operator manages the addon's Helm release as part of the StackDeploy reconciliation loop. The `depends_on` and `exportRef` wiring described in [Apps](/concepts/apps) applies here.
+
+### As a standalone AddonInstance
+
+If you have a database that multiple apps share — a central logging database, a shared cache — you deploy it as a standalone `AddonInstance`. Standalone instances have their own lifecycle, separate from any App.
+
+```bash filename="create standalone addon instance"
+curl -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "b2c3d4e5-...",
+    "name": "shared-postgres",
+    "definition_id": "def1uuid-...",
+    "values": {
+      "auth": {
+        "database": "shared"
+      }
+    }
+  }' \
+  https://api.your-domain.com/api/v1/addon-instances
+```
+
+After the addon is running, any workload in the same project can reference its exports using `addon_instance_id` in an `exportRef`:
+
+```json filename="reference standalone addon"
+{
+  "name": "DATABASE_URL",
+  "export_ref": {
+    "addon_instance_id": "c3d4e5f6-...",
+    "export_key": "connection_string"
+  }
+}
+```
+
+You can also use the `POST /api/v1/apps/{ns}/{name}/attach-addon` endpoint to wire an existing standalone addon into an App's workload components without modifying the App's component list.
+
+## The AddonDefinition catalog
+
+An `AddonDefinition` is a catalog entry: it declares the chart reference, the default Helm values, and the **export schema** — the set of keys the addon publishes after a successful deploy. Platform admins register AddonDefinitions; users reference them by ID when creating addon instances.
+
+```bash filename="list addon definitions"
+curl -H "Authorization: Bearer $TOKEN" \
+  https://api.your-domain.com/api/v1/addon-definitions | jq .data[].name
+# "postgresql"
+# "redis"
+# "kafka"
+# "elasticsearch"
+```
+
+Using a definition rather than specifying a chart directly has two benefits. First, the definition enforces a known-good chart version and default configuration — no one accidentally deploys a misconfigured chart. Second, the definition's export schema tells kubenest which keys to look for when the addon completes its first-run setup, enabling automatic export discovery.
+
+<Callout type="info">
+You do not need to use a definition. If `definition_id` is omitted from the `AddonInstanceCreate` payload, you must supply `type` and `chart` directly. This is useful for one-off or custom addons that do not have a definition entry.
+</Callout>
+
+## Exports: how addons publish their outputs
+
+After a Helm chart deploys successfully, the addon publishes its outputs as **exports** — a key-value map stored on the `AddonInstance` record and available to workloads that reference it.
+
+Common exports from a PostgreSQL addon:
+
+| Key | Example value |
+|-----|---------------|
+| `connection_string` | `postgresql://myapp:s3cret@postgres.my-project.svc:5432/myapp` |
+| `host` | `postgres.my-project.svc.cluster.local` |
+| `port` | `5432` |
+| `database` | `myapp` |
+| `username` | `myapp` |
+| `password` | `s3cret` |
+
+Exports are read from the addon's Kubernetes Secret after the chart completes. When exports are backed by a Kubernetes Secret (as opposed to being stored in plaintext in the backend database), the API response redacts the values and shows only the keys — the values are fetched directly from the cluster at runtime.
+
+```bash filename="read addon exports"
+curl -H "Authorization: Bearer $TOKEN" \
+  https://api.your-domain.com/api/v1/addon-instances/$INSTANCE_ID | jq .exports
+```
+
+## Revision history and rollback
+
+Every values update or chart version bump to a standalone addon instance is recorded as a **revision**. This gives you a full audit trail and the ability to roll back to any prior configuration.
+
+```bash filename="update addon values"
+curl -X PATCH \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "values": {
+      "primary": {
+        "resources": {
+          "requests": { "memory": "512Mi", "cpu": "250m" }
+        }
+      }
+    },
+    "note": "Increase memory for production load"
+  }' \
+  https://api.your-domain.com/api/v1/addon-instances/$INSTANCE_ID
+```
+
+List revisions:
+
+```bash filename="list revisions"
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/addon-instances/$INSTANCE_ID/revisions" | jq .
+```
+
+Roll back to a prior revision by number or ID:
+
+```bash filename="rollback"
+curl -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"revision_number": 1, "note": "Reverting memory increase"}' \
+  https://api.your-domain.com/api/v1/addon-instances/$INSTANCE_ID/rollback
+```
+
+The rollback creates a new revision (it does not delete the intervening ones), so the audit trail remains intact.
+
+## Addon phases
+
+Standalone addon instances move through the same phase vocabulary as Apps:
+
+| Phase | Meaning |
+|-------|---------|
+| `pending` | Created; operator has not yet started the Helm install |
+| `deploying` | Helm install/upgrade in progress |
+| `running` | Helm release is deployed and healthy |
+| `failed` | Helm install/upgrade failed; error is on the revision record |
+
+## Common pitfalls
+
+**Deleting an addon instance that workloads depend on.** If you delete a standalone addon instance while App components still have `exportRef` entries pointing to it, those components will lose their environment variables on the next reconcile. Always update or redeploy the depending apps before deleting a shared addon.
+
+**Chart version mismatches.** If you specify a chart version in an `AddonDefinition` and then try to deploy with a different version in the `values` override, the definition version takes precedence. Use `chart_version` in the PATCH request to explicitly upgrade.
+
+**Export key names vary by chart.** The `connection_string` key is a kubenest convention for addons that have an `AddonDefinition` with an export schema. Custom addons (no definition) may use different key names. Check the addon's definition or inspect the Kubernetes Secret the chart creates to discover available keys.
+
+---
+
+See also:
+- [Apps](/concepts/apps) — how addon components and `exportRef` wiring work within an App
+- [Stack Templates](/concepts/stack-templates) — how to capture an App with addon components as a reusable template
+- [Projects](/concepts/projects) — the project namespace that addon instances live in

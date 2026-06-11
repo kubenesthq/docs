@@ -1,0 +1,300 @@
+---
+title: API Reference
+description: Base URL, authentication, request/response conventions, error formats, and a complete endpoint index for the kubenest REST API.
+---
+
+import { Callout } from 'nextra/components'
+
+# API Reference
+
+The kubenest REST API is the interface used by the web console, CLI tools, and any automation you build on top of kubenest. Every action the UI performs is an API call — there is no privileged back channel. This page covers the conventions that apply across the entire API and indexes all available endpoints.
+
+<Callout type="info">
+A full interactive API reference with request/response schemas, live "Try it" execution, and example bodies is available at `https://api.{your-domain}/docs` (Swagger UI). This page is the conceptual overview and quick-reference; use `/docs` when you need to inspect a specific field or test a request.
+</Callout>
+
+---
+
+## Base URL
+
+All endpoints are prefixed with:
+
+```
+https://api.{your-domain}/api/v1
+```
+
+Replace `{your-domain}` with the domain you configured during installation. If you are running a local development instance, the default is `http://localhost:8000/api/v1`.
+
+---
+
+## Authentication
+
+### Obtaining tokens
+
+Authenticate by posting credentials to the login endpoint. Note that the login endpoint uses `application/x-www-form-urlencoded` (not JSON) to comply with the OAuth2 password flow convention:
+
+```bash filename="login"
+curl -X POST https://api.your-domain.com/api/v1/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=admin@example.com&password=your-password"
+```
+
+Response:
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer"
+}
+```
+
+The login response also sets an `HttpOnly` refresh token cookie. Do not discard it — you need it to refresh the access token.
+
+### Using the access token
+
+Include the access token in the `Authorization` header on every subsequent request:
+
+```
+Authorization: Bearer {access_token}
+```
+
+Access tokens expire after **30 minutes**. When a request returns `401 Unauthorized` with `detail: "Token expired"`, refresh the token (see below).
+
+### Refreshing the access token
+
+The refresh endpoint reads the `HttpOnly` cookie set at login and issues a new access token without requiring you to re-enter your password. It also rotates the refresh cookie:
+
+```bash filename="refresh token"
+curl -X POST https://api.your-domain.com/api/v1/refresh \
+  -b cookies.txt \        # curl cookie jar that stores the refresh cookie
+  -c cookies.txt
+```
+
+In a browser context, the browser sends the cookie automatically. In a script, manage the cookie jar explicitly with `-b`/`-c`.
+
+Refresh tokens expire after **7 days**. After a refresh token expires, the user must log in again.
+
+### Logging out
+
+```bash filename="logout"
+curl -X POST https://api.your-domain.com/api/v1/logout \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Logout invalidates the refresh token cookie and clears the server-side session. The access token itself cannot be invalidated (it is a signed JWT with no revocation list) — it will expire naturally after 30 minutes.
+
+---
+
+## Request conventions
+
+**Content-Type.** All endpoints except `POST /login` expect `Content-Type: application/json`. The login endpoint expects `application/x-www-form-urlencoded`.
+
+**Namespaced resources.** Apps and stack templates are addressed by `{namespace}/{name}` rather than by UUID. The namespace maps to the project's Kubernetes namespace, and the name is the App or template name you chose at create time. This makes URLs human-readable and stable.
+
+**Pagination.** List endpoints return a `data` array and a `pagination` object:
+
+```json
+{
+  "data": [...],
+  "pagination": {
+    "total": 142,
+    "page": 1,
+    "page_size": 20,
+    "pages": 8
+  }
+}
+```
+
+Pass `?page=2&page_size=50` to paginate. The default page size is 20; the maximum is 100.
+
+**Filtering and sorting.** Most list endpoints accept query parameters for filtering. Common ones: `?cluster_id=...`, `?project_id=...`, `?phase=running`, `?name=prefix`. Sorting: `?sort_by=created_at&sort_order=desc`.
+
+---
+
+## Response conventions
+
+**Success codes.** `200 OK` for reads and updates; `201 Created` for creates; `202 Accepted` for async operations that return before completion (the response body contains the initial state with `phase: pending`); `204 No Content` for deletes.
+
+**Async responses.** Operations that dispatch events to the operator (app create/patch/delete, addon install/upgrade) return `202 Accepted` with the initial resource state. Subscribe to the SSE stream or poll the resource endpoint to track progress.
+
+---
+
+## Error format
+
+**4xx client errors** return a simple `detail` string:
+
+```json
+{ "detail": "App 'my-app' not found in namespace 'my-project'" }
+```
+
+**422 Unprocessable Entity** (validation failures) returns a list of structured errors, one per invalid field:
+
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "components", 0, "workload_spec", "replicas"],
+      "msg": "ensure this value is greater than 0",
+      "type": "value_error.number.not_gt"
+    }
+  ]
+}
+```
+
+The `loc` array is a path through the request body to the invalid field. The first element is always `"body"` for JSON request bodies or `"query"` for query parameters.
+
+**409 Conflict** is returned when a write is attempted on a resource that is in `blocked_sync` drift state, or when a component removal would break an `exportRef` dependency.
+
+**503 Service Unavailable** is returned when the target cluster is `disconnected` and the operation requires the operator to be reachable. The `detail` includes the cluster ID and last-seen timestamp.
+
+---
+
+## Rate limits
+
+API rate limits are applied per user. Check current usage:
+
+```bash filename="check rate limits"
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/rate-limits" | jq .
+```
+
+Response:
+
+```json
+{
+  "limits": {
+    "requests_per_minute": 300,
+    "remaining": 287,
+    "reset_at": "2026-06-11T14:23:00Z"
+  }
+}
+```
+
+Rate limit headers are also included on every response: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`.
+
+---
+
+## Endpoint index
+
+### Auth
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/login` | Obtain access token. Body: `application/x-www-form-urlencoded` with `username` and `password`. Sets refresh cookie. |
+| `POST` | `/refresh` | Exchange refresh cookie for a new access token. Rotates the refresh cookie. |
+| `POST` | `/logout` | Invalidate the refresh token cookie. |
+
+---
+
+### Clusters
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/clusters` | List all clusters in the organization. |
+| `POST` | `/clusters` | Register a new cluster or initiate cloud provisioning. |
+| `GET` | `/clusters/{id}` | Get cluster details, status, and metrics. |
+| `PATCH` | `/clusters/{id}` | Update cluster metadata (name, description). |
+| `DELETE` | `/clusters/{id}` | Delete the cluster record. Fails if active projects exist. |
+| `GET` | `/clusters/{id}/metrics` | CPU, memory, and node count metrics aggregated from the last operator heartbeat. |
+| `GET` | `/clusters/{id}/helm-install-command` | Retrieve the pre-filled Helm install command for the operator. |
+| `POST` | `/clusters/{id}/rotate-token` | Issue a new cluster JWT and invalidate the current one. |
+| `POST` | `/clusters/{id}/scale` | Change node count (cloud-provisioned clusters only). |
+| `GET` | `/clusters/{id}/ssh-key` | Retrieve the SSH private key (cloud-provisioned clusters, admin only). |
+
+---
+
+### Projects
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/projects` | List all projects the user can access. |
+| `POST` | `/projects` | Create a project (Kubernetes namespace) on a cluster. |
+| `GET` | `/projects/{id}` | Get project details, status, and resource quota usage. |
+| `PATCH` | `/projects/{id}` | Update project metadata or resource quotas. |
+| `DELETE` | `/projects/{id}` | Delete project and all its apps and addons. Requires the project to be empty unless `force=true`. |
+
+---
+
+### Apps
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/apps` | List apps. Filter by `?project_id=`, `?phase=`, `?cluster_id=`. |
+| `POST` | `/apps` | Create an app. Body includes `name`, `project_id`, and `components` array. Returns `202 Accepted`. |
+| `GET` | `/apps/{namespace}/{name}` | Get app details, component statuses, drift state, and resolved exports. |
+| `PATCH` | `/apps/{namespace}/{name}` | Add, remove, or patch components. Returns `202 Accepted`. |
+| `DELETE` | `/apps/{namespace}/{name}` | Delete app and all its components. Returns `202 Accepted`. |
+| `POST` | `/apps/{namespace}/{name}/scale` | Scale a specific workload component's replica count. Body: `{component_name, replicas}`. |
+| `POST` | `/apps/{namespace}/{name}/pause` | Set all workload replicas to 0, snapshot pre-pause counts. |
+| `POST` | `/apps/{namespace}/{name}/resume` | Restore pre-pause replica counts. |
+| `POST` | `/apps/{namespace}/{name}/redeploy` | Force a hard-refresh and re-sync without spec changes. |
+| `GET` | `/apps/{namespace}/{name}/deployments` | List deployment history (create, patch, rollback events). |
+| `POST` | `/apps/{namespace}/{name}/rollback` | Restore a prior deployment spec. Body: `{deployment_id}` or `{revision}`. Returns `202 Accepted`. |
+| `GET` | `/apps/{namespace}/{name}/dependents` | List workloads that have `exportRef` entries pointing to components in this app. |
+
+---
+
+### Stack Templates
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/stack-templates` | List templates. Filter by `?scope=`, `?cluster_id=`, `?project_id=`. |
+| `POST` | `/stack-templates` | Create a template directly (full template body). |
+| `GET` | `/stack-templates/{namespace}/{name}` | Get template details including parameters and component specs. |
+| `PUT` | `/stack-templates/{namespace}/{name}` | Replace template contents (creates a new version). |
+| `DELETE` | `/stack-templates/{namespace}/{name}` | Delete a template. Fails if active deployed instances reference it. |
+| `POST` | `/stack-templates/from-app/{namespace}/{name}` | Capture a running app as a new template. Body: `{name, version, scope, preserve_export_refs}`. |
+| `POST` | `/stack-templates/from-chart` | Create a template wrapping a Helm chart with promoted parameters. |
+| `POST` | `/stack-templates/from-yaml` | Import a template from a `StackTemplateExport` JSON body. |
+| `POST` | `/stack-templates/{namespace}/{name}/deploy` | Deploy a template to a project. Body: `{project_id, parameters, app_name, timeout}`. Returns `202 Accepted`. |
+| `GET` | `/stack-templates/inspect-chart` | Fetch schema and defaults for a Helm chart. Query params: `?repo=&name=&version=`. Cached 1 hour. |
+| `GET` | `/stack-templates/registry` | Browse the community template registry. |
+
+---
+
+### Addon Instances
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/addon-instances` | List addon instances. Filter by `?project_id=`, `?phase=`. |
+| `POST` | `/addon-instances` | Deploy a standalone addon instance. Returns `202 Accepted`. |
+| `GET` | `/addon-instances/{id}` | Get instance details, current phase, and resolved exports. |
+| `PATCH` | `/addon-instances/{id}` | Update values or chart version. Creates a new revision. Returns `202 Accepted`. |
+| `DELETE` | `/addon-instances/{id}` | Uninstall and delete the addon instance. Query param: `?preserve_pvcs=true`. |
+| `POST` | `/addon-instances/{id}/rollback` | Restore a prior revision. Body: `{revision_number}` or `{revision_id}`. |
+| `GET` | `/addon-instances/{id}/revisions` | List all revisions with values snapshots and notes. |
+| `GET` | `/addon-instances/{id}/dependents` | List app components that have `exportRef` entries pointing to this instance. |
+
+---
+
+### Addon Definitions
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/addon-definitions` | List all addon definitions in the catalog. |
+| `GET` | `/addon-definitions/{name}` | Get a definition's chart reference, default values, and export schema. |
+
+---
+
+### Events (SSE)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/events/stream` | Server-Sent Events stream. Filter by `?namespace=&name=` for a specific app, `?addon_instance_id=` for an addon, or `?cluster_id=` for all events on a cluster. |
+
+The SSE stream uses standard `text/event-stream` encoding. Each event has a `type` field and a JSON `data` payload. Event types include `app.status`, `addon.status`, `cluster.status`, `drift.detected`, and `build.log`.
+
+```bash filename="subscribe to app events"
+curl -N -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/events/stream?namespace=my-project&name=my-app"
+```
+
+The connection is long-lived. Clients should implement reconnection with a backoff if the connection drops. The `Last-Event-ID` header is supported — pass the last received event ID to resume from where you left off.
+
+---
+
+See also:
+- [Architecture Overview](/architecture) — how the API, hub, and operator relate
+- [Creating and Managing Apps](/guides/creating-apps) — practical walkthroughs of the most common app API calls
+- [Managing Addons](/guides/managing-addons) — addon instance API calls with real examples
+- Interactive Swagger UI: `https://api.{your-domain}/docs`

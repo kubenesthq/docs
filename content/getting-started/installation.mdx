@@ -1,0 +1,161 @@
+---
+title: Installation
+description: Install the kubenest operator on your Kubernetes cluster using Helm and connect it to the control plane.
+---
+
+import { Steps, Callout, FileTree, Tabs } from 'nextra/components'
+
+# Installation
+
+This guide walks through installing the kubenest operator on a Kubernetes cluster and connecting it to a running kubenest control plane (backend + hub). By the end, your cluster will appear as `connected` in the kubenest dashboard and be ready to receive application deployments.
+
+## What gets installed
+
+The `kubenesthq/kubenest-helm` chart installs three components into the `kubenest-system` namespace:
+
+- **Backend** (FastAPI) — the multi-tenant control plane API. Manages organizations, clusters, projects, apps, and templates. Talks to PostgreSQL and Redis, and maintains a WebSocket connection to the hub.
+- **Hub** (Go WebSocket broker) — the real-time message bus between the backend and every operator instance. Authenticates operators using cluster JWTs and routes events bidirectionally.
+- **Operator** (Go controller-runtime) — the cluster-side controller. Watches `StackDeploy` and `StackTemplate` CRDs, reconciles application state via ArgoCD, and streams status events back to the hub.
+
+<Callout type="info">
+In a typical production setup, the **backend and hub live on a dedicated control-plane cluster** (or a VM), while the **operator is installed on each workload cluster**. This guide covers the operator installation; refer to the backend README for deploying the control plane.
+</Callout>
+
+## Prerequisites
+
+- Helm 3.x and kubectl configured for the target cluster
+- ArgoCD running on the cluster (or `argocd.enabled=true` in your values)
+- Outbound HTTPS/WSS access from the cluster to the hub URL
+- A cluster record already created in the kubenest backend (see [First Deployment](/getting-started/first-deployment) for how to create one via the API)
+
+## Step 1: Add the Helm repo
+
+```bash filename="terminal"
+helm repo add kubenesthq https://charts.kubenestapp.com
+helm repo update
+```
+
+## Step 2: Retrieve the install command from the backend
+
+When you register a cluster in the backend, it generates a pre-filled `helm install` command containing the cluster's JWT and the hub URL. You can retrieve it from the UI under **Clusters → [your cluster] → Install Instructions**, or via the API:
+
+```bash filename="terminal"
+curl -H "Authorization: Bearer $TOKEN" \
+  https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID/install-command
+```
+
+The response looks like:
+
+```json filename="install-command response"
+{
+  "command": "helm install kubenest-operator kubenesthq/kubenest-operator ...",
+  "cluster_id": "a1b2c3d4-...",
+  "hub_url": "wss://hub.your-domain.com",
+  "token": "eyJhbGc...",
+  "gitops_repo_url": "https://github.com/your-org/gitops",
+  "gitops_branch": "main"
+}
+```
+
+You can run the `command` field directly, or use it as the basis for a `values.yaml`.
+
+## Step 3: Install with a values file
+
+For production installs, prefer a `values.yaml` over a long `--set` chain. Here is a minimal configuration:
+
+```yaml filename="kubenest-operator-values.yaml"
+global:
+  domain: your-domain.com      # base domain for ingress resources
+
+operator:
+  hub:
+    url: wss://hub.your-domain.com
+    token: eyJhbGc...           # cluster JWT from the backend
+  cluster:
+    id: a1b2c3d4-...            # UUID from the backend
+
+gitops:
+  repoUrl: https://github.com/your-org/gitops
+  branch: main
+  # If the repo is private, provide a token:
+  # token: ghp_...
+
+argocd:
+  enabled: false     # set true if ArgoCD is not already installed
+  namespace: argocd  # namespace where ArgoCD is running
+```
+
+Then install:
+
+```bash filename="terminal"
+helm install kubenest-operator kubenesthq/kubenest-operator \
+  --namespace kubenest-system \
+  --create-namespace \
+  --values kubenest-operator-values.yaml
+```
+
+## Step 4: Verify the installation
+
+```bash filename="terminal"
+kubectl get pods -n kubenest-system
+```
+
+You should see output similar to:
+
+```
+NAME                                        READY   STATUS    RESTARTS   AGE
+kubenest-operator-controller-manager-...   1/1     Running   0          45s
+```
+
+Check that the operator has connected to the hub by looking at its logs:
+
+```bash filename="terminal"
+kubectl logs -n kubenest-system \
+  -l app.kubernetes.io/name=kubenest-operator \
+  --tail=20
+```
+
+Look for a line like:
+
+```
+{"level":"info","msg":"connected to hub","cluster_id":"a1b2c3d4-...","hub":"wss://hub.your-domain.com"}
+```
+
+If the backend also shows the cluster as `connected`, you are ready to deploy applications.
+
+## What "cluster connected" means
+
+The connection handshake works in three stages:
+
+1. **Operator starts** and reads its cluster JWT from the Kubernetes Secret created by Helm.
+2. **Operator dials the hub** over WebSocket and presents the JWT in the `Authorization` header.
+3. **Hub validates the JWT**, establishes a persistent session for the cluster ID, and notifies the backend.
+4. **Backend transitions** the cluster record from `awaiting_operator` to `connected` and records the first heartbeat timestamp.
+
+From this point, the backend can dispatch `StackDeploy` create/patch/delete events to the operator by routing them through the hub. The operator never needs a public IP or open inbound port — all communication is initiated outbound from inside the cluster.
+
+## Key Helm values reference
+
+| Value | Required | Description |
+|-------|----------|-------------|
+| `operator.hub.url` | Yes | WebSocket URL of the hub (e.g. `wss://hub.example.com`) |
+| `operator.hub.token` | Yes | Cluster JWT issued by the backend at cluster creation |
+| `operator.cluster.id` | Yes | UUID of the cluster record in the backend |
+| `gitops.repoUrl` | Yes | Git repo URL where the operator writes Helm values |
+| `gitops.branch` | No | Branch to commit to (default: `main`) |
+| `gitops.token` | Conditional | Personal access token for private repos |
+| `argocd.enabled` | No | Install ArgoCD alongside the operator (default: `false`) |
+| `argocd.namespace` | No | Namespace of an existing ArgoCD install (default: `argocd`) |
+| `global.domain` | No | Base domain for ingress objects created by the operator |
+
+## Troubleshooting
+
+**Operator pod is CrashLoopBackOff.** The most common cause is a malformed or expired cluster JWT. Regenerate the token via `GET /api/v1/clusters/{id}/connection-token` and update the Kubernetes Secret, then restart the operator pod.
+
+**Cluster stuck in `awaiting_operator`.** The operator is not reaching the hub. Check outbound network connectivity from the cluster to the hub URL. Ensure the hub is running and the URL uses `wss://` (not `ws://`) in production.
+
+**ArgoCD not found.** If you set `argocd.enabled=false` but ArgoCD is not installed, the operator will start but fail to create ArgoCD Application resources. Install ArgoCD first or set `argocd.enabled=true`.
+
+---
+
+Next: [First deployment walkthrough →](/getting-started/first-deployment)

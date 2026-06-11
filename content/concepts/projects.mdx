@@ -1,0 +1,131 @@
+---
+title: Projects
+description: Projects are kubenest's isolation boundary — one Kubernetes namespace, one set of RBAC bindings, one resource quota.
+---
+
+import { Callout } from 'nextra/components'
+
+# Projects
+
+A Project is the unit of isolation in kubenest. Every App, Addon, and Secret you deploy lives inside a project. From Kubernetes' perspective, a project is a namespace — all resources belonging to the project share that namespace and are subject to its quota. From kubenest's perspective, a project is also a permission boundary: RBAC role bindings control who can see, modify, or delete resources within it.
+
+## Projects and namespaces
+
+When you create a project, the backend sends a message to the operator (via the hub) instructing it to create the corresponding Kubernetes namespace. The namespace name matches the project name — slugified to conform to DNS label rules — and carries labels that tie it to the kubenest project ID.
+
+```
+Project "my-api-team"
+  └── Kubernetes namespace: my-api-team
+        ├── App "my-api" (StackDeploy CR)
+        ├── App "my-worker" (StackDeploy CR)
+        └── AddonInstance "shared-postgres" (Helm release via ArgoCD)
+```
+
+One project, one namespace. You cannot split a project across namespaces, and you cannot put two projects into the same namespace.
+
+<Callout type="info">
+The namespace-per-project model deliberately limits the blast radius of a misconfigured resource quota or a rogue workload. If a project's namespace is exhausted, only that project's workloads are affected — others on the same cluster continue normally.
+</Callout>
+
+## Project lifecycle
+
+Projects move through two phases:
+
+| Phase | Meaning |
+|-------|---------|
+| `pending` | Backend has created the project record; operator has not yet confirmed namespace creation |
+| `ready` | Operator has created the namespace and the project is available for deployments |
+
+The transition from `pending` to `ready` is fast — typically under a second when the cluster is connected. If a cluster is disconnected at the time of project creation, the project stays `pending` until the operator reconnects and processes the backlog.
+
+## Resource quotas
+
+Projects support Kubernetes `ResourceQuota` objects, configurable at project creation time or patched later. Quotas limit the total CPU, memory, and object counts that can be consumed by workloads within the namespace.
+
+```bash filename="create project with quota"
+curl -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-api-team",
+    "cluster_id": "a1b2c3d4-...",
+    "description": "API team production environment",
+    "resource_quota": {
+      "requests.cpu": "4",
+      "requests.memory": "8Gi",
+      "limits.cpu": "8",
+      "limits.memory": "16Gi"
+    }
+  }' \
+  https://api.your-domain.com/api/v1/projects
+```
+
+The operator translates these fields into a `ResourceQuota` object in the namespace. If a workload deployment would exceed the quota, Kubernetes rejects the pod scheduling and kubenest surfaces the error in the App's status.
+
+## RBAC and role bindings
+
+Projects support three built-in roles:
+
+| Role | Capabilities |
+|------|-------------|
+| `admin` | Full control: create, modify, delete apps, addons, and project settings |
+| `member` | Deploy and manage apps and addons; cannot change project settings or delete the project |
+| `viewer` | Read-only: view apps, addons, logs, and status |
+
+Role bindings are managed via the backend API:
+
+```bash filename="add a member"
+curl -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "e5f6g7h8-...",
+    "role": "member"
+  }' \
+  https://api.your-domain.com/api/v1/projects/b2c3d4e5-.../members
+```
+
+The backend enforces these roles at the API layer — every request is checked against the caller's role in the target project. The Kubernetes-side `RoleBinding` objects in the namespace mirror the same permissions, so direct API server access (e.g., via `kubectl` with a project-scoped kubeconfig) respects the same boundaries.
+
+## Secrets at the project level
+
+Secrets that should be available across multiple apps in a project — database passwords, API keys, registry pull secrets — can be stored at the project level:
+
+```bash filename="create project secret"
+curl -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "key": "STRIPE_SECRET_KEY",
+    "value": "sk_live_..."
+  }' \
+  https://api.your-domain.com/api/v1/projects/b2c3d4e5-.../secrets
+```
+
+Project secrets are stored encrypted in the backend database and injected into the namespace as Kubernetes Secrets during reconciliation. Workload components can reference them by key in their environment variable configuration.
+
+## Listing and managing projects
+
+```bash filename="list projects"
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/projects?cluster_id=$CLUSTER_ID" | jq .
+
+# Get a specific project
+curl -H "Authorization: Bearer $TOKEN" \
+  https://api.your-domain.com/api/v1/projects/$PROJECT_ID | jq .
+
+# Delete a project (also deletes all apps and addons within it)
+curl -X DELETE -H "Authorization: Bearer $TOKEN" \
+  https://api.your-domain.com/api/v1/projects/$PROJECT_ID
+```
+
+<Callout type="warning">
+Deleting a project is irreversible and cascades to all Apps, Addons, and Secrets within it. The operator will delete the Kubernetes namespace, which removes all workloads and persistent volumes (unless the storage class uses a retain policy). Always back up critical data before deleting a project.
+</Callout>
+
+---
+
+See also:
+- [Clusters](/concepts/clusters) — the cluster a project is deployed on
+- [Apps](/concepts/apps) — the deployable units that live within a project
+- [Addons](/concepts/addons) — standalone backing services scoped to a project

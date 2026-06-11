@@ -1,0 +1,265 @@
+---
+title: Apps, StackDeploys, and Components
+description: The most important concept in kubenest — what an App is, how components wire together, deployment modes, lifecycle states, pause/resume, and rollback.
+---
+
+import { Callout, Steps, Tabs } from 'nextra/components'
+
+# Apps, StackDeploys, and Components
+
+An App is the central concept in kubenest. Almost everything you do — deploy, scale, pause, roll back, capture as a template — operates on Apps. This page explains what an App actually is under the hood, how its components relate to each other, and what happens over the App's lifetime.
+
+## What is an App?
+
+From a user's perspective, an App is a named, deployable bundle: a web service and its database, a worker and its queue, a set of microservices. You define the App by listing its components in a JSON body and posting it to `/api/v1/apps`. kubenest takes care of everything else.
+
+Under the hood, an App maps to a **StackDeploy** — a Kubernetes Custom Resource Definition (CRD) managed by the kubenest operator. The operator watches for `StackDeploy` objects and reconciles them by writing Helm values to Git and letting ArgoCD sync the cluster state. This means that the source of truth for what is deployed is always Git, and every state change has an audit trail.
+
+```
+POST /api/v1/apps
+        │
+        ▼
+  Backend validates spec
+        │
+        ▼
+  Hub routes CREATE event to operator
+        │
+        ▼
+  Operator writes StackDeploy CR
+        │
+        ▼
+  Operator reconciles: writes Helm values → Git → ArgoCD → Kubernetes
+        │
+        ▼
+  Status events flow back: StackDeploy.status.phase → Hub → Backend → SSE
+```
+
+### App vs Workload vs StackDeploy
+
+These three terms refer to related but distinct things:
+
+- **Workload** — a single containerized component: one image, one set of replicas, one ingress. The basic building block. A Workload is always part of an App; it cannot exist independently in the app-first model.
+- **App** — the user-facing concept. An App owns one or more components (Workloads and Addons). It is what you create, pause, roll back, and share as a template.
+- **StackDeploy** — the Kubernetes CRD that represents either an App (when components are defined inline) or a deployed Stack Template (when a `stackRef` points to a `StackTemplate` CRD). The operator only understands StackDeploys; the backend translates API calls into CRD operations.
+
+<Callout type="info">
+The `/api/v1/workloads` endpoint was removed in favor of `/api/v1/apps`. If you have older automation that uses the workloads endpoint, migrate it to the apps endpoint. The operator now requires that every deployable unit belongs to an App.
+</Callout>
+
+## Components
+
+An App's components are defined in the `components` array of the create request. Each component has a `name`, a `type` (`workload` or `addon`), and a type-specific spec.
+
+### Workload components
+
+A Workload component runs a containerized application. Its `workload_spec` defines the image, replica count, port, environment variables, ingress, and optionally a custom command.
+
+**Three deployment modes** control how the container image is obtained:
+
+| Mode | When to use | Required field |
+|------|-------------|---------------|
+| `image` | You have a pre-built image in a registry | `image: "nginx:1.25-alpine"` |
+| `dockerfile` | You want kubenest to build from a git repo using a Dockerfile | `git.repo` + `git.branch` |
+| `buildpack` | You want auto-detection of the language/runtime (no Dockerfile needed) | `git.repo` + `git.branch` |
+
+The `image` mode is the simplest and most common. The `dockerfile` and `buildpack` modes require a build component (Kaniko or Buildpack builder) to be available on the cluster, enabled via `components.build=true` in the cluster's Helm values.
+
+### Addon components
+
+An Addon component is a backing service packaged as a Helm chart. Its `addon_spec` references a chart repository, chart name, and chart version. The operator installs this chart into the project's namespace and, after a successful install, publishes a set of **exports** — key-value pairs like connection strings, hostnames, and passwords — that downstream Workload components can consume.
+
+## Export wiring with exportRef
+
+The most powerful feature of multi-component Apps is the `exportRef` mechanism. Instead of hardcoding a database URL, you declare that an environment variable should be populated from another component's export:
+
+```json filename="exportRef example"
+{
+  "name": "DATABASE_URL",
+  "export_ref": {
+    "component": "postgres",
+    "export_key": "connection_string"
+  }
+}
+```
+
+The `component` field refers to another component in the **same App** by name. The `export_key` identifies which output to use. The operator resolves this reference at reconcile time: it waits for the `postgres` addon to publish its exports, then injects the `connection_string` value into the `api` workload's environment.
+
+This is the mechanism that lets you define a complete multi-tier application in a single API call without knowing the database password or connection string in advance — the addon generates them on first deploy.
+
+If you need to wire an environment variable from an **existing** addon instance that is not part of this App (a shared database, for example), use `addon_instance_id` instead of `component`:
+
+```json filename="external addon reference"
+{
+  "name": "DATABASE_URL",
+  "export_ref": {
+    "addon_instance_id": "c3d4e5f6-...",
+    "export_key": "connection_string"
+  }
+}
+```
+
+<Callout type="warning">
+An `exportRef` that uses `component` must refer to a name that exists within the same App. A reference to a nonexistent component name will cause the operator to set the App's phase to `failed` with an explanatory message. The API validates component names at create time, but cross-component references are only resolved at reconcile time.
+</Callout>
+
+## App lifecycle states
+
+An App moves through a defined set of phases. The current phase is always available on `GET /api/v1/apps/{namespace}/{name}` and is broadcast as an SSE event whenever it changes.
+
+```
+pending
+  │
+  ▼
+deploying ──────────────────────────────────────────┐
+  │                                                  │
+  ▼                                                  │
+running ◄──────── (re-deploy / patch)               │
+  │                                                  │
+  ├──► degraded (some components unhealthy)          │
+  │       │                                          │
+  │       ▼                                          │
+  │    (operator retries)                            │
+  │       │                                          │
+  ▼       ▼                                          ▼
+failed ◄──────────────────────────────────── (timeout exceeded)
+```
+
+| Phase | Meaning |
+|-------|---------|
+| `pending` | Backend has recorded the App; operator has not yet begun reconciling |
+| `deploying` | Operator is reconciling; ArgoCD sync in progress |
+| `running` | All components are healthy; ArgoCD reports Synced + Healthy |
+| `degraded` | One or more components are unhealthy but the App is still partially operational |
+| `failed` | Deployment failed; `message` field contains the error |
+
+## A complete two-component example
+
+The following creates an App with a PostgreSQL addon and an API workload. The workload's `DATABASE_URL` is wired from the addon's export.
+
+```json filename="POST /api/v1/apps"
+{
+  "name": "my-api",
+  "project_id": "b2c3d4e5-0002-0000-0000-000000000000",
+  "components": [
+    {
+      "name": "postgres",
+      "type": "addon",
+      "addon_spec": {
+        "type": "postgresql",
+        "chart": {
+          "repo": "https://charts.bitnami.com/bitnami",
+          "name": "postgresql",
+          "version": "13.4.4"
+        },
+        "values": {
+          "auth": {
+            "database": "myapp",
+            "username": "myapp"
+          }
+        }
+      }
+    },
+    {
+      "name": "api",
+      "type": "workload",
+      "depends_on": ["postgres"],
+      "workload_spec": {
+        "build_mode": "image",
+        "image": "myorg/my-api:v1.2.0",
+        "replicas": 2,
+        "port": 8000,
+        "env": [
+          {
+            "name": "DATABASE_URL",
+            "export_ref": {
+              "component": "postgres",
+              "export_key": "connection_string"
+            }
+          },
+          {
+            "name": "APP_ENV",
+            "value": "production"
+          }
+        ],
+        "ingress": {
+          "enabled": true,
+          "host": "api.my-project.example.com",
+          "path": "/"
+        }
+      }
+    }
+  ],
+  "timeout": "15m"
+}
+```
+
+The `depends_on` field ensures the operator deploys `postgres` before `api`. Without it, both components would reconcile concurrently — which works if your application handles a missing database gracefully, but can cause flapping on first deploy.
+
+## Pause and resume
+
+Pausing an App is a clean way to stop paying for compute without destroying the deployment state. When you pause:
+
+1. The backend fetches the current replica count for every Workload component.
+2. It snapshots those counts alongside the current timestamp.
+3. It patches all Workload components' replicas to `0`.
+4. The App's phase transitions to a paused state with the snapshot recorded.
+
+When you resume:
+
+1. The backend reads the snapshot.
+2. It restores each Workload component's replica count to the pre-pause value.
+3. The App re-enters the normal `deploying` → `running` flow.
+
+```bash filename="pause and resume"
+# Pause
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  https://api.your-domain.com/api/v1/apps/my-project/my-api/pause
+
+# Resume
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  https://api.your-domain.com/api/v1/apps/my-project/my-api/resume
+```
+
+Addon components are not affected by pause — the database keeps running. Only Workload components have their replicas zeroed.
+
+## Deployment history and rollback
+
+Every state-changing operation on an App — create, patch, redeploy, rollback — records a `Deployment` row in the backend's database. You can list an App's deployment history:
+
+```bash filename="deployment history"
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/apps/my-project/my-api/deployments" | jq .
+```
+
+To roll back to a prior state, POST the deployment ID to the rollback endpoint:
+
+```bash filename="rollback"
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"deployment_id": "d4e5f6g7-..."}' \
+  https://api.your-domain.com/api/v1/apps/my-project/my-api/rollback
+```
+
+The backend replays the prior deployment's component spec through the same reconcile path — it is not a Helm rollback, but a kubenest re-deployment to the prior configuration. This means the GitOps audit trail captures the rollback as a new commit, not a revert.
+
+## Scaling individual components
+
+To scale a single Workload component without touching anything else:
+
+```bash filename="scale component"
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"component_name": "api", "replicas": 4}' \
+  https://api.your-domain.com/api/v1/apps/my-project/my-api/scale
+```
+
+## GitOps drift detection
+
+If someone modifies a resource directly (bypassing kubenest), the operator detects the drift and surfaces it on the App's status. The `sync` field on `GET /api/v1/apps/{namespace}/{name}` shows the desired versus observed state and whether the drift is safe-to-reconcile (`recoverable`) or conflicts with a pending API write (`blocked_sync`).
+
+---
+
+See also:
+- [Stack Templates](/concepts/stack-templates) — how to capture a running App as a reusable template
+- [Addons](/concepts/addons) — the addon catalog, exports, and standalone addon instances
+- [Projects](/concepts/projects) — the namespace and isolation context that Apps live in

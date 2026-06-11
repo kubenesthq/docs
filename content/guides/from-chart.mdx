@@ -1,0 +1,297 @@
+---
+title: Deploying from a Helm Chart
+description: How to wrap any existing Helm chart as a kubenest Stack Template and deploy it with promoted parameters — the from-chart wizard step by step.
+---
+
+import { Callout, Steps } from 'nextra/components'
+
+# Deploying from a Helm Chart
+
+kubenest can wrap any publicly available Helm chart as a Stack Template, exposing selected values as deploy-time parameters. This is the right path when you want to make a third-party chart (from Bitnami, Grafana, or your own internal chart repository) available through the kubenest UI without writing the full template JSON by hand.
+
+The from-chart workflow has four steps: inspect the chart, decide which values to promote as parameters, create the template, and deploy it into a project.
+
+<Callout type="info">
+**OCI registries are not yet supported.** The chart source must be an HTTP/HTTPS Helm repository (the kind you add with `helm repo add`). OCI-hosted charts (`oci://...`) will return an error from the inspect endpoint. If you need to deploy an OCI chart, pull it to a local HTTP repo and serve it from there, or package the chart values manually and use the `from-yaml` import path.
+</Callout>
+
+---
+
+<Steps>
+
+### Find a chart
+
+Start by identifying the chart you want to wrap. For this guide, we will use the Bitnami PostgreSQL chart. The information you need is:
+
+- **Repository URL**: `https://charts.bitnami.com/bitnami`
+- **Chart name**: `postgresql`
+- **Chart version**: `16.4.0`
+
+You can browse available versions with `helm search repo`:
+
+```bash filename="browse chart versions"
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+helm search repo bitnami/postgresql --versions | head -10
+```
+
+Pin to a specific version rather than using `latest` — chart versions are immutable in Helm repositories, so pinning guarantees reproducible deploys.
+
+### Inspect the chart
+
+Before creating a template, use the inspect-chart endpoint to fetch the chart's values schema and default values. kubenest caches inspection results in Redis for one hour, so the first call for a given chart version may take a few seconds while the chart is fetched and parsed.
+
+```bash filename="inspect chart"
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/stack-templates/inspect-chart?repo=https://charts.bitnami.com/bitnami&name=postgresql&version=16.4.0" | jq .
+```
+
+The response has three fields:
+
+```json filename="inspect-chart response"
+{
+  "has_schema": true,
+  "chart_metadata": {
+    "name": "postgresql",
+    "version": "16.4.0",
+    "description": "PostgreSQL (Official Bitnami Helm chart) — object-relational database system"
+  },
+  "schema": {
+    "type": "object",
+    "properties": {
+      "auth": {
+        "type": "object",
+        "properties": {
+          "database":     { "type": "string", "description": "Name of the database to create" },
+          "username":     { "type": "string", "description": "PostgreSQL non-admin user" },
+          "password":     { "type": "string", "description": "PostgreSQL user password" },
+          "postgresPassword": { "type": "string", "description": "PostgreSQL admin password" }
+        }
+      },
+      "primary": {
+        "type": "object",
+        "properties": {
+          "persistence": {
+            "type": "object",
+            "properties": {
+              "size": { "type": "string", "description": "PVC size", "default": "8Gi" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "defaults": {
+    "auth": {
+      "database": "postgres",
+      "username": "postgres"
+    },
+    "primary": {
+      "persistence": {
+        "size": "8Gi"
+      }
+    }
+  }
+}
+```
+
+`schema` is the chart's `values.schema.json` if the chart ships one, or a best-effort schema inferred from `values.yaml` if not. `has_schema` indicates which case applies — schema-inferred values may be missing descriptions or type information for deeply nested keys.
+
+`defaults` is the chart's `values.yaml` contents, truncated to three nesting levels. Use it to understand what the chart does when you do not override a value.
+
+### Choose which values to promote as parameters
+
+Not every value needs to be a parameter. Parameters add cognitive load for users deploying the template — expose only the values that meaningfully vary between deployments.
+
+For a PostgreSQL template, good candidates are:
+
+| Helm path | Parameter name | Rationale |
+|-----------|---------------|-----------|
+| `auth.database` | `database_name` | Every team uses a different database name |
+| `auth.username` | `db_username` | Varies per team |
+| `auth.password` | `db_password` | Must be secret; auto-generate if not supplied |
+| `primary.persistence.size` | `storage_size` | Varies by workload size |
+
+Values that are almost always the same (replication mode, backup schedules, resource limits) are better baked into the template defaults.
+
+### Create the template
+
+POST to `stack-templates/from-chart` to create the template. The `parameters` map keys become the names users supply at deploy time; the `path` within each parameter entry is the dot-notation path inside the component's values that will receive the parameter value.
+
+```bash filename="create from-chart template"
+curl -X POST https://api.your-domain.com/api/v1/stack-templates/from-chart \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "postgresql-16",
+    "version": "1.0.0",
+    "description": "Bitnami PostgreSQL 16 with configurable database, user, and storage",
+    "scope": "cluster",
+    "component_name": "postgres",
+    "component_type": "addon",
+    "chart": {
+      "repo": "https://charts.bitnami.com/bitnami",
+      "name": "postgresql",
+      "version": "16.4.0"
+    },
+    "default_values": {
+      "primary": {
+        "persistence": {
+          "size": "8Gi"
+        }
+      }
+    },
+    "parameters": {
+      "database_name": {
+        "type": "string",
+        "description": "Name of the database to create on first run",
+        "default": "myapp",
+        "required": true,
+        "component": "postgres",
+        "path": "auth.database"
+      },
+      "db_username": {
+        "type": "string",
+        "description": "PostgreSQL username",
+        "default": "myapp",
+        "required": true,
+        "component": "postgres",
+        "path": "auth.username"
+      },
+      "db_password": {
+        "type": "string",
+        "description": "PostgreSQL password — auto-generated if not supplied",
+        "required": false,
+        "component": "postgres",
+        "path": "auth.password",
+        "generator": "random_password"
+      },
+      "storage_size": {
+        "type": "string",
+        "description": "Persistent volume size (e.g. 8Gi, 50Gi, 200Gi)",
+        "default": "8Gi",
+        "required": false,
+        "component": "postgres",
+        "path": "primary.persistence.size"
+      }
+    }
+  }'
+```
+
+The `generator: "random_password"` on `db_password` means that if the user does not supply a value at deploy time, the backend generates a cryptographically random password automatically. Other supported generators are `random_hex_32`, `random_hex_16`, and `uuid`.
+
+The `scope: "cluster"` makes this template visible to all projects on the cluster where it is created. Set it to `"global"` to share across all clusters in the organization, or `"project"` to restrict to a single project.
+
+The response is the newly created `StackTemplate` record, including the UUID you will need for the deploy step.
+
+### Deploy the template to a project
+
+With the template created, deploy it into a project by supplying the project ID and the parameter values:
+
+```bash filename="deploy the template"
+TEMPLATE_NS="kubenest-system"
+TEMPLATE_NAME="postgresql-16"
+
+curl -X POST \
+  "https://api.your-domain.com/api/v1/stack-templates/$TEMPLATE_NS/$TEMPLATE_NAME/deploy" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "b2c3d4e5-0002-0000-0000-000000000000",
+    "app_name": "prod-db",
+    "parameters": {
+      "database_name": "production",
+      "db_username": "produser",
+      "storage_size": "50Gi"
+    },
+    "timeout": "15m"
+  }'
+```
+
+`db_password` is omitted — the `generator` handles it. The backend resolves all parameters, writes the final values, and dispatches the deploy event to the operator. The response is the new App record with `phase: pending`.
+
+### Monitor the deployment
+
+```bash filename="watch deploy progress"
+curl -N -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/events/stream?namespace=my-project&name=prod-db"
+```
+
+The phase progression for a PostgreSQL chart deploy is typically:
+
+```
+pending → deploying → running
+```
+
+The addon's first-run setup (database creation, user provisioning) happens inside the chart's init containers. Once the Helm release reports `deployed` and the pod passes its readiness probe, the operator discovers the addon's exports and the App transitions to `running`.
+
+Read the resolved exports (including the auto-generated password):
+
+```bash filename="read addon exports"
+APP_RESPONSE=$(curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/apps/my-project/prod-db")
+
+echo "$APP_RESPONSE" | jq '.components[] | select(.name=="postgres") | .exports'
+```
+
+</Steps>
+
+---
+
+## What gets created in the cluster
+
+Deploying a from-chart template creates:
+
+1. A **StackDeploy** CRD in the project's namespace with a single addon component.
+2. A **Helm values file** committed to the GitOps repository at `clusters/{id}/namespaces/{ns}/apps/prod-db/postgres/values.yaml`.
+3. An **ArgoCD Application** that points to that values file and the chart source.
+4. A **Helm release** in the project namespace (ArgoCD applies it).
+5. An **AddonInstance** record in the backend database, linked to the App component, with exports populated after the chart's first-run setup completes.
+
+The deployed instance behaves exactly like any other App: you can update it (PATCH), scale it (if it has workload components), pause it, roll it back, or capture it as a new template.
+
+---
+
+## Updating a chart version
+
+To upgrade the underlying chart version for a template-deployed App, PATCH the component's `addon_spec.chart.version`:
+
+```bash filename="upgrade chart version"
+curl -X PATCH https://api.your-domain.com/api/v1/apps/my-project/prod-db \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "components": [
+      {
+        "name": "postgres",
+        "op": "patch",
+        "addon_spec": {
+          "chart": {
+            "version": "16.5.0"
+          }
+        }
+      }
+    ]
+  }'
+```
+
+The operator re-renders the values with the new chart version and updates the ArgoCD Application. ArgoCD triggers a Helm upgrade. The upgrade is recorded as a new Deployment revision, so you can roll back if it causes problems.
+
+---
+
+## Common pitfalls
+
+**The chart has no `values.schema.json`.** Many charts do not ship a JSON Schema. In this case `has_schema: false` in the inspect response and `schema` contains kubenest's best-effort inference. Path strings in parameters are still valid, but you won't get type checking or descriptions for all fields. Always verify parameter paths against the chart's `values.yaml` before publishing a template.
+
+**Deep nesting in `path`.** The `path` field uses dot notation to reach nested values: `primary.persistence.size` becomes `{ "primary": { "persistence": { "size": "<value>" } } }` in the rendered values. Bracket notation for array indices is not supported.
+
+**Cache staleness.** Chart inspection results are cached for one hour. If a chart maintainer pushes a new patch release with the same version string (which violates semver but happens), your inspect result may be stale. Append `&force_refresh=true` to the inspect URL to bypass the cache.
+
+**Scope vs. visibility.** A `cluster`-scoped template is created in the cluster where you make the API call. If your organization has multiple clusters and you want the template on all of them, you must create it separately on each, or submit it to the global registry for the kubenest team to publish.
+
+---
+
+See also:
+- [Stack Templates](/concepts/stack-templates) — the full template data model: parameters, generators, scopes, the community registry
+- [Managing Addons](/guides/managing-addons) — standalone addon instances, revision history, and export wiring
+- [Creating and Managing Apps](/guides/creating-apps) — all day-two operations on Apps: update, scale, pause, rollback

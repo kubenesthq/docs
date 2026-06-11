@@ -1,0 +1,210 @@
+---
+title: Stack Templates
+description: Reusable multi-component blueprints with parameter slots — how to create, parameterize, and deploy Stack Templates in kubenest.
+---
+
+import { Callout, Tabs } from 'nextra/components'
+
+# Stack Templates
+
+A Stack Template is a reusable, parameterized blueprint for a multi-component application. Where an [App](/concepts/apps) is a one-off deployment you define inline, a Stack Template is a shared artifact you define once and deploy many times — by filling in typed parameter values rather than editing raw JSON.
+
+Think of a Stack Template the way you think of a Helm chart: it encodes the structure of a system (components, dependencies, wiring) and exposes the things that vary between deployments (image tag, replica count, database name) as parameters. The difference is that Stack Templates operate at a higher level — they describe entire multi-component applications, not individual Kubernetes resources.
+
+## What a template contains
+
+A Stack Template is a Kubernetes CRD (`StackTemplate`) with four key parts:
+
+1. **Components** — the same component list as an App: Workload and Addon components with `depends_on` and `exportRef` wiring already configured.
+2. **Parameters** — a map of named slots with types (`string`, `integer`, `boolean`), descriptions, and optional defaults. Each parameter is bound to a field path inside a specific component's spec.
+3. **Metadata** — name, version (semver), description, icon, tags, and scope.
+4. **Scope** — who can use the template: `global` (built-in, visible to all), `cluster` (visible within one cluster), or `project` (visible within one project).
+
+## Three ways to create a template
+
+### From a running App (from-app)
+
+The most natural way to build a template is to get an App working exactly the way you want it, then capture it. The backend reads the live `StackDeploy` CR spec — including all `exportRef` wiring and `depends_on` ordering — and records it as a new `StackTemplate` CRD.
+
+```bash filename="from-app capture"
+curl -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-api-template",
+    "version": "1.0.0",
+    "description": "API service backed by PostgreSQL",
+    "scope": "cluster",
+    "preserve_export_refs": true
+  }' \
+  "https://api.your-domain.com/api/v1/stack-templates/capture?namespace=my-project&name=my-api&project_id=b2c3d4e5-..."
+```
+
+`preserve_export_refs: true` keeps the `exportRef` wiring intact so that the template, when deployed, will wire component exports automatically — exactly as the original App did.
+
+### From a Helm chart (from-chart)
+
+This wizard wraps an existing Helm chart as a single-component StackTemplate and exposes selected values paths as deploy-time parameters. Use it when you want to make a chart available through the kubenest UI without writing a full template by hand.
+
+The workflow uses the chart inspection endpoint to fetch the chart's values schema and metadata:
+
+```bash filename="inspect chart"
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/stack-templates/inspect-chart?repo=https://charts.bitnami.com/bitnami&chart=postgresql&version=13.4.4" | jq .
+```
+
+Response:
+
+```json filename="inspect-chart response"
+{
+  "has_schema": true,
+  "chart_metadata": {
+    "name": "postgresql",
+    "version": "13.4.4",
+    "description": "PostgreSQL (Offical Bitnami Helm chart)"
+  },
+  "schema": {
+    "type": "object",
+    "properties": {
+      "auth": {
+        "type": "object",
+        "properties": {
+          "database": { "type": "string" },
+          "username": { "type": "string" }
+        }
+      }
+    }
+  },
+  "defaults": {
+    "auth": {
+      "database": "postgres",
+      "username": "postgres"
+    }
+  }
+}
+```
+
+Then create the template, specifying which paths should be user-configurable parameters:
+
+```bash filename="from-chart create"
+curl -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "postgresql-template",
+    "version": "1.0.0",
+    "scope": "global",
+    "component_name": "postgres",
+    "component_type": "addon",
+    "chart": {
+      "repo": "https://charts.bitnami.com/bitnami",
+      "name": "postgresql",
+      "version": "13.4.4"
+    },
+    "parameters": {
+      "database_name": {
+        "type": "string",
+        "description": "Name of the database to create",
+        "default": "myapp",
+        "required": true,
+        "component": "postgres",
+        "path": "auth.database"
+      }
+    }
+  }' \
+  https://api.your-domain.com/api/v1/stack-templates
+```
+
+### From YAML (import)
+
+You can import a Stack Template that was previously exported or authored by hand:
+
+```bash filename="import template"
+curl -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d @my-template.json \
+  https://api.your-domain.com/api/v1/stack-templates/import
+```
+
+The import format is the canonical `StackTemplateExport` JSON, with `api_version: "apps.kubenest.io/v1"` and `kind: "StackTemplate"`. This is the same format used by the community registry.
+
+## Parameters
+
+Parameters are the mechanism that makes templates reusable. Each parameter maps to a field path within a specific component's spec, and can carry a type, a default, and a generator for auto-populated values.
+
+```json filename="parameter spec example"
+{
+  "db_password": {
+    "type": "string",
+    "description": "PostgreSQL admin password",
+    "required": false,
+    "component": "postgres",
+    "path": "auth.password",
+    "generator": "random_password"
+  },
+  "replica_count": {
+    "type": "integer",
+    "description": "Number of API replicas",
+    "default": 2,
+    "required": false,
+    "component": "api",
+    "path": "replicas"
+  }
+}
+```
+
+Generators (`random_hex_32`, `random_hex_16`, `random_password`, `uuid`) let the backend auto-populate a parameter at deploy time if the user does not supply a value. This is the pattern for secrets: you define the parameter with `generator: "random_password"` and users get a secure password without having to generate one.
+
+## The community registry
+
+kubenest maintains a community registry of templates contributed by users and the kubenest team. Browse it:
+
+```bash filename="browse registry"
+curl -H "Authorization: Bearer $TOKEN" \
+  https://api.your-domain.com/api/v1/stack-templates/registry | jq .data[].name
+```
+
+Templates in the registry can be deployed directly from the UI or via the API using the same deploy flow as local templates.
+
+<Callout type="info">
+Registry templates have `scope: "global"` and are read-only — you cannot modify them. To customize a registry template, deploy it first and then capture the running App as a new template with `scope: "cluster"` or `scope: "project"`.
+</Callout>
+
+## Deploying a template
+
+Deploying a template creates a new `StackDeploy` CR (and therefore a new App) in the target project. You supply the project and any parameter values:
+
+```bash filename="deploy template"
+curl -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "b2c3d4e5-0002-0000-0000-000000000000",
+    "parameters": {
+      "database_name": "production",
+      "replica_count": 3
+    },
+    "timeout": "15m"
+  }' \
+  "https://api.your-domain.com/api/v1/stack-templates/my-project/my-api-template/deploy"
+```
+
+The response is a `StackDeploy` record — the same shape as an App read response. From this point, the deployed instance behaves exactly like a manually-created App: you can pause it, roll it back, patch its components, and capture it again as a new template.
+
+## Template scopes
+
+| Scope | Visibility | Who can create |
+|-------|-----------|----------------|
+| `global` | All organizations | kubenest team (via registry) |
+| `cluster` | All projects on one cluster | Cluster admins |
+| `project` | One project only | Project members |
+
+Scopes are enforced by the backend's RBAC layer. A project member cannot create a `cluster`-scoped template; they can only create `project`-scoped ones.
+
+---
+
+See also:
+- [Apps](/concepts/apps) — the runtime representation of a deployed template
+- [Addons](/concepts/addons) — how addon components and their exports work
+- [Projects](/concepts/projects) — the namespace context templates are deployed into

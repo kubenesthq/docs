@@ -1,0 +1,316 @@
+---
+title: Registering a Cluster
+description: Two paths to connecting a Kubernetes cluster to kubenest — manual BYO-cluster registration and cloud-provisioned clusters — with the full connection state machine.
+---
+
+import { Callout, Steps, Tabs } from 'nextra/components'
+
+# Registering a Cluster
+
+A cluster must be registered with kubenest before you can deploy applications to it. Registration is always a two-part process: creating a cluster record in the backend (which issues a cluster JWT), and installing the operator on the actual Kubernetes cluster (which uses that JWT to authenticate with the hub). How the Kubernetes cluster itself comes to exist is what separates the two registration paths.
+
+---
+
+## Path 1: Manual registration (BYO cluster)
+
+Bring-your-own-cluster (BYOC) registration is for clusters that already exist — whether that is a managed service (EKS, GKE, AKE), a self-managed kubeadm cluster, or a local k3s instance. kubenest does not need access to the cloud provider; you install the operator on the cluster yourself.
+
+<Steps>
+
+### Create the cluster record
+
+Start by creating a cluster record in the backend. This reserves a UUID, mints the cluster JWT, and generates the Helm install command.
+
+```bash filename="create cluster record"
+curl -X POST https://api.your-domain.com/api/v1/clusters \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "prod-cluster",
+    "description": "AWS EKS us-east-1 production cluster",
+    "provider": "manual"
+  }'
+```
+
+Response:
+
+```json filename="cluster record response"
+{
+  "id": "a1b2c3d4-0001-0000-0000-000000000000",
+  "name": "prod-cluster",
+  "status": "awaiting_operator",
+  "connection_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "install_command": "helm install kubenest-operator kubenesthq/kubenest-operator -n kubenest-system --create-namespace --set operator.hub.url=wss://hub.your-domain.com --set operator.hub.token=eyJhbGc... --set operator.cluster.id=a1b2c3d4-..."
+}
+```
+
+Save the cluster ID. You will need it in subsequent API calls:
+
+```bash filename="save cluster ID"
+CLUSTER_ID="a1b2c3d4-0001-0000-0000-000000000000"
+```
+
+You can also retrieve the install command at any time via the API:
+
+```bash filename="retrieve install command"
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID/helm-install-command"
+```
+
+### Prepare your Helm values
+
+For production installs, use a values file rather than a `--set` chain. This makes the configuration auditable and easier to update:
+
+```yaml filename="kubenest-operator-values.yaml"
+operator:
+  hub:
+    url: wss://hub.your-domain.com
+    token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...   # from cluster record
+  cluster:
+    id: a1b2c3d4-0001-0000-0000-000000000000
+
+gitops:
+  repoUrl: https://github.com/your-org/gitops-repo
+  branch: main
+  token: ghp_...     # personal access token with repo:write scope
+
+argocd:
+  enabled: false     # assumes ArgoCD is already installed
+  namespace: argocd
+```
+
+The `gitops.repoUrl` must be a repository that:
+- The operator has read/write access to via the provided token.
+- Is **not** shared with other clusters unless you understand that they will write to different subtrees (see [GitOps and Drift Detection](/architecture/gitops)).
+
+### Install the operator on the cluster
+
+Make sure `kubectl` is pointing at the target cluster, then install:
+
+```bash filename="install operator"
+helm repo add kubenesthq https://charts.kubenestapp.com
+helm repo update
+
+helm install kubenest-operator kubenesthq/kubenest-operator \
+  --namespace kubenest-system \
+  --create-namespace \
+  --values kubenest-operator-values.yaml
+```
+
+Watch the pod start:
+
+```bash filename="watch pod startup"
+kubectl get pods -n kubenest-system -w
+```
+
+Expected output once healthy:
+
+```
+NAME                                        READY   STATUS    RESTARTS   AGE
+kubenest-operator-controller-manager-xyz   1/1     Running   0          30s
+```
+
+Check the operator log for the hub connection message:
+
+```bash filename="check operator logs"
+kubectl logs -n kubenest-system \
+  -l app.kubernetes.io/name=kubenest-operator \
+  --tail=30
+```
+
+Look for:
+
+```
+{"level":"info","msg":"connected to hub","cluster_id":"a1b2c3d4-...","hub":"wss://hub.your-domain.com"}
+```
+
+### Confirm the cluster is connected
+
+Once the operator connects, the hub notifies the backend, which transitions the cluster status from `awaiting_operator` to `connected`:
+
+```bash filename="verify cluster status"
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID" | jq .status
+# "connected"
+```
+
+The cluster is now ready to receive deployments. Create a project and deploy your first app — see [Creating and Managing Apps](/guides/creating-apps).
+
+</Steps>
+
+<Callout type="warning">
+**Secure the cluster JWT.** The connection token is a long-lived credential with the ability to execute any operation the operator supports on that cluster. The Helm chart stores it in a Kubernetes Secret (`kubenest-operator-token` in the `kubenest-system` namespace). Restrict access to that Secret using Kubernetes RBAC, and rotate the token immediately if you believe it has been compromised.
+
+To rotate a cluster JWT: `POST /api/v1/clusters/{id}/rotate-token`. The old token is invalidated immediately. Update the Kubernetes Secret and restart the operator pod.
+</Callout>
+
+---
+
+## Path 2: Cloud-provisioned clusters (AWS EC2)
+
+kubenest can provision a Kubernetes cluster on AWS by creating EC2 instances and bootstrapping Kubernetes automatically. This path is appropriate when you do not have an existing cluster and want kubenest to manage the infrastructure lifecycle as well as the application lifecycle.
+
+<Callout type="info">
+Cloud-provisioned clusters are currently supported on **AWS EC2** only. Support for GCP GKE and Azure AKS is planned. The provisioner uses Terraform under the hood; you need a `CloudCredential` record with valid AWS credentials before proceeding.
+</Callout>
+
+### Prerequisites
+
+1. Create a `CloudCredential` record with your AWS credentials:
+
+```bash filename="create cloud credential"
+curl -X POST https://api.your-domain.com/api/v1/cloud-credentials \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "aws-prod",
+    "provider": "aws",
+    "credentials": {
+      "access_key_id": "AKIAIOSFODNN7EXAMPLE",
+      "secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      "region": "us-east-1"
+    }
+  }'
+```
+
+2. The credential ID will be used in the cluster create request.
+
+### Create a provisioned cluster
+
+```bash filename="create cloud cluster"
+curl -X POST https://api.your-domain.com/api/v1/clusters \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "staging-aws",
+    "provider": "aws",
+    "cloud_credential_id": "cred-uuid-...",
+    "provision_config": {
+      "region": "us-east-1",
+      "instance_type": "t3.medium",
+      "node_count": 3,
+      "kubernetes_version": "1.30"
+    }
+  }'
+```
+
+### Status transitions
+
+Cloud-provisioned clusters move through more states than BYOC registrations:
+
+```
+pending
+  │
+  ▼
+provisioning          ← Terraform creates VPC, security groups, EC2 instances
+  │
+  ▼
+awaiting_operator     ← VMs are up; k3s is bootstrapped; waiting for operator first connect
+  │
+  ▼
+connected             ← Operator has authenticated; cluster is ready
+```
+
+Poll or stream status:
+
+```bash filename="watch provisioning"
+curl -N -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/events/stream?cluster_id=$CLUSTER_ID"
+```
+
+Provisioning typically takes 5–10 minutes depending on the region and instance count.
+
+### SSH access
+
+The provisioner generates an SSH key pair during provisioning. The private key is stored in the backend database (encrypted), tied to the cluster record. Retrieve it if needed for troubleshooting:
+
+```bash filename="retrieve SSH key"
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID/ssh-key" | jq -r .private_key > cluster.pem
+chmod 600 cluster.pem
+ssh -i cluster.pem ec2-user@<node-ip>
+```
+
+The private key is only available to organization admins. Treat it with the same care as the cluster JWT.
+
+### Scaling a cloud-provisioned cluster
+
+```bash filename="scale cluster"
+curl -X POST https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID/scale \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"desired_node_count": 5}'
+```
+
+kubenest runs a Terraform apply to add or remove EC2 instances and registers the new nodes with the existing Kubernetes control plane. BYOC clusters are not affected by the scale endpoint — node management for those clusters is handled outside kubenest.
+
+---
+
+## Connection state reference
+
+| State | Meaning | Possible next states |
+|-------|---------|---------------------|
+| `pending` | Cluster record created; no action taken | `provisioning`, `awaiting_operator` |
+| `provisioning` | Cloud provider creating infrastructure | `awaiting_operator`, `error` |
+| `awaiting_operator` | Infrastructure ready; operator not yet connected | `connected`, `error` |
+| `connected` | Operator has an active WebSocket session | `disconnected` |
+| `disconnected` | Hub lost the session; operator may be restarting | `connected` (auto-reconnect) |
+| `error` | Unrecoverable error; see `message` field | — |
+
+The operator implements exponential backoff reconnection. Most `disconnected` states resolve within 30–60 seconds without user intervention.
+
+---
+
+## Deleting a cluster
+
+Deleting a cluster record from the backend does not automatically uninstall the operator or delete the Kubernetes cluster.
+
+**For BYOC clusters**, clean up in this order:
+
+```bash filename="BYOC cleanup"
+# 1. Delete all projects on the cluster first
+#    (the API will reject cluster delete if projects exist)
+
+# 2. Uninstall the operator from the cluster
+helm uninstall kubenest-operator -n kubenest-system
+
+# 3. Optionally remove the namespace
+kubectl delete ns kubenest-system
+
+# 4. Delete the cluster record from the backend
+curl -X DELETE https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**For cloud-provisioned clusters**, the backend runs a `terraform destroy` when you delete the cluster record, which tears down the EC2 instances, VPC, and associated resources. Make sure you have deleted all projects and apps first.
+
+---
+
+## Troubleshooting
+
+**Operator pod is in CrashLoopBackOff.** The most common cause is a malformed or expired cluster JWT. Check the pod logs for `"invalid token"` or `"token expired"`. Rotate the token via `POST /api/v1/clusters/{id}/rotate-token`, update the `kubenest-operator-token` Secret, and restart the pod.
+
+**Cluster stuck in `awaiting_operator` after operator install.** The operator is not reaching the hub. Verify:
+- The pod is `Running` (not `CrashLoopBackOff`).
+- The `operator.hub.url` value starts with `wss://` (not `ws://`).
+- Outbound HTTPS/WSS traffic from the cluster to the hub URL is permitted by your network policy.
+- DNS resolves the hub URL from inside the cluster: `kubectl exec -n kubenest-system <operator-pod> -- curl -I https://hub.your-domain.com`.
+
+**`connected` then immediately `disconnected`.** This is usually a heartbeat timeout. The hub expects a heartbeat from the operator every 30 seconds. Check for high CPU or memory pressure on the operator pod that might delay heartbeats. Adjust `operator.heartbeat.intervalSeconds` in the Helm values if your cluster is resource-constrained.
+
+**Provisioning stuck in `provisioning` for more than 20 minutes.** Check the provisioner job logs on the backend pod:
+
+```bash filename="check provisioner logs"
+kubectl logs -n kubenest-system \
+  -l app.kubernetes.io/name=kubenest-backend \
+  --tail=50 | grep provisioner
+```
+
+Common causes: AWS credentials lack the required IAM permissions, the requested instance type is unavailable in the region, or a VPC limit has been reached.
+
+---
+
+See also:
+- [Architecture Overview](/architecture) — how the operator, hub, and backend fit together and why the JWT model exists
+- [Installation](/getting-started/installation) — the full Helm values reference for the operator chart
+- [Projects](/concepts/projects) — the next step after a cluster is connected

@@ -1,0 +1,118 @@
+---
+title: kubenest — App-First Kubernetes Platform
+description: Deploy multi-component applications across any Kubernetes cluster without ever touching a manifest.
+---
+
+import { Cards, Callout, Steps } from 'nextra/components'
+
+# kubenest
+
+**Deploy applications across multiple Kubernetes clusters without ever touching a raw manifest.**
+
+kubenest is a self-hosted application platform that gives your team the developer experience of a modern PaaS — one-click deploys, real-time status, environment wiring, stack templates — while running entirely on your own infrastructure. You bring the clusters; kubenest manages everything above the Kubernetes API.
+
+<Callout type="info">
+kubenest follows an **app-first model**: the primary unit of work is an *App* (a bundle of one or more components), not individual workloads or Kubernetes objects. Components can be containerized services, Helm charts, or backing services like PostgreSQL — all wired together in a single deployment.
+</Callout>
+
+---
+
+## Start here
+
+<Cards>
+  <Cards.Card title="Getting Started" href="/getting-started" description="Install kubenest on your cluster and deploy your first app in under 15 minutes." />
+  <Cards.Card title="Core Concepts" href="/concepts" description="Understand the hierarchy: Organizations → Clusters → Projects → Apps → Components." />
+  <Cards.Card title="Architecture" href="/concepts/clusters" description="How the backend, hub, and operator fit together — and why the backend never holds your kubeconfig." />
+</Cards>
+
+---
+
+## How it works
+
+kubenest spans five cooperating repositories, each with a distinct responsibility. Understanding the boundary between them explains why the system behaves the way it does.
+
+```
+                        ┌─────────────────────────────────┐
+                        │         kubenest-ui              │
+                        │   Next.js management console    │
+                        └──────────────┬──────────────────┘
+                                       │  REST + SSE
+                        ┌──────────────▼──────────────────┐
+                        │       kubenest-backend           │
+                        │  FastAPI — multi-tenant control  │
+                        │  plane; owns users, orgs,        │
+                        │  clusters, projects, apps,       │
+                        │  templates, deployments          │
+                        └────────┬──────────┬─────────────┘
+                                 │          │
+                    PostgreSQL   │          │  WebSocket (authenticated)
+                                 │    ┌─────▼──────────────────────────┐
+                                 │    │         kubenest-hub            │
+                                 │    │  Go — real-time message broker; │
+                                 │    │  multiplexes operator sessions  │
+                                 │    └─────────────┬──────────────────┘
+                                 │                  │  WebSocket (per cluster)
+                                 │    ┌─────────────▼──────────────────┐
+                                 │    │         op3 (operator)          │
+                                 │    │  Go controller-runtime;         │
+                                 │    │  reconciles StackDeploy CRDs;   │
+                                 │    │  drives ArgoCD on the cluster   │
+                                 │    └─────────────┬──────────────────┘
+                                 │                  │
+                                 │    ┌─────────────▼──────────────────┐
+                                 │    │          GitOps layer           │
+                                 │    │  Operator writes Helm values    │
+                                 │    │  → Git → ArgoCD → Kubernetes   │
+                                 │    └────────────────────────────────┘
+                                 │
+                   ┌─────────────▼──────────────────────────────────┐
+                   │              kubenest-contracts                  │
+                   │  JSON Schema / event definitions — the shared   │
+                   │  contract between backend, hub, and operator    │
+                   └────────────────────────────────────────────────┘
+```
+
+The design has one key consequence: **the backend never holds a kubeconfig or cluster credentials**. All cluster operations flow through the hub's WebSocket layer to the operator, which runs inside the cluster and has local Kubernetes API access. This means a compromised backend cannot issue arbitrary kubectl commands — the operator only acts on signed, schema-validated events.
+
+---
+
+## Key capabilities
+
+**Multi-cluster management.** Register any number of Kubernetes clusters — self-managed, cloud-provisioned, or both. Each cluster runs its own operator instance; the backend aggregates status across all of them. Per-component `clusterID` targeting lets a single App span multiple clusters.
+
+**App-first deployment.** Apps are the unit of deployment, not individual Pods or Deployments. An App can have a web tier, a worker, a PostgreSQL addon, and a Redis addon — all deployed together, with connection strings wired automatically between components via the `exportRef` mechanism.
+
+**GitOps under the hood.** The operator never applies Kubernetes manifests directly. Instead, it writes Helm values to a Git repository and ArgoCD reconciles the cluster state from Git. This gives you a complete audit trail, drift detection, and rollback at the Git level — without your team needing to manage ArgoCD themselves.
+
+**Stack templates.** Capture a running application as a reusable template, or pull from the community registry. Templates expose typed parameter slots so users can deploy complex multi-component stacks by filling in a form — no YAML editing required.
+
+**Real-time status.** The operator streams status events back through the hub to the backend, which publishes them as Server-Sent Events. The UI and any API client can watch an App's phase transition from `Pending` through `Deploying` to `Running` without polling.
+
+**Pause and resume.** Suspending an App snapshots its replica counts and sets all workload replicas to zero — a clean way to stop paying for compute without destroying the deployment. Resume restores the exact replica configuration.
+
+---
+
+## The deployment path in three steps
+
+<Steps>
+### Register a cluster
+
+Install the kubenest Helm chart on your Kubernetes cluster. The operator connects outbound to the hub over WebSocket using a cluster-scoped JWT. The backend marks the cluster `connected` when the first heartbeat arrives. No inbound firewall rules needed.
+
+### Create a project
+
+A project is a Kubernetes namespace — the isolation boundary for all apps and addons belonging to a team or environment. Projects carry optional resource quotas and RBAC role bindings.
+
+### Deploy an app
+
+POST a JSON body to `/api/v1/apps` describing your components. The backend validates the spec, writes the `StackDeploy` CRD to the cluster via the hub, and the operator begins reconciling. Watch status in real time via the SSE stream.
+</Steps>
+
+---
+
+## Next steps
+
+- [Installation guide](/getting-started/installation) — Helm values, required secrets, post-install verification
+- [First deployment walkthrough](/getting-started/first-deployment) — end-to-end tutorial with real API calls
+- [Apps and components](/concepts/apps) — the most important concept page; covers deployment modes, export wiring, pause/resume, and rollback
+- [Stack templates](/concepts/stack-templates) — reusable blueprints for complex multi-component stacks

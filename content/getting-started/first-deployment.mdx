@@ -1,0 +1,292 @@
+---
+title: First Deployment
+description: End-to-end tutorial — login, register a cluster, create a project, and deploy your first app using the kubenest REST API.
+---
+
+import { Steps, Callout, Tabs } from 'nextra/components'
+
+# First Deployment
+
+This tutorial walks you through the complete first-deployment path using the kubenest REST API directly. By the end you will have a running nginx application accessible over an ingress URL and you will have seen how to watch its status in real time.
+
+All API calls use `curl` and plain JSON. Substitute your actual domain and credentials where you see `your-domain.com` and `$TOKEN`.
+
+<Callout type="info">
+The UI performs exactly these same API calls under the hood. Following this tutorial with raw HTTP gives you a precise understanding of what every action in the UI actually does — which is invaluable when debugging deployments or building automation.
+</Callout>
+
+---
+
+<Steps>
+
+### Authenticate
+
+Every subsequent request needs a Bearer token. Obtain one by posting your credentials to the login endpoint.
+
+```bash filename="terminal"
+curl -s -X POST https://api.your-domain.com/api/v1/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "admin@example.com",
+    "password": "your-password"
+  }' | jq .
+```
+
+Response:
+
+```json filename="login response"
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer"
+}
+```
+
+Save the token:
+
+```bash filename="terminal"
+TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+### Register a cluster
+
+A cluster record tells the backend that a Kubernetes cluster exists and should receive deployments. Creating the record generates the JWT that the operator uses to authenticate with the hub.
+
+```bash filename="terminal"
+curl -s -X POST https://api.your-domain.com/api/v1/clusters \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-first-cluster",
+    "description": "Local k3s cluster for evaluation"
+  }' | jq .
+```
+
+Response (abbreviated):
+
+```json filename="cluster create response"
+{
+  "id": "a1b2c3d4-0001-0000-0000-000000000000",
+  "name": "my-first-cluster",
+  "status": "awaiting_operator",
+  "connection_token": "eyJhbGc...",
+  "install_command": "helm install kubenest-operator kubenesthq/kubenest-operator --set operator.hub.url=wss://hub.your-domain.com --set operator.hub.token=eyJhbGc... --set operator.cluster.id=a1b2c3d4-... --namespace kubenest-system --create-namespace"
+}
+```
+
+Save the cluster ID:
+
+```bash filename="terminal"
+CLUSTER_ID="a1b2c3d4-0001-0000-0000-000000000000"
+```
+
+Now run the `install_command` on your cluster (or follow the [installation guide](/getting-started/installation) for a values-file approach). Once the operator connects, the cluster status will transition to `connected`. Verify:
+
+```bash filename="terminal"
+curl -s -H "Authorization: Bearer $TOKEN" \
+  https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID | jq .status
+# "connected"
+```
+
+### Create a project
+
+A project is a Kubernetes namespace with kubenest metadata. All apps and addons you deploy will live inside it.
+
+```bash filename="terminal"
+curl -s -X POST https://api.your-domain.com/api/v1/projects \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "hello-world",
+    "cluster_id": "a1b2c3d4-0001-0000-0000-000000000000",
+    "description": "My first kubenest project"
+  }' | jq .
+```
+
+Response:
+
+```json filename="project create response"
+{
+  "id": "b2c3d4e5-0002-0000-0000-000000000000",
+  "name": "hello-world",
+  "namespace": "hello-world",
+  "status": "ready",
+  "cluster_id": "a1b2c3d4-0001-0000-0000-000000000000"
+}
+```
+
+Save the project ID:
+
+```bash filename="terminal"
+PROJECT_ID="b2c3d4e5-0002-0000-0000-000000000000"
+```
+
+### Deploy an app
+
+Now create an App — a bundle of one or more components. This example deploys a single nginx workload with a public ingress.
+
+```bash filename="terminal"
+curl -s -X POST https://api.your-domain.com/api/v1/apps \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "nginx-demo",
+    "project_id": "b2c3d4e5-0002-0000-0000-000000000000",
+    "components": [
+      {
+        "name": "web",
+        "type": "workload",
+        "workload_spec": {
+          "build_mode": "image",
+          "image": "nginx:1.25-alpine",
+          "replicas": 1,
+          "port": 80,
+          "ingress": {
+            "enabled": true,
+            "host": "nginx-demo.hello-world.your-domain.com",
+            "path": "/"
+          }
+        }
+      }
+    ],
+    "timeout": "10m"
+  }' | jq .
+```
+
+The backend validates the spec and forwards a `StackDeploy` create event to the operator via the hub. The response reflects the initial state:
+
+```json filename="app create response"
+{
+  "name": "nginx-demo",
+  "namespace": "hello-world",
+  "phase": "pending",
+  "component_count": 1,
+  "components": [
+    {
+      "name": "web",
+      "type": "workload",
+      "workload_spec": {
+        "image": "nginx:1.25-alpine",
+        "replicas": 1,
+        "port": 80
+      }
+    }
+  ]
+}
+```
+
+### Watch status in real time
+
+kubenest publishes live status updates as a Server-Sent Events (SSE) stream. Open a second terminal and subscribe:
+
+```bash filename="terminal (second window)"
+curl -N -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/events?namespace=hello-world&name=nginx-demo"
+```
+
+You will see a stream of events like:
+
+```
+data: {"type":"app.status","name":"nginx-demo","namespace":"hello-world","phase":"deploying","message":"Waiting for ArgoCD sync"}
+
+data: {"type":"app.status","name":"nginx-demo","namespace":"hello-world","phase":"deploying","message":"ArgoCD syncing"}
+
+data: {"type":"app.status","name":"nginx-demo","namespace":"hello-world","phase":"running","message":""}
+```
+
+If you prefer polling, use the status endpoint directly:
+
+```bash filename="terminal"
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/apps/hello-world/nginx-demo" | jq .phase
+```
+
+The phase progression for a healthy deployment is:
+
+```
+pending → deploying → running
+```
+
+If something goes wrong you will see `degraded` or `failed`, with an explanatory `message` field. See [Apps](/concepts/apps) for the full lifecycle state machine.
+
+### Access the app
+
+Once the phase reaches `running`, your ingress is live. Visit the URL you set in the `ingress.host` field:
+
+```bash filename="terminal"
+curl -I https://nginx-demo.hello-world.your-domain.com
+# HTTP/2 200
+# server: nginx/1.25.x
+```
+
+kubenest provisions TLS automatically via cert-manager. The certificate is issued for the hostname you specified; no additional configuration is needed.
+
+</Steps>
+
+---
+
+## Deploying a two-component app
+
+A more realistic example: a web API backed by PostgreSQL. The `export_ref` field wires the database connection string into the web service automatically.
+
+```bash filename="terminal"
+curl -s -X POST https://api.your-domain.com/api/v1/apps \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-api",
+    "project_id": "b2c3d4e5-0002-0000-0000-000000000000",
+    "components": [
+      {
+        "name": "postgres",
+        "type": "addon",
+        "addon_spec": {
+          "type": "postgresql",
+          "chart": {
+            "repo": "https://charts.bitnami.com/bitnami",
+            "name": "postgresql",
+            "version": "13.4.4"
+          },
+          "values": {
+            "auth": {
+              "database": "myapp"
+            }
+          }
+        }
+      },
+      {
+        "name": "api",
+        "type": "workload",
+        "depends_on": ["postgres"],
+        "workload_spec": {
+          "build_mode": "image",
+          "image": "myorg/my-api:latest",
+          "replicas": 2,
+          "port": 8000,
+          "env": [
+            {
+              "name": "DATABASE_URL",
+              "export_ref": {
+                "component": "postgres",
+                "export_key": "connection_string"
+              }
+            }
+          ],
+          "ingress": {
+            "enabled": true,
+            "host": "api.hello-world.your-domain.com"
+          }
+        }
+      }
+    ]
+  }'
+```
+
+The operator resolves `depends_on` ordering — postgres deploys first, publishes its `connection_string` export, and then the api component starts with `DATABASE_URL` already populated. You never touch a connection string manually.
+
+---
+
+## Next steps
+
+- [Apps and components](/concepts/apps) — deep dive into deployment modes, `exportRef` wiring, pause/resume, and rollback
+- [Stack templates](/concepts/stack-templates) — capture this two-component app as a reusable template
+- [Projects](/concepts/projects) — resource quotas, RBAC, and project lifecycle
