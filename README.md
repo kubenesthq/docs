@@ -1,207 +1,76 @@
 # Kubenest Documentation
 
-Official documentation for Kubenest - GitOps-driven Kubernetes Platform for Enterprise Self-Hosting.
+Official documentation for Kubenest — GitOps-driven Kubernetes platform for enterprise self-hosting.
 
-Visit the live documentation at: [docs.kubenest.io](https://docs.kubenest.io)
+Live at [docs.kubenest.io](https://docs.kubenest.io).
 
-## What's Inside
+## Stack
 
-This documentation site is built with [Docusaurus 3](https://docusaurus.io/) and includes:
+Built with [Nextra 4](https://nextra.site/) on the Next.js App Router, using `bun` as the package manager. Content lives in `content/` as MDX and is routed by the catch-all page in `src/app/[[...mdxPath]]/page.tsx`.
 
-- **Getting Started Guides**: Installation and first deployment tutorials
-- **Architecture Documentation**: System design and component details
-- **Core Concepts**: Projects, Workloads, Addons, and Builds
-- **User Guides**: Deployment patterns, addon management, monitoring
-- **API Reference**: Auto-generated from OpenAPI specification
+The site is statically exported and published to GitHub Pages by `.github/workflows/deploy.yml` on every push to `main`.
 
-## Local Development
+## Local development
 
-### Prerequisites
-
-- Node.js 20.0 or higher
-- npm or yarn
-
-### Installation
+Requires Node.js 20+ and [bun](https://bun.sh/).
 
 ```bash
-npm install
+bun install
+bun dev          # http://localhost:3000
+bun run build    # static export into out/
+bun run typecheck
 ```
 
-### Start Development Server
-
-```bash
-npm start
-```
-
-This opens a browser window at `http://localhost:3000`. Most changes are reflected live without restarting the server.
-
-### Build
-
-```bash
-npm run build
-```
-
-This generates static content into the `build` directory that can be served using any static hosting service.
-
-### Serve Production Build Locally
-
-```bash
-npm run serve
-```
-
-## Project Structure
+## Project structure
 
 ```
 kubenest-docs/
-├── docs/                           # Documentation content
-│   ├── intro.md                    # Landing page
-│   ├── getting-started/            # Installation and setup
-│   │   ├── index.md
-│   │   ├── installation.md
-│   │   └── first-deployment.md
-│   ├── architecture/               # System architecture
-│   │   ├── overview.md
-│   │   ├── components.md
-│   │   └── gitops.md
-│   ├── concepts/                   # Core concepts
-│   │   ├── projects.md
-│   │   ├── workloads.md
-│   │   ├── addons.md
-│   │   └── builds.md
-│   ├── guides/                     # User guides
-│   │   ├── cluster-registration.md
-│   │   ├── deploying-applications.md
-│   │   ├── managing-addons.md
-│   │   └── monitoring.md
-│   └── api/                        # API reference (auto-generated)
-│       ├── index.md
-│       └── *.api.mdx
-├── src/                            # Custom React components and pages
-│   ├── css/
-│   │   └── custom.css
-│   └── pages/
-│       └── index.tsx
-├── static/                         # Static assets
-│   └── img/
-├── docusaurus.config.ts            # Docusaurus configuration
-├── sidebars.ts                     # Sidebar structure
-└── package.json
+├── content/                        # All documentation, as MDX
+│   ├── _meta.global.tsx            # Sidebar order and section titles
+│   ├── index.mdx                   # Landing page
+│   ├── getting-started/            # Installation, first deployment
+│   ├── concepts/                   # Clusters, projects, apps, addons, stack templates
+│   ├── architecture/               # System design, GitOps flow
+│   ├── guides/                     # Task-oriented walkthroughs
+│   └── api/                        # REST API reference
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx              # Nextra theme layout, navbar, footer
+│   │   └── [[...mdxPath]]/page.tsx # Catch-all MDX route
+│   └── mdx-components.tsx          # MDX component overrides
+└── next.config.ts                  # Nextra config + static export settings
 ```
 
-## API Documentation
+## Adding a page
 
-The API reference is automatically generated from the OpenAPI specification located at:
+1. Create an `.mdx` file under the appropriate `content/` subdirectory.
+2. Add `title` and `description` frontmatter.
+3. If you are adding a new top-level section, add it to `content/_meta.global.tsx` — sidebar order comes from that file, not from filenames.
+4. Verify with `bun run build`.
 
-```
-../kubenest-contracts/api/openapi.yaml
-```
+Within a section, page order also comes from `_meta.global.tsx`. Pages not listed there still render but fall to the end of the sidebar.
 
-To regenerate the API documentation after updating the OpenAPI spec:
+## API reference
 
-```bash
-npx docusaurus gen-api-docs kubenest
-```
+`content/api/index.mdx` is written and maintained by hand. It is **not** generated from the OpenAPI spec — the Docusaurus OpenAPI plugin was dropped in the Nextra 4 migration.
 
-## Configuration
-
-### Docusaurus Config
-
-Edit `docusaurus.config.ts` to modify:
-- Site metadata (title, tagline, URL)
-- Navigation bar
-- Footer
-- Theme settings
-- Plugin configuration
-
-### Sidebar Structure
-
-Edit `sidebars.ts` to customize the documentation sidebar organization.
-
-### OpenAPI Plugin
-
-The OpenAPI plugin configuration in `docusaurus.config.ts`:
-
-```typescript
-plugins: [
-  [
-    'docusaurus-plugin-openapi-docs',
-    {
-      id: 'api',
-      docsPluginId: 'classic',
-      config: {
-        kubenest: {
-          specPath: '../kubenest-contracts/api/openapi.yaml',
-          outputDir: 'docs/api',
-          sidebarOptions: {
-            groupPathsBy: 'tag',
-          },
-        },
-      },
-    },
-  ],
-],
-```
+This means it can drift from the backend. When you change routes in `kubenest-backend/app/api/v1/`, update the endpoint tables here in the same change. The canonical machine-readable reference is the live Swagger UI at `https://api.{your-domain}/docs`.
 
 ## Deployment
 
-### GitHub Pages
+Pushing to `main` triggers `.github/workflows/deploy.yml`, which builds the static export and publishes it to GitHub Pages at `docs.kubenest.io`. The custom domain is configured in the workflow via `public/CNAME`.
 
-The documentation is configured for deployment to GitHub Pages:
+To deploy the built output elsewhere, `bun run build` produces a fully static site in `out/` that any static host will serve.
 
-```bash
-npm run deploy
-```
+## Related repositories
 
-This builds the site and pushes to the `gh-pages` branch.
-
-### Other Platforms
-
-The static build can be deployed to any hosting platform:
-
-- **Vercel**: Connect your repository and Vercel auto-deploys
-- **Netlify**: Drag and drop the `build` folder or connect via Git
-- **AWS S3**: Upload `build` folder to S3 bucket with static hosting
-- **Cloudflare Pages**: Connect repository for automatic deployments
-
-## Contributing
-
-### Adding New Documentation
-
-1. Create a new Markdown file in the appropriate directory under `docs/`
-2. Add frontmatter with `sidebar_position` and `title`
-3. Update `sidebars.ts` if creating a new section
-4. Test locally with `npm start`
-5. Build to verify: `npm run build`
-
-### Updating API Documentation
-
-1. Update the OpenAPI spec in `kubenest-contracts/api/openapi.yaml`
-2. Regenerate API docs: `npx docusaurus gen-api-docs kubenest`
-3. Review changes in `docs/api/`
-4. Commit both the OpenAPI spec and generated docs
-
-### Style Guide
-
-- Use clear, concise language
-- Include code examples for all concepts
-- Add diagrams where helpful (use ASCII art or Mermaid)
-- Use proper Markdown formatting
-- Test all code examples before committing
-
-## Related Repositories
-
-- [Backend](https://github.com/kubenesthq/backend) - FastAPI control plane
-- [Hub](https://github.com/kubenesthq/hub) - WebSocket message router
-- [Operator](https://github.com/kubenesthq/operator) - Kubernetes operator
-- [UI](https://github.com/kubenesthq/ui) - Next.js web console
-- [Contracts](https://github.com/kubenesthq/contracts) - OpenAPI specs and schemas
-
-## License
-
-MIT License - see [LICENSE](LICENSE) file for details.
+- [kubenest-backend](https://github.com/kubenesthq/kubenest-backend) — FastAPI control plane
+- [kubenest-hub](https://github.com/kubenesthq/kubenest-hub) — WebSocket message router
+- [operator-v2](https://github.com/kubenesthq/operator-v2) — Kubernetes operator
+- [kubenest-ui](https://github.com/kubenesthq/kubenest-ui) — Next.js web console
+- [kubenest-contracts](https://github.com/kubenesthq/kubenest-contracts) — OpenAPI specs and shared schemas
 
 ## Support
 
 - [GitHub Issues](https://github.com/kubenesthq/docs/issues)
 - [Kubenest Organization](https://github.com/kubenesthq)
-- [Live Documentation](https://docs.kubenest.io)

@@ -2,6 +2,7 @@ node_modules/
 .next/
 .next.bak/
 out/
+tsconfig.tsbuildinfo
 .DS_Store
 *.log
 bun.lockb

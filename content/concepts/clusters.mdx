@@ -16,7 +16,8 @@ Registration is a two-phase process: you create a cluster record in the backend 
 ```
 Backend                    Hub                     Operator (on cluster)
    │                        │                             │
-   │  POST /clusters        │                             │
+   │  POST /orgs/{id}/      │                             │
+   │       clusters         │                             │
    │◄──────────────────────┤                             │
    │  returns cluster_id    │                             │
    │  + connection_token    │                             │
@@ -41,15 +42,16 @@ The operator never needs a public IP or inbound firewall rules. It initiates a W
 A cluster record transitions through the following states:
 
 ```
-pending
+pending  ← (record created; BYO clusters stay here until the operator connects)
   │
-  ▼
-provisioning  ← (if cloud-provisioned — waiting for the VM to come up)
-  │
-  ▼
-awaiting_operator  ← (cluster exists; waiting for operator to connect)
-  │
-  ▼
+  ├──────────────────────┐
+  │                      ▼
+  │              provisioning  ← (cloud-provisioned only — VMs coming up)
+  │                      │
+  │                      ▼
+  │              awaiting_operator  ← (cloud-provisioned only — infra ready,
+  │                      │             waiting for operator to connect)
+  ▼                      ▼
 connected  ← (operator has authenticated; hub has an active session)
   │
   ├──► disconnected  (hub lost the WebSocket session; operator may be restarting)
@@ -62,9 +64,9 @@ connected  ← (operator has authenticated; hub has an active session)
 
 | State | Meaning |
 |-------|---------|
-| `pending` | Cluster record created; no action taken yet |
+| `pending` | Cluster record created. For a manually registered (BYO) cluster this is the state it sits in until the operator connects |
 | `provisioning` | Cloud provider is creating the VM or managed cluster |
-| `awaiting_operator` | Infrastructure ready; waiting for operator first connect |
+| `awaiting_operator` | Infrastructure ready; waiting for operator first connect. Only cloud-provisioned clusters enter this state — it is set by the provisioning job when it finishes |
 | `connected` | Operator has an active WebSocket session with the hub |
 | `disconnected` | Hub lost the session; cluster is temporarily unreachable |
 | `error` | Unrecoverable error; details in the cluster's `message` field |

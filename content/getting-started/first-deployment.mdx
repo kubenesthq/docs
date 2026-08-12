@@ -51,8 +51,15 @@ TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 
 A cluster record tells the backend that a Kubernetes cluster exists and should receive deployments. Creating the record generates the JWT that the operator uses to authenticate with the hub.
 
+Clusters belong to an organization, so grab your organization ID first:
+
 ```bash filename="terminal"
-curl -s -X POST https://api.your-domain.com/api/v1/clusters \
+ORG_ID=$(curl -s -H "Authorization: Bearer $TOKEN" \
+  https://api.your-domain.com/api/v1/orgs | jq -r '.[0].id')
+```
+
+```bash filename="terminal"
+curl -s -X POST "https://api.your-domain.com/api/v1/orgs/$ORG_ID/clusters" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -67,7 +74,7 @@ Response (abbreviated):
 {
   "id": "a1b2c3d4-0001-0000-0000-000000000000",
   "name": "my-first-cluster",
-  "status": "awaiting_operator",
+  "status": "pending",
   "connection_token": "eyJhbGc...",
   "install_command": "helm install kubenest-operator kubenesthq/kubenest-operator --set operator.hub.url=wss://hub.your-domain.com --set operator.hub.token=eyJhbGc... --set operator.cluster.id=a1b2c3d4-... --namespace kubenest-system --create-namespace"
 }

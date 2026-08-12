@@ -190,16 +190,25 @@ Rate limit headers are also included on every response: `X-RateLimit-Limit`, `X-
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/clusters` | List all clusters in the organization. |
-| `POST` | `/clusters` | Register a new cluster or initiate cloud provisioning. |
+| `GET` | `/orgs/{org_id}/clusters` | List all clusters in the organization. |
+| `POST` | `/orgs/{org_id}/clusters` | Register a new cluster or initiate cloud provisioning. |
 | `GET` | `/clusters/{id}` | Get cluster details, status, and metrics. |
 | `PATCH` | `/clusters/{id}` | Update cluster metadata (name, description). |
 | `DELETE` | `/clusters/{id}` | Delete the cluster record. Fails if active projects exist. |
 | `GET` | `/clusters/{id}/metrics` | CPU, memory, and node count metrics aggregated from the last operator heartbeat. |
-| `GET` | `/clusters/{id}/helm-install-command` | Retrieve the pre-filled Helm install command for the operator. |
-| `POST` | `/clusters/{id}/rotate-token` | Issue a new cluster JWT and invalidate the current one. |
+| `GET` | `/clusters/{id}/install-command` | Retrieve the pre-filled Helm install command for the operator. Mints a fresh 365-day cluster JWT on every call and stores it as the cluster's current token — this is also how you rotate a token. |
+| `GET` | `/clusters/{id}/install-instructions` | Step-by-step install walkthrough for the operator, including the Helm command. Reuses the existing token if one is already stored. |
 | `POST` | `/clusters/{id}/scale` | Change node count (cloud-provisioned clusters only). |
-| `GET` | `/clusters/{id}/ssh-key` | Retrieve the SSH private key (cloud-provisioned clusters, admin only). |
+| `GET` | `/clusters/{id}/config` | Get the cluster's component configuration (ingress, storage, and related platform components). |
+| `PUT` | `/clusters/{id}/config` | Replace the cluster's component configuration. |
+| `GET` | `/clusters/{id}/provisioning-jobs` | List provisioning jobs for a cloud-provisioned cluster, with status and timestamps. |
+| `POST` | `/clusters/{id}/register-argocd` | Register the cluster as an ArgoCD target so the GitOps controller can sync to it. |
+| `GET` | `/clusters/{id}/rbac` | List cluster-scoped role assignments. |
+| `POST` | `/clusters/{id}/rbac` | Grant a cluster-scoped role to a user. |
+| `PUT` | `/clusters/{id}/rbac` | Replace a user's cluster-scoped role. |
+| `DELETE` | `/clusters/{id}/rbac` | Revoke a cluster-scoped role assignment. |
+| `GET` | `/clusters/{id}/registry-secrets` | List image pull secrets attached at the cluster level. |
+| `POST` | `/clusters/{id}/registry-secrets` | Attach an image pull secret at the cluster level. |
 
 ---
 
@@ -210,8 +219,21 @@ Rate limit headers are also included on every response: `X-RateLimit-Limit`, `X-
 | `GET` | `/projects` | List all projects the user can access. |
 | `POST` | `/projects` | Create a project (Kubernetes namespace) on a cluster. |
 | `GET` | `/projects/{id}` | Get project details, status, and resource quota usage. |
-| `PATCH` | `/projects/{id}` | Update project metadata or resource quotas. |
 | `DELETE` | `/projects/{id}` | Delete project and all its apps and addons. Requires the project to be empty unless `force=true`. |
+| `GET` | `/projects/{id}/apps` | List every app in the project. |
+| `GET` | `/projects/{id}/available-exports` | List export values published by apps and addons in the project, for wiring `exportRef` entries. |
+| `GET` | `/projects/{id}/rbac` | List project-scoped role assignments. |
+| `POST` | `/projects/{id}/rbac` | Grant a project-scoped role to a user. |
+| `PUT` | `/projects/{id}/rbac` | Replace a user's project-scoped role. |
+| `DELETE` | `/projects/{id}/rbac` | Revoke a project-scoped role assignment. |
+| `GET` | `/projects/{id}/secrets-overview` | Summarize the secrets visible to the project and where each one is inherited from. |
+| `GET` | `/projects/{id}/registry-secrets` | List image pull secrets attached at the project level. |
+| `POST` | `/projects/{id}/registry-secrets` | Attach an image pull secret at the project level. |
+| `GET` | `/projects/{id}/effective-registry-secrets` | Resolve the image pull secrets that actually apply, merging cluster-level and project-level attachments. |
+
+<Callout type="info">
+Projects have no update endpoint. Name, cluster, and resource quotas are fixed at creation time — there is no `PATCH /projects/{id}`. Changing any of them means deleting the project and creating a new one.
+</Callout>
 
 ---
 
@@ -230,7 +252,15 @@ Rate limit headers are also included on every response: `X-RateLimit-Limit`, `X-
 | `POST` | `/apps/{namespace}/{name}/redeploy` | Force a hard-refresh and re-sync without spec changes. |
 | `GET` | `/apps/{namespace}/{name}/deployments` | List deployment history (create, patch, rollback events). |
 | `POST` | `/apps/{namespace}/{name}/rollback` | Restore a prior deployment spec. Body: `{deployment_id}` or `{revision}`. Returns `202 Accepted`. |
-| `GET` | `/apps/{namespace}/{name}/dependents` | List workloads that have `exportRef` entries pointing to components in this app. |
+| `POST` | `/apps/{namespace}/{name}/deployments/{deployment_id}/rollback` | Roll back to one specific deployment by ID. |
+| `GET` | `/apps/{namespace}/{name}/logs` | Fetch recent logs across the app's components. |
+| `GET` | `/apps/{namespace}/{name}/components/{component}/logs/stream` | Stream logs from a single component. |
+| `GET` | `/apps/{namespace}/{name}/metrics` | CPU and memory usage per component. |
+| `POST` | `/apps/{namespace}/{name}/attach-addon` | Attach an existing addon instance to the app and wire its exports into a component. |
+| `DELETE` | `/apps/{namespace}/{name}/attach-addon/{addon_instance_id}` | Detach an addon instance from the app. |
+| `GET` | `/apps/{namespace}/{name}/components/{component}/secrets` | List a component's secret keys. |
+| `PATCH` | `/apps/{namespace}/{name}/components/{component}/secrets` | Set or update a component's secret values. |
+| `DELETE` | `/apps/{namespace}/{name}/components/{component}/secrets/{key}` | Remove a single secret key from a component. |
 
 ---
 
@@ -263,7 +293,10 @@ Rate limit headers are also included on every response: `X-RateLimit-Limit`, `X-
 | `DELETE` | `/addon-instances/{id}` | Uninstall and delete the addon instance. Query param: `?preserve_pvcs=true`. |
 | `POST` | `/addon-instances/{id}/rollback` | Restore a prior revision. Body: `{revision_number}` or `{revision_id}`. |
 | `GET` | `/addon-instances/{id}/revisions` | List all revisions with values snapshots and notes. |
-| `GET` | `/addon-instances/{id}/dependents` | List app components that have `exportRef` entries pointing to this instance. |
+
+<Callout type="info">
+To find what depends on an addon instance, use `GET /projects/{id}/available-exports` — it lists the exports each addon and app publishes, which is what `exportRef` entries resolve against.
+</Callout>
 
 ---
 
@@ -273,6 +306,49 @@ Rate limit headers are also included on every response: `X-RateLimit-Limit`, `X-
 |--------|------|-------------|
 | `GET` | `/addon-definitions` | List all addon definitions in the catalog. |
 | `GET` | `/addon-definitions/{name}` | Get a definition's chart reference, default values, and export schema. |
+
+---
+
+### Organizations and users
+
+Organizations are the top-level tenant boundary. Clusters, projects, and credentials all belong to one.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/orgs` | List organizations the caller belongs to. |
+| `POST` | `/orgs` | Create an organization. |
+| `GET` | `/orgs/{id}` | Get organization details. |
+| `PUT` | `/orgs/{id}` | Update an organization. |
+| `DELETE` | `/orgs/{id}` | Delete an organization and everything scoped to it. |
+| `GET` | `/orgs/{id}/members` | List members and their organization roles. |
+| `POST` | `/orgs/{id}/members` | Add a user to the organization. |
+| `PUT` | `/orgs/{id}/members/{user_id}` | Change a member's organization role. |
+| `DELETE` | `/orgs/{id}/members/{user_id}` | Remove a member from the organization. |
+| `GET` | `/org/settings` | Get settings for the caller's current organization. |
+| `PATCH` | `/org/settings` | Update settings for the caller's current organization. |
+| `GET` | `/orgs/{id}/credentials` | List cloud provider credentials used for cluster provisioning. |
+| `POST` | `/orgs/{id}/credentials` | Store a new set of cloud provider credentials. |
+| `GET` | `/credentials/{id}` | Get a credential record. Secret material is never returned. |
+| `PATCH` | `/credentials/{id}` | Rotate or rename a credential. |
+| `DELETE` | `/credentials/{id}` | Delete a credential. |
+| `GET` | `/user/me` | Get the authenticated user's profile and role assignments. |
+| `GET` | `/users` | List users. |
+| `POST` | `/user` | Create a user. |
+| `GET` | `/user/{id}` | Get a user. |
+| `PATCH` | `/user/{id}` | Update a user. |
+| `DELETE` | `/user/{id}` | Delete a user. |
+
+---
+
+### Provisioning jobs
+
+Cloud cluster provisioning runs asynchronously. Creating a cluster with a cloud provider returns a job you poll or watch over SSE.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/provisioning-jobs/{id}` | Get job status and current phase. |
+| `GET` | `/provisioning-jobs/{id}/logs` | Fetch Terraform and bootstrap output for the job. |
+| `POST` | `/provisioning-jobs/{id}/retry` | Retry a failed job without recreating resources that already exist. |
 
 ---
 

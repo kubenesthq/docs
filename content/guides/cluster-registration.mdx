@@ -19,30 +19,40 @@ Bring-your-own-cluster (BYOC) registration is for clusters that already exist �
 
 ### Create the cluster record
 
-Start by creating a cluster record in the backend. This reserves a UUID, mints the cluster JWT, and generates the Helm install command.
+Cluster records are created under an organization, so you need your organization's UUID. Fetch it from `GET /api/v1/orgs` if you do not already have it:
+
+```bash filename="find your org ID"
+ORG_ID=$(curl -s -H "Authorization: Bearer $TOKEN" \
+  https://api.your-domain.com/api/v1/orgs | jq -r '.[0].id')
+```
+
+Now create the cluster record. This reserves a UUID, mints the cluster JWT, and generates the Helm install command.
+
+For a BYO cluster, **omit** `provider` and `credential_id` entirely — their presence is what tells kubenest to provision infrastructure for you. The request body rejects unknown fields, so do not send `"provider": "manual"`; there is no such provider.
 
 ```bash filename="create cluster record"
-curl -X POST https://api.your-domain.com/api/v1/clusters \
+curl -X POST "https://api.your-domain.com/api/v1/orgs/$ORG_ID/clusters" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "prod-cluster",
-    "description": "AWS EKS us-east-1 production cluster",
-    "provider": "manual"
+    "description": "AWS EKS us-east-1 production cluster"
   }'
 ```
 
-Response:
+Response (`201 Created`):
 
 ```json filename="cluster record response"
 {
   "id": "a1b2c3d4-0001-0000-0000-000000000000",
   "name": "prod-cluster",
-  "status": "awaiting_operator",
+  "status": "pending",
   "connection_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
   "install_command": "helm install kubenest-operator kubenesthq/kubenest-operator -n kubenest-system --create-namespace --set operator.hub.url=wss://hub.your-domain.com --set operator.hub.token=eyJhbGc... --set operator.cluster.id=a1b2c3d4-..."
 }
 ```
+
+A manually registered cluster starts in `pending` and moves to `connected` once the operator's WebSocket handshake reaches the hub. Cloud-provisioned clusters start in `provisioning` instead.
 
 Save the cluster ID. You will need it in subsequent API calls:
 
@@ -54,8 +64,10 @@ You can also retrieve the install command at any time via the API:
 
 ```bash filename="retrieve install command"
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID/helm-install-command"
+  "https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID/install-command"
 ```
+
+Note that this endpoint mints a **new** 365-day cluster JWT on every call and stores it as the cluster's current token. If the operator is already running with an older token, it keeps working (see the note on revocation below), but the command you get back will not match the token in the running Secret. To read the install steps without minting a new token, use `/install-instructions` instead, which reuses the stored token when one exists.
 
 ### Prepare your Helm values
 
@@ -126,7 +138,7 @@ Look for:
 
 ### Confirm the cluster is connected
 
-Once the operator connects, the hub notifies the backend, which transitions the cluster status from `awaiting_operator` to `connected`:
+Once the operator connects, the hub notifies the backend, which transitions the cluster status from `pending` to `connected`:
 
 ```bash filename="verify cluster status"
 curl -H "Authorization: Bearer $TOKEN" \
@@ -139,9 +151,11 @@ The cluster is now ready to receive deployments. Create a project and deploy you
 </Steps>
 
 <Callout type="warning">
-**Secure the cluster JWT.** The connection token is a long-lived credential with the ability to execute any operation the operator supports on that cluster. The Helm chart stores it in a Kubernetes Secret (`kubenest-operator-token` in the `kubenest-system` namespace). Restrict access to that Secret using Kubernetes RBAC, and rotate the token immediately if you believe it has been compromised.
+**Secure the cluster JWT.** The connection token is a long-lived credential with the ability to execute any operation the operator supports on that cluster. The Helm chart stores it in a Kubernetes Secret (`kubenest-operator-token` in the `kubenest-system` namespace). Restrict access to that Secret using Kubernetes RBAC.
 
-To rotate a cluster JWT: `POST /api/v1/clusters/{id}/rotate-token`. The old token is invalidated immediately. Update the Kubernetes Secret and restart the operator pod.
+Issuing a new token does **not** revoke the old one. The hub accepts any correctly signed, unexpired cluster JWT — it does not check the token against the one currently stored for the cluster. A leaked token therefore stays usable for the remainder of its 365-day lifetime. If a token is compromised, treat rotating the hub's `JWT_SECRET` (which invalidates every cluster token at once and requires re-issuing all of them) or deleting and re-registering the cluster as the only reliable containment.
+
+To issue a fresh cluster JWT, call `GET /api/v1/clusters/{id}/install-command`. Every call mints a new 365-day token and stores it as the cluster's current token; the response contains both the token and a ready-to-run Helm command. Update the `kubenest-operator-token` Secret with the new value and restart the operator pod.
 </Callout>
 
 ---
@@ -158,41 +172,47 @@ Cloud-provisioned clusters are currently supported on **AWS EC2** only. Support 
 
 1. Create a `CloudCredential` record with your AWS credentials:
 
+Credential fields are flat, not nested — the payload rejects unknown fields.
+
 ```bash filename="create cloud credential"
-curl -X POST https://api.your-domain.com/api/v1/cloud-credentials \
+curl -X POST "https://api.your-domain.com/api/v1/orgs/$ORG_ID/credentials" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "aws-prod",
     "provider": "aws",
-    "credentials": {
-      "access_key_id": "AKIAIOSFODNN7EXAMPLE",
-      "secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-      "region": "us-east-1"
-    }
+    "region": "us-east-1",
+    "access_key_id": "AKIAIOSFODNN7EXAMPLE",
+    "secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
   }'
 ```
 
-2. The credential ID will be used in the cluster create request.
+2. The credential ID from the response is used in the cluster create request.
+
+<Callout type="info">
+`provider` accepts `aws`, `gcp`, `azure`, `do`, `metal`, and `ssh`. Credentials are accepted for all of them, but **only `aws` is wired for provisioning today** — the others return `422` with a "coming soon" message when you try to create a cluster with them.
+</Callout>
 
 ### Create a provisioned cluster
 
+Provisioning options are flat fields on the cluster body, not a nested `provision_config`. Setting both `provider` and `credential_id` is what switches this from a BYO registration to a provisioning request.
+
 ```bash filename="create cloud cluster"
-curl -X POST https://api.your-domain.com/api/v1/clusters \
+curl -X POST "https://api.your-domain.com/api/v1/orgs/$ORG_ID/clusters" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "staging-aws",
     "provider": "aws",
-    "cloud_credential_id": "cred-uuid-...",
-    "provision_config": {
-      "region": "us-east-1",
-      "instance_type": "t3.medium",
-      "node_count": 3,
-      "kubernetes_version": "1.30"
-    }
+    "credential_id": "cred-uuid-...",
+    "region": "us-east-1",
+    "instance_type": "t3.medium",
+    "agent_count": 3,
+    "disk_size_gb": 40
   }'
 ```
+
+`agent_count` is the number of agent nodes (0–20) alongside the control-plane node, and `disk_size_gb` accepts 10–500. If you omit `region`, the credential's own region is used. The Kubernetes version is not selectable — provisioned clusters run the k3s version baked into the provisioner image.
 
 ### Status transitions
 
@@ -288,7 +308,7 @@ curl -X DELETE https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID \
 
 ## Troubleshooting
 
-**Operator pod is in CrashLoopBackOff.** The most common cause is a malformed or expired cluster JWT. Check the pod logs for `"invalid token"` or `"token expired"`. Rotate the token via `POST /api/v1/clusters/{id}/rotate-token`, update the `kubenest-operator-token` Secret, and restart the pod.
+**Operator pod is in CrashLoopBackOff.** The most common cause is a malformed or expired cluster JWT. Check the pod logs for `"invalid token"` or `"token expired"`. Issue a new token via `GET /api/v1/clusters/{id}/install-command`, update the `kubenest-operator-token` Secret, and restart the pod.
 
 **Cluster stuck in `awaiting_operator` after operator install.** The operator is not reaching the hub. Verify:
 - The pod is `Running` (not `CrashLoopBackOff`).

@@ -130,7 +130,7 @@ The connection handshake works in three stages:
 1. **Operator starts** and reads its cluster JWT from the Kubernetes Secret created by Helm.
 2. **Operator dials the hub** over WebSocket and presents the JWT in the `Authorization` header.
 3. **Hub validates the JWT**, establishes a persistent session for the cluster ID, and notifies the backend.
-4. **Backend transitions** the cluster record from `awaiting_operator` to `connected` and records the first heartbeat timestamp.
+4. **Backend transitions** the cluster record to `connected` and records the first heartbeat timestamp. A manually registered cluster makes this move from `pending`; a cloud-provisioned one from `awaiting_operator`.
 
 From this point, the backend can dispatch `StackDeploy` create/patch/delete events to the operator by routing them through the hub. The operator never needs a public IP or open inbound port — all communication is initiated outbound from inside the cluster.
 
@@ -150,9 +150,9 @@ From this point, the backend can dispatch `StackDeploy` create/patch/delete even
 
 ## Troubleshooting
 
-**Operator pod is CrashLoopBackOff.** The most common cause is a malformed or expired cluster JWT. Regenerate the token via `GET /api/v1/clusters/{id}/connection-token` and update the Kubernetes Secret, then restart the operator pod.
+**Operator pod is CrashLoopBackOff.** The most common cause is a malformed or expired cluster JWT. Regenerate the token via `GET /api/v1/clusters/{id}/install-command` and update the Kubernetes Secret, then restart the operator pod.
 
-**Cluster stuck in `awaiting_operator`.** The operator is not reaching the hub. Check outbound network connectivity from the cluster to the hub URL. Ensure the hub is running and the URL uses `wss://` (not `ws://`) in production.
+**Cluster stuck in `pending` (BYO) or `awaiting_operator` (cloud-provisioned).** The operator is not reaching the hub. Check outbound network connectivity from the cluster to the hub URL. Ensure the hub is running and the URL uses `wss://` (not `ws://`) in production.
 
 **ArgoCD not found.** If you set `argocd.enabled=false` but ArgoCD is not installed, the operator will start but fail to create ArgoCD Application resources. Install ArgoCD first or set `argocd.enabled=true`.
 
