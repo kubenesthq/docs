@@ -1,0 +1,252 @@
+---
+title: What is in the bundle
+description: The pinned, tested component set that makes up a KubeNest Platform release, what each part is for, and why it and not the alternatives.
+---
+
+import { Callout } from 'nextra/components'
+
+<Callout type="error">
+**DRAFT — SPECIFICATION, NOT SHIPPED SOFTWARE.**
+
+This page is the build specification for `kn-boj` (bundle manifest), written before the manifest
+exists. It defines what a bundle *is*; the component versions for the first release are not yet
+chosen. Do not quote it to a customer.
+
+Promoted to published only when `kn-ze1` has verified it against a real cluster.
+Open questions are marked <strong>OQ-BUNDLE-*</strong> and collected at the
+[bottom](#open-design-questions).
+</Callout>
+
+# What is in the bundle
+
+A KubeNest Platform release is a fixed set of components at fixed versions, tested together as
+one thing. It has a single version number, and that number is what you run, what we test, what we
+support, and what we upgrade between.
+
+That last point is the whole reason the bundle exists. Without it, an upgrade is *N* independent
+component version bumps whose interactions nobody has tried. With it, an upgrade is
+`Platform 1.4 → 1.5`: one transition, tested before it reached you.
+
+## Why a bundle at all
+
+Kubernetes gives you a control plane. It does not give you a platform. Every cluster still needs
+ingress, certificates, storage, backup, upgrade orchestration and OS patch handling — and
+somebody has to pick each one, wire them together, and own whether they still work after the next
+upgrade.
+
+Managed Kubernetes does not solve this. EKS, GKE and AKS manage the control plane; the layer above
+it is still yours, and reaching it usually means Terraform modules and a permanent specialist to
+maintain them. You did not buy less operational work, you bought different operational work plus a
+new dependency.
+
+Rancher does not solve it either. Rancher solved the *console* — it gives you an excellent view of
+clusters and a catalogue to install things from. You still choose your own ingress, CSI, cert
+manager and backup, and you still own whether they survive the next upgrade together.
+
+**That assembly problem is what the bundle is.** It is a smaller claim than "manages your
+Kubernetes" and a much more testable one.
+
+## Core
+
+Always installed. Never optional. Every component here is present on every KubeNest cluster.
+
+| Component | What it does | Why this one |
+|---|---|---|
+| **k3s** | The Kubernetes distribution | Lightweight, single binary, CNCF-conformant. Heavy distributions are the thing customers churn *from* — the recurring complaint is sprawl and eventful upgrades, not missing features |
+| **Traefik** + Gateway API | Ingress | Already the k3s default, so it is the lightest possible choice, and it speaks Gateway API natively. See [why not ingress-nginx](#why-not-ingress-nginx) |
+| **cert-manager** | TLS certificate issuance and renewal | The de facto standard. An expired certificate is a total, user-visible outage, and nobody should be renewing them by hand |
+| **OpenEBS Local PV LVM** | Persistent volumes | Local LVM volumes are simple and fast, and their failure modes are ones an operator can reason about. Replicated storage is a [profile](/platform/profiles), deliberately |
+| **Velero** | Backup, restore, and verified restore drills | Durability in the default configuration comes from backups that have been *proven to restore*, not from replication |
+| **system-upgrade-controller** | In-cluster Kubernetes upgrades | Rancher's, Apache 2.0. Adopted, not rebuilt — RKE2 users repeatedly name the update controller as the killer feature |
+| **kured** | Reboot orchestration after OS patching | Coordinates node reboots so patching does not take the cluster down |
+| **KubeNest agent** | Control-plane connection and fleet health telemetry | Dials out to the hub. Reports cluster health so problems are known before they are reported |
+
+### Why these and not the alternatives
+
+The reasoning is the same as the sales argument, so it is written out rather than assumed.
+
+**One choice per slot.** One ingress, one CSI, one backup tool. Offering choices inside a slot
+multiplies the test matrix and puts you back to assembling components yourself — which is what
+Rancher already does, for free. The narrowness *is* the product.
+
+**Adopt, do not rebuild.** `system-upgrade-controller`, `kured`, Velero, cert-manager and Traefik
+are all mature, permissively licensed, and better than anything we would write. Building our own
+would add maintenance we sell against.
+
+**Tightly-coupled things live in core together.** Storage and backup interact. Ingress and
+certificates interact. Splitting either pair across a profile boundary would mean shipping
+combinations nobody tested.
+
+Explicitly considered and skipped:
+
+- **k0s** — a peer to k3s. Changing buys nothing.
+- **Cluster API** — the standards-based default, and we should expect the objection. It is
+  assembly-required, and its shape suits fleets of similar clusters rather than one cluster per
+  client. Sidero themselves moved away from it for on-prem reasons.
+- **Epinio** — the app-layer play. We already have more, and the market has spoken on it.
+- **kube-prometheus-stack in core** — installing a full observability stack on every cluster by
+  default recreates the exact weight complaint we exist to answer. It is a
+  [profile](/platform/profiles), and a lighter one.
+- **cStor and Jiva** — deprecated OpenEBS engines. Do not inherit someone else's end-of-life.
+
+### Why not ingress-nginx
+
+`kubernetes/ingress-nginx` reached **end of life on 24 March 2026**. The repository is read-only:
+no features, no fixes, and **no CVE patches**. That followed four HIGH-severity CVEs disclosed
+together in February 2026, and the IngressNightmare unauthenticated RCE (CVE-2025-1974) before
+them. Its intended successor, InGate, never matured and was itself retired.
+
+Reportedly around half of all cloud-native environments are affected.
+
+If you are running it today, `ingress2gateway` converts existing Ingress resources to Gateway API.
+That is a separate migration, not part of installing the bundle — see `kn-pgu`.
+
+## Fleet health telemetry is core; your observability is not
+
+Two different things that are easy to confuse.
+
+**Fleet health telemetry** ships in core and is not optional. It reports cluster health, bundle
+version, profile set, HA tier and backup configuration state to your control plane. Its job is to
+make a problem known before someone has to report it.
+
+**Your observability** — metrics, dashboards, logs for your own workloads — is the
+`observability` profile. Different audience, different data, different lifetime.
+
+## The manifest
+
+The bundle is machine-readable and versioned. It is the record of what a release contains, and it
+is what the installer, the upgrade path and the compatibility tests all read.
+
+```yaml filename="platform-1.0.yaml"
+bundle: "1.0"
+
+core:
+  k3s:                        <pinned>
+  traefik:                    <pinned>
+  gateway-api:                <pinned>
+  cert-manager:               <pinned>
+  openebs-lvm-localpv:        <pinned>
+  velero:                     <pinned>
+  system-upgrade-controller:  <pinned>
+  kured:                      <pinned>
+  kubenest-agent:             <pinned>
+
+os:
+  # Ubuntu LTS only. The tested release list moves with the bundle, not with the docs.
+  supported: [<pinned>]
+
+ha-tiers: [single-server, ha]
+
+profiles:
+  observability: { ... }      # each profile pins its own components
+  secrets:       { ... }
+  replicated-storage: { ... }
+  ha:            { ... }
+```
+
+The schema belongs in `kubenest-contracts` before the backend or the installer implement against
+it.
+
+<Callout type="info">
+**The manifest carries the OS matrix, not just components.** Which Ubuntu LTS releases are tested
+is a property of the bundle, so that support moves forward with releases rather than with an edit
+to this page.
+
+It also declares which HA tiers it offers, so `--ha ha` against a bundle that does not yet provide
+it fails with a clear error instead of silently installing single-server.
+</Callout>
+
+### What is recorded against your cluster
+
+The manifest says what a release contains. The cluster record says what *you* have:
+
+```
+cluster-a: Platform 1.0 + [observability, secrets]
+           ha-tier: single-server
+           volume-group: customer-created
+```
+
+**Without this, no upgrade is safe.** The upgrade path depends on knowing exactly what is
+installed, and a cluster you did not install last week is otherwise a guess.
+
+## Version numbers
+
+<Callout type="warning">
+**OQ-BUNDLE-1 — what do the digits mean?** Undecided, and it needs deciding before the first
+release, because customers will infer a meaning whether or not we state one.
+
+The question is what forces which bump:
+
+- A k3s **minor** upgrade — `1.4 → 2.0`, or `1.4 → 1.5`?
+- A component **patch** for a CVE — a bundle bump at all, or something else entirely?
+- Adding a profile, or a new Ubuntu LTS to the tested set?
+
+The trap: if a CVE patch bumps the bundle, then bundle versions change often, and "upgrade to the
+next bundle" stops being a considered event and becomes noise. If it does not, we need a separate
+mechanism for shipping urgent patches — see **OQ-BUNDLE-3**.
+</Callout>
+
+<Callout type="warning">
+**OQ-BUNDLE-2 — how far behind upstream k3s do we track?** Kubernetes ships three minors a year
+and supports roughly the last three. Tracking latest gives customers current features and us a
+constant upgrade treadmill; tracking N-2 is calmer and risks a cluster reaching end of upstream
+support inside its bundle's lifetime.
+
+State the policy, because "it always lagged decently far behind in support for Kubernetes
+versions" is a documented reason teams left Rancher. We should not inherit the complaint by
+accident.
+</Callout>
+
+<Callout type="warning">
+**OQ-BUNDLE-3 — what happens when a component has a CVE between bundle releases?** This is the
+one we are least able to be vague about. The ingress-nginx EOL is a headline argument for buying
+KubeNest; a customer who has read that argument will reasonably ask what our own response looks
+like.
+
+Needs a stated mechanism and a stated timeframe: out-of-band patch bundles (`1.4.1`), an
+accelerated minor, or fold-into-next-release with a documented severity threshold. Any of them is
+defensible. Silence is not.
+</Callout>
+
+<Callout type="warning">
+**OQ-BUNDLE-4 — how many bundles are supported at once, and can upgrades skip versions?** Can a
+cluster go `1.2 → 1.5` directly, or must it step through each release? This decides whether the
+upgrade orchestration in `kn-fuo` tests one transition per release or a matrix of them, and it
+sets how long a customer can defer before they are unsupported.
+
+Stepping through every release is the cheaper commitment and the more annoying product.
+</Callout>
+
+<Callout type="warning">
+**OQ-BUNDLE-5 — the agent and the control plane version separately.** The bundle pins the agent
+that runs in your cluster. It does not pin the control plane the agent talks to, which upgrades on
+its own schedule.
+
+That is a second compatibility axis and it is not in the six tested configurations. Needs a stated
+support window — which agent versions a given control plane accepts — or the first control-plane
+upgrade breaks clusters running older bundles.
+</Callout>
+
+<Callout type="warning">
+**OQ-BUNDLE-6 — actual pinned versions for the first release.** Not chosen. This is a task rather
+than a design question, but it blocks the release and it depends on **OQ-BUNDLE-2**.
+</Callout>
+
+<Callout type="warning">
+**OQ-BUNDLE-7 — is the manifest public?** Publishing what each bundle contains lets a prospect
+evaluate the stack before talking to us, and lets a customer see exactly what an upgrade changes.
+Both are good. It also tells competitors precisely what we ship, and commits us publicly to
+versions. Recommend publishing; confirm before doing it.
+</Callout>
+
+## Open design questions
+
+| ID | Question | Blocks |
+|---|---|---|
+| OQ-BUNDLE-1 | What do the version digits mean, and what forces a bump? | `kn-boj`, upgrade expectations |
+| OQ-BUNDLE-2 | How far behind upstream k3s do we track? | `kn-boj`, OQ-BUNDLE-6 |
+| OQ-BUNDLE-3 | Response to a component CVE between releases | Credibility of the whole pitch |
+| OQ-BUNDLE-4 | Concurrent supported bundles; can upgrades skip versions? | `kn-fuo` test matrix |
+| OQ-BUNDLE-5 | Agent ↔ control plane compatibility window | `kn-j5s`, control-plane releases |
+| OQ-BUNDLE-6 | Actual pinned versions for release 1 | The first release |
+| OQ-BUNDLE-7 | Is the manifest published publicly? | Sales collateral |

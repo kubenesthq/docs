@@ -9,6 +9,8 @@ const meta: MetaRecord = {
     title: 'Platform (draft)',
     items: {
       install: 'Install the platform',
+      bundle: 'What is in the bundle',
+      profiles: 'Profiles',
     },
   },
   concepts: 'Concepts',

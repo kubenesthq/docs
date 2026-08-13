@@ -1,0 +1,244 @@
+---
+title: Profiles
+description: Core versus the observability, secrets, replicated-storage and ha profiles — how to choose at install, what gets recorded, and what changing one later does.
+---
+
+import { Callout } from 'nextra/components'
+
+<Callout type="error">
+**DRAFT — SPECIFICATION, NOT SHIPPED SOFTWARE.**
+
+This page is the build specification for the profile half of `kn-boj`, plus `kn-sev5`, `kn-ynaq`,
+`kn-54ni` and `kn-kp3`. Written before any of it exists. Do not quote it to a customer.
+
+Promoted to published only when `kn-ze1` has verified it against a real cluster.
+Open questions are marked <strong>OQ-PROFILE-*</strong> and collected at the
+[bottom](#open-design-questions).
+</Callout>
+
+# Profiles
+
+Core is what every cluster runs. Profiles are the only supported way to vary it.
+
+A profile is a named, pinned set of components that is tested against core as a unit. You choose
+profiles at install; the set is recorded against your cluster and travels with it through every
+upgrade.
+
+## Why profiles and not options
+
+Because *N* independent on/off switches means 2<sup>N</sup> configurations, and nobody has tested
+2<sup>N</sup> of anything.
+
+Four switches would be sixteen combinations per release. Four profiles are **six**:
+
+| # | Configuration |
+|---|---|
+| 1 | core alone |
+| 2 | core + `observability` |
+| 3 | core + `secrets` |
+| 4 | core + `replicated-storage` |
+| 5 | core + `ha` |
+| 6 | core + all profiles |
+
+N+2, not 2<sup>N</sup>. Every one of the six is tested on every bundle release — that is `kn-twe`,
+and it is the recurring cost of this entire strategy. A "tested bundle" that is not actually tested
+in CI is a spreadsheet, not a product.
+
+The arrangement only holds because profiles are **largely orthogonal**: observability does not
+interact with secrets. Anything that genuinely interacts belongs inside core *together* — which is
+why storage and backup are both core, and why ingress and certificates are both core.
+
+<Callout type="warning">
+**OQ-PROFILE-1 — two profiles are already known to interact with core, so the orthogonality
+assumption is not clean.**
+
+Two documented cases, both touching Velero, which is in core:
+
+1. **`secrets` ↔ backup.** Losing the sealed-secrets sealing key means losing every secret in the
+   cluster. The key must therefore be in the backup set, which means the `secrets` profile changes
+   what a core component backs up.
+2. **`replicated-storage` ↔ backup.** `kn-54ni` states outright that the Velero interaction must
+   be explicitly tested rather than assumed orthogonal.
+
+Under `kn-twe`'s own rule, an interacting pair must either be merged into core or added to the
+matrix as a named pair. Neither is true today. The likely answer is that these two pairs are
+already covered by configurations 3, 4 and 6 — but that needs asserting rather than assuming,
+and if it is the answer then the rule should say "tested against core, including its core
+interactions" rather than implying independence.
+</Callout>
+
+## The profiles
+
+### `observability`
+
+VictoriaMetrics, Grafana and Loki — metrics, dashboards and logs **for your workloads**.
+
+VictoriaMetrics rather than vanilla Prometheus because it is meaningfully lighter for the same
+query surface, and less weight is the product promise. The profile ships default dashboards for
+cluster health, node resources, workload status and ingress traffic; a profile that installs three
+components and no dashboards has not done anything.
+
+Retention defaults are sized so the stack cannot quietly fill your disks.
+
+<Callout type="info">
+**This is not the fleet health telemetry in core.** That reports cluster state to your control
+plane so problems are known before they are reported. This profile is your own observability, for
+your own workloads. Different data, different audience. Neither replaces the other.
+</Callout>
+
+### `secrets`
+
+Encrypted secrets in Git, so the GitOps flow works without plaintext credentials in a repository.
+
+The default is **sealed-secrets**: self-contained, no external dependency, and it composes with
+the ArgoCD flow already in the product. For clients who already run Vault or a cloud secret
+manager, **external-secrets** integrates with what they have rather than forcing a second secrets
+system alongside it.
+
+Vault is deliberately **not** offered as a default. It is a heavy operational commitment, and
+precisely the kind of thing you are paying us to avoid.
+
+<Callout type="warning">
+**The sealing key is the most important thing in your cluster.** Lose it and every sealed secret
+is unrecoverable. It is in the backup set for that reason. Key rotation and key backup are
+documented on the backup and restore page.
+</Callout>
+
+<Callout type="warning">
+**OQ-PROFILE-2 — "sealed-secrets with an external-secrets variant" is a choice inside a slot,
+which is the thing the matrix rule forbids.**
+
+`kn-twe` is explicit: *"The moment we offer choices within a slot, the matrix multiplies and we
+are back to assembling."* But `kn-ynaq` specifies sealed-secrets as the default **and**
+external-secrets as a variant. Both cannot be right as written — a variant is a choice inside a
+slot, and configuration 3 tests only one of them.
+
+Three ways out:
+
+1. **Two separate profiles** — `secrets-sealed` and `secrets-external`, mutually exclusive. Honest
+   about the cost: seven or eight tested configurations, not six.
+2. **One profile, sealed-secrets only.** Cheapest and narrowest. Costs us clients who already run
+   Vault, which for enterprise buyers may be most of them.
+3. **Keep the variant but test only the default**, and state plainly that external-secrets is
+   supported-but-not-in-the-matrix. Honest, and weaker than what we are selling.
+
+Recommend (1) — the enterprise clients this product targets are exactly the ones who already have
+a secret manager, and refusing to integrate is a poor reason to lose a deal. But it is a real
+increase in recurring test cost and it should be chosen deliberately, not drifted into.
+</Callout>
+
+<Callout type="warning">
+**OQ-PROFILE-3 — verify sealed-secrets' Bitnami lineage before locking it in.** The project came
+out of Bitnami, and the Broadcom-era catalogue changes pushed a lot of teams off Bitnami images.
+The project itself is Apache 2.0 and separately maintained, so it is probably fine — but check
+image hosting and release cadence before building a bundle on it. This is exactly the dependency
+risk the compatibility matrix exists to catch.
+</Callout>
+
+### `replicated-storage`
+
+Block storage replicated across nodes, for clusters that genuinely need it.
+
+Deliberately **not** the default. Replicated block storage is itself a source of operational
+dread, and its failures become our pages. Core uses OpenEBS Local PV LVM, and durability comes
+from verified backups plus application-level replication. Take this profile when a workload
+genuinely cannot tolerate node-local storage — not by default.
+
+<Callout type="warning">
+**OQ-PROFILE-4 — the engine is not chosen.** One will be picked and pinned; both will not be
+offered, because that doubles a matrix slot for marginal benefit. Candidates:
+
+- **OpenEBS Replicated PV Mayastor** — NVMe-oF and SPDK, high performance, and consistent with the
+  core OpenEBS choice so operators learn one system. Wants hugepages and specific kernel
+  conditions, which is tractable precisely because the OS is locked to Ubuntu.
+- **Longhorn** — simpler, good UI, S3 backup and DR built in, SUSE-backed. Known rebuild storms
+  and degraded-volume states under load.
+- **Piraeus / LINSTOR (DRBD)** — the strongest unsolicited endorsement in the research, "rock
+  solid and very performant", with DRBD in the kernel rather than userspace. Needs a kernel
+  module, which the locked OS makes *more* viable, not less.
+
+Storage is the component you least want to change after customers have data on it. Evaluate
+properly, then record the decision and the reasoning where a future maintainer will find it.
+</Callout>
+
+### `ha`
+
+Three control-plane nodes with embedded etcd, instead of one.
+
+This is the only profile that is also an install-time tier, and the only one that can never be
+changed afterwards. What each tier does and does not promise is on the
+[install page](/platform/install#ha-tier).
+
+## Changing a profile later
+
+Not all profiles are equal here, and the differences are not cosmetic — two of them can lose data.
+
+| Profile | Add later | Remove later |
+|---|---|---|
+| `observability` | Yes | Yes — you lose collected history, nothing else |
+| `secrets` | Yes | **No.** Removing it leaves every sealed secret undecryptable |
+| `replicated-storage` | Yes, but only new volumes use it | Only when no volume is using it |
+| `ha` | **No.** Install-time only | **No** |
+
+**`observability`** is genuinely reversible. Add it, remove it, add it again. Removing deletes the
+metrics and logs it collected; nothing else in the cluster notices.
+
+**`secrets`** is add-only in practice. Adding it is safe. Removing it uninstalls the controller
+that holds the sealing key, and every `SealedSecret` in your Git repository becomes permanently
+undecryptable. To genuinely stop using it you must first convert every sealed secret back to
+another mechanism, and only then remove the profile.
+
+**`replicated-storage`** is add-only in effect. Adding it installs the engine and a new
+StorageClass. **Volumes that already exist stay on Local PV LVM** — adding the profile does not
+migrate them, and there is no supported in-place migration. Moving an existing workload onto
+replicated storage means a new volume and a data copy, at a time you choose. Removing the profile
+requires that nothing is using its StorageClass.
+
+**`ha`** cannot change in either direction. Migrating a single-server cluster to embedded etcd
+after the fact is disruptive and there is no supported path. This is why the tier is chosen at
+install and priced separately.
+
+<Callout type="warning">
+**OQ-PROFILE-5 — can a profile be added without also upgrading the bundle?** A profile's
+components are pinned *by* the bundle, so adding `observability` to a cluster on Platform 1.2
+should install 1.2's pinned versions of it. That is the straightforward reading and it keeps the
+cluster on one coherent version.
+
+What is not decided is whether adding a profile is its own operation with its own progress,
+verification and rollback, or whether it reuses the upgrade machinery in `kn-fuo`. It should reuse
+it — a profile addition is a change to what the cluster runs and deserves the same pre-flight
+checks and the same recorded outcome — but that is a design decision, not a given.
+</Callout>
+
+## What gets recorded
+
+The profile set is recorded against your cluster at install and updated on every change:
+
+```
+cluster-a: Platform 1.0 + [observability, secrets]
+           ha-tier: single-server
+           volume-group: customer-created
+```
+
+This is not bookkeeping. **The upgrade path depends on it.** Upgrading is
+`Platform 1.0 → 1.1 for this exact profile set`, and it is only a tested transition because we
+know which set that is. A cluster whose profile record is wrong is a cluster we cannot safely
+upgrade — and an unknown profile name is rejected at install rather than quietly ignored, for the
+same reason.
+
+The record is also what makes the fleet view honest: every cluster reports its bundle version,
+profile set, HA tier and backup state on every heartbeat, so drift between what is recorded and
+what is installed is visible rather than discovered during an upgrade.
+
+## Open design questions
+
+| ID | Question | Blocks |
+|---|---|---|
+| OQ-PROFILE-1 | Two profiles interact with core's Velero; the matrix assumes orthogonality | `kn-twe` matrix definition |
+| OQ-PROFILE-2 | `secrets` offers a choice inside a slot — two profiles, one, or an untested variant? | `kn-ynaq`, matrix size |
+| OQ-PROFILE-3 | Verify sealed-secrets' Bitnami lineage before locking | `kn-ynaq` |
+| OQ-PROFILE-4 | Which replicated storage engine? | `kn-54ni` — and hard to change later |
+| OQ-PROFILE-5 | Does adding a profile reuse the upgrade machinery? | `kn-fuo` scope |
+
+**OQ-PROFILE-2** and **OQ-PROFILE-4** both need deciding before the first bundle release. The
+others can follow.
