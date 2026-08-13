@@ -368,7 +368,7 @@ unauthenticated RCE before them. Traefik is already the k3s default, so this is 
 choice as well as the safe one.
 
 Converting existing Ingress resources to Gateway API with `ingress2gateway` is **not** part of the
-install flow. It is tracked separately as `kn-xs31`.
+install flow. It is tracked separately as `kn-pgu`.
 </Callout>
 
 <Callout type="warning">
@@ -509,7 +509,7 @@ and the page above reflects them.
 | OQ-INSTALL-9 | Does the 3-node etcd tier ship in bundle 1? | The `--ha` flag and recorded tier ship in bundle 1 regardless; `--ha ha` errors clearly if the tier is unavailable. The tier must land before any customer cluster carries production traffic, since there is no migration path. Exact sequencing needs Crest question 3 — `kn-kp3` |
 | OQ-INSTALL-10 | Install duration budget | Fifteen minutes, both reference shapes. An overrun is a defect, not a revised number |
 | OQ-INSTALL-11 | What may uninstall destroy? | Nothing by default. `--destroy-data` removes volumes. Never removes a volume group it did not create |
-| OQ-INSTALL-12 | `ingress2gateway` in the install flow? | No. Tracked separately as `kn-xs31` |
+| OQ-INSTALL-12 | `ingress2gateway` in the install flow? | No. Tracked separately as `kn-pgu` |
 | OQ-INSTALL-13 | Roll back a failed install? | No automatic rollback. Stage journal, `install-failed` cluster state, and exactly two exits: resume or uninstall |
 | OQ-INSTALL-14 | Where does machine provisioning live? | In the CLI, as `kubenest cluster provision`. Cloud credentials stay customer-side, like SSH keys. Port tracked in `kn-plcc` |
 
