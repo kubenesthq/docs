@@ -216,8 +216,13 @@ reverts to the previous revision in seconds. Nothing is lost.
 ### Kubernetes — no such thing as a downgrade
 
 **Kubernetes does not support downgrading.** Neither does k3s. Once the API server has upgraded
-and etcd has written data in the new schema, going back means restoring the etcd snapshot taken at
-stage 2.
+and the datastore has written data in the new schema, going back means restoring the datastore
+snapshot taken at stage 2.
+
+The mechanism differs by tier: embedded etcd on the `ha` tier, the local database on
+`single-server`. Both are covered by the same stage-2 snapshot and the same command — see
+[backup and restore](/platform/backup-restore) — but note that on `single-server` the restore is
+also a control-plane outage, because there is only one control plane.
 
 That is a genuine restore, not a rollback: the cluster returns to its state at the moment the
 snapshot was taken, and there is a service interruption while it happens.
@@ -225,7 +230,7 @@ snapshot was taken, and there is a service interruption while it happens.
 <Callout type="warning">
 **Restoring the platform does not restore your application data**, and that is deliberate.
 
-An etcd restore rolls back *cluster state* — the Kubernetes objects. Your persistent volumes are
+A datastore restore rolls back *cluster state* — the Kubernetes objects. Your persistent volumes are
 not touched, so database contents, uploaded files and anything else written to a PV survive
 unchanged.
 
@@ -246,7 +251,7 @@ kubenest platform rollback --cluster crest-client-a
 ```
 
 It reports which mechanism it will use before doing anything, and asks for confirmation when the
-mechanism is an etcd restore.
+mechanism is a datastore restore.
 
 <Callout type="warning">
 **OQ-UPGRADE-4 — is rollback automatic on failure, or always operator-initiated?**
@@ -257,8 +262,8 @@ fail. But an upgrade differs from an install in one way that matters — a faile
 *running production cluster* in a mixed-version state, not a bare machine.
 
 Recommend: automatic rollback for component-stage failures only, where it is a fast Helm revert
-with no data implications, and never automatic for the Kubernetes stage, where it means an etcd
-restore and a service interruption that nobody should trigger without a human deciding.
+with no data implications, and never automatic for the Kubernetes stage, where it means a
+datastore restore and a service interruption that nobody should trigger without a human deciding.
 </Callout>
 
 ## When a stage fails
@@ -287,7 +292,7 @@ cluster keeps serving, and you choose:
 
 - **Resume** once the failing node's problem is fixed. This is the normal path and usually the
   right one.
-- **Restore** to N from the stage-2 snapshot, accepting the service interruption.
+- **Restore** to N from the stage-2 datastore snapshot, accepting the service interruption.
 
 **Failure during `verify`.** The upgrade completed but a post-upgrade check failed. The cluster is
 on N+1. The report names the failing check; the cluster is *not* recorded as successfully upgraded

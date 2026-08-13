@@ -1,0 +1,195 @@
+---
+title: HA tiers
+description: single-server plus verified restore, or three-node embedded etcd — what each tier does and does not promise, stated plainly.
+---
+
+import { Callout } from 'nextra/components'
+
+<Callout type="error">
+**DRAFT — SPECIFICATION, NOT SHIPPED SOFTWARE.**
+
+Build specification for `kn-kp3`, written before it exists. Do not rely on it and do not quote it
+to a customer.
+
+Promoted to published only when `kn-ze1` has verified it against a real cluster — including
+killing a control-plane node on each tier and asserting the documented behaviour.
+Open questions are marked <strong>OQ-HA-*</strong> and collected at the
+[bottom](#open-design-questions).
+</Callout>
+
+# HA tiers
+
+Two tiers. The difference is what happens when a control-plane node dies, and it is a large
+difference. Choose it at install — see [why](#why-this-is-chosen-at-install).
+
+This page states what each tier does **and does not** promise. That second half is the point. A
+customer who is surprised by their tier's behaviour during an incident was mis-sold, and the
+sentence they needed was one we chose not to write.
+
+## The two tiers
+
+| | `single-server` | `ha` |
+|---|---|---|
+| Control-plane nodes | 1 | 3 |
+| Datastore | Local database on that node | Embedded etcd, replicated |
+| Survives losing a control-plane node | **No** | Yes, one of three |
+| API available during a control-plane reboot | No | Yes |
+| Control-plane node reboots for OS patching | Needs a human | Automatic, one at a time |
+| Honest promise | *"We restore within X hours"* | *"Survives the loss of one node"* |
+| Cost | 1 node | 3 nodes, plus etcd operations |
+
+## `single-server`
+
+One control-plane node. Simpler, cheaper, fewer moving parts, and genuinely the right answer for
+plenty of workloads.
+
+**What it promises:** that when the control-plane node is lost, the cluster can be rebuilt from
+datastore snapshots and workload backups within a stated time, and that the restore path has been
+tested rather than assumed.
+
+**What it does not promise:** high availability. It is not a high-availability configuration and
+should never be described as one.
+
+### What actually happens when the control-plane node dies
+
+Read this before choosing the tier, because the failure mode is unusual and it is easy to
+misjudge.
+
+**Your applications keep running.** The kubelet on each node does not need the API server to keep
+existing containers alive. Traffic keeps flowing. Ingress keeps serving its last known
+configuration. From outside, for a while, nothing looks wrong.
+
+**Nothing else works:**
+
+- Nothing new schedules
+- Nothing self-heals — a crashed pod is not restarted, a failed node is not drained
+- No deploy, no scale, no config change
+- `kubectl` does not respond
+- Autoscaling, if you have it, silently stops
+
+**The cluster is frozen, not down.** That is a strange state and a dangerous one, because it looks
+survivable and is not. The first failure took away every mechanism that would handle the second
+one. Until you restore, you are running without a safety net, and the clock is quiet.
+
+<Callout type="warning">
+**This is why the restore drill is not optional.** The `single-server` tier is honest exactly to
+the degree that the restore path is proven. Verified restore drills are in core and run on a
+schedule for this reason — see [backup and restore](/platform/backup-restore).
+
+It is also why we tell you this rather than burying it. Because KubeNest abstracts k3s away, you
+are less able to diagnose a frozen cluster than you would be if you had assembled it yourself.
+That is a fair trade only if we have told you, in advance and in writing, exactly what to expect
+and exactly what to do.
+</Callout>
+
+### What to do when it happens
+
+1. **Confirm the diagnosis.** `kubectl` is unresponsive but your applications are still serving.
+   The console will show the cluster's telemetry has stopped.
+2. **Do not restart workloads or nodes.** Everything still running is running fine, and a node
+   that restarts now will not come back into a cluster with no API server.
+3. **Rebuild and restore**, following
+   [restoring a whole cluster](/platform/backup-restore#a-whole-cluster-from-a-datastore-snapshot).
+   Same bundle version, same profile set — both are on the cluster record.
+
+<Callout type="warning">
+**OQ-HA-2 — X is undefined.** The promise is *"we restore within X hours"* and no value has been
+measured or committed. That makes the tier's central claim a sentence with a blank in it.
+
+Blocked on **OQ-BACKUP-2**. Until it is measured on a real cluster and stated as a function of
+data volume, this tier should not be quoted to a customer with a number attached, and the
+attractive-sounding version of the sentence should not be used at all.
+</Callout>
+
+## `ha`
+
+Three control-plane nodes with embedded etcd, maintaining quorum.
+
+**What it promises:** the loss of one control-plane node is survivable without restoring anything.
+The API stays available, workloads keep scheduling and self-healing, and control-plane nodes can
+reboot for OS patching one at a time without a human deciding.
+
+**What it does not promise:**
+
+- **Surviving the loss of two.** Three nodes with quorum of two means two failures is a stopped
+  cluster, and recovering an etcd cluster that has lost quorum is worse than restoring a
+  single-server one.
+- **Freedom from backups.** Replication is not backup. It faithfully replicates a deletion to all
+  three nodes. You still need the backups and the drills.
+- **Zero operational weight.** etcd brings quorum, compaction and defragmentation. We absorb that
+  on your behalf, but it is real, and it is why the tier is priced differently rather than offered
+  as a free upgrade.
+
+## Why this is chosen at install
+
+Because moving between the tiers afterwards is not something we currently support, and getting
+that wrong is expensive.
+
+A cluster installed as `single-server` stays `single-server` for its life, unless it is rebuilt
+from scratch. So the choice is made deliberately, recorded against the cluster, priced
+accordingly, and reported in every telemetry heartbeat — a cluster with no control-plane
+redundancy is flagged as such, so nobody has to remember which tier a customer bought.
+
+<Callout type="warning">
+**OQ-HA-1 — running the `single-server` tier on single-node embedded etcd instead of SQLite would
+probably remove the one-way door entirely. This is the most consequential open question on the
+page and it should be settled before the first cluster is installed.**
+
+k3s defaults a single server to SQLite and uses embedded etcd for multi-server clusters. That
+split is the reason there is no migration path: converting a SQLite cluster to etcd is disruptive
+and unsupported.
+
+But k3s can start a **single** server with embedded etcd (`--cluster-init`), and **joining two
+more servers to an existing etcd cluster is a supported, routine operation.** If tier 1 ran
+single-node etcd from the beginning, then `single-server → ha` becomes "add two servers" rather
+than "rebuild the cluster".
+
+What that would change, all of it significant:
+
+- **The tiers stop being a one-way door.** A customer could start cheap and grow into HA. That is
+  a materially better product and a materially easier sale.
+- **One datastore, one snapshot mechanism, one restore runbook** instead of two — resolving
+  **OQ-BACKUP-4**, and for the tier where restore matters most because there is no redundancy.
+- **It weakens the reasoning behind OQ-INSTALL-9.** Shipping both tiers in bundle 1 was decided on
+  the grounds that no migration path makes a wrong guess unrecoverable. If a migration path
+  exists, that argument mostly dissolves — though shipping both remains defensible on other
+  grounds.
+
+The costs are real and should not be waved away: single-node etcd is heavier than SQLite in
+memory and disk I/O, and it brings compaction and defragmentation to a tier chosen for having
+fewer moving parts. A corrupted single etcd node is also a nastier failure than a corrupted SQLite
+file.
+
+**Recommend evaluating this before the first customer install**, because every cluster installed
+on SQLite before it is decided is permanently on the wrong side of the answer if the answer turns
+out to be etcd.
+</Callout>
+
+## Choosing
+
+Take `ha` when any of these is true:
+
+- Scheduling and self-healing must keep working through a node failure
+- The cluster runs something where a restore-shaped outage is not acceptable
+- You do not want a human involved in every control-plane reboot for OS patching
+- The applications on it cannot tolerate a frozen control plane for the restore duration
+
+Take `single-server` when:
+
+- The workloads tolerate a rebuild-and-restore outage
+- The restore time — once **OQ-HA-2** is answered — is acceptable to the business
+- Cost matters more than the difference, which for three control-plane nodes is not small
+- Someone will actually be available to act on a frozen cluster
+
+<Callout type="info">
+There is no shame in `single-server`. Plenty of production workloads are fine with it. What is not
+fine is choosing it while believing it is highly available, which is why this page is written the
+way it is.
+</Callout>
+
+## Open design questions
+
+| ID | Question | Blocks |
+|---|---|---|
+| OQ-HA-1 | Single-node etcd instead of SQLite for `single-server` — would remove the one-way door and unify restore | `kn-kp3`, OQ-BACKUP-4, and the reasoning behind OQ-INSTALL-9 |
+| OQ-HA-2 | X in "we restore within X hours" is undefined | The tier's central promise. Blocked on OQ-BACKUP-2 |

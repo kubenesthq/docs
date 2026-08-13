@@ -1,0 +1,271 @@
+---
+title: Backup and restore
+description: Workload backups, datastore snapshots, and the scheduled restore drill that proves they work — including how to read a drill result and what to do when one fails.
+---
+
+import { Callout, Steps } from 'nextra/components'
+
+<Callout type="error">
+**DRAFT — SPECIFICATION, NOT SHIPPED SOFTWARE.**
+
+Build specification for `kn-mzn`, written before it exists. Schedules, commands and output
+describe intended behaviour. Do not rely on it and do not quote it to a customer.
+
+Promoted to published only when `kn-ze1` has verified it against a real cluster — including a
+deliberately corrupted backup, to prove the drill fails rather than passing quietly.
+Open questions are marked <strong>OQ-BACKUP-*</strong> and collected at the
+[bottom](#open-design-questions).
+</Callout>
+
+# Backup and restore
+
+**A backup that has never been restored is not a backup.** It is a file, and an assumption.
+
+Everyone ships backup. Almost nobody ships evidence that restore works. The scheduled restore
+drill on this page is the part that matters — a cluster that says *last restore drill: passed, 3
+days ago* is telling you something a backup schedule never can.
+
+## Two separate things
+
+They are backed up differently, restored differently, and needed in different disasters. Confusing
+them is how people discover they only had half a backup.
+
+| | **Workload backup** | **Datastore snapshot** |
+|---|---|---|
+| What it holds | Kubernetes objects and persistent volume data | The cluster's own state — every workload definition, secret, and config |
+| Tool | Velero | k3s datastore snapshot |
+| Answers | "The `payments` namespace was deleted" | "The control-plane node's disk died" |
+| Schedule | Configurable, default daily | Configurable, default more frequent |
+| Target | Your S3-compatible bucket | Your S3-compatible bucket |
+
+You need both. A workload backup does not rebuild a cluster. A datastore snapshot does not contain
+your database.
+
+<Callout type="warning">
+**The single-server datastore is the one people forget.** A single-server k3s cluster keeps its
+entire state in a local database on the control-plane node. If that disk dies and there is no
+snapshot, **every workload definition in the cluster is gone** — not the running containers'
+data, the definitions themselves. There is nothing to restore from and nothing to rebuild from
+except your Git repository and your memory.
+
+This is why datastore snapshots are in core and not optional, and why the
+[HA tiers page](/platform/ha) treats snapshots as the thing that makes the single-server tier
+honest rather than negligent.
+</Callout>
+
+## Configuring a target
+
+Both use S3-compatible object storage that you supply and control.
+
+```bash filename="terminal"
+kubenest backup set-target --cluster crest-client-a \
+  --endpoint s3.ap-south-1.amazonaws.com \
+  --bucket crest-client-a-kubenest \
+  --region ap-south-1
+```
+
+Configuring a target at install is optional. Until you do, Velero is installed but unconfigured,
+and the cluster reports `backup: unconfigured` in **every** telemetry heartbeat, showing as a
+warning against the cluster in the console until it is resolved. An unconfigured backup is loud,
+not silent.
+
+<Callout type="warning">
+**If you use the `secrets` profile, your sealing key is in the backup set.** It has to be: lose
+the sealed-secrets sealing key and every `SealedSecret` in your Git repository becomes permanently
+undecryptable, with no recovery path at all.
+
+That makes your backup bucket as sensitive as the secrets themselves. Treat its access policy
+accordingly.
+</Callout>
+
+## The restore drill
+
+This is the centre of the page.
+
+On a schedule, and without anyone asking, the cluster:
+
+1. Takes the most recent backup
+2. Restores it into a scratch namespace
+3. Asserts the restored objects match what was backed up
+4. Asserts the restored **volume data** matches
+5. Tears the scratch namespace down
+6. Records pass or fail, with a timestamp
+
+The result goes into fleet telemetry and is visible against the cluster. **A failed drill is an
+alert, not a log line.** It is also a gate: the [upgrade](/platform/upgrades) pre-flight refuses to
+run when the last drill did not pass, because rollback depends on restore working.
+
+### Reading a drill result
+
+```
+Restore drill — crest-client-a
+  Status      PASSED
+  Ran         2026-08-13 02:14 IST
+  Backup      daily-20260813-0200 (4.2 GiB)
+  Objects     318 restored, 318 matched
+  Volumes     3 restored, 3 matched
+  Duration    4m 11s
+```
+
+The two lines to read are **Objects** and **Volumes**. Restored and matched should be equal. A
+restore that completes with fewer matched than restored is a *failure*, even though nothing
+errored — it means the data came back different, which is exactly the outcome a drill exists to
+catch.
+
+**Duration** is worth watching over time. A drill that is slowly getting longer is telling you
+your restore time is growing, and restore time is what the single-server tier's promise is made
+of.
+
+### When a drill fails
+
+A failed drill means **you currently have no proven backup.** Treat it as an incident, not a
+warning to look at next week.
+
+<Steps>
+
+### Read which stage failed
+
+The result names it: backup unreadable, restore errored, objects mismatched, or volume data
+mismatched. These have different causes and different fixes.
+
+**Backup unreadable** — usually the target. Credentials rotated, bucket policy changed, bucket
+deleted, or the endpoint is unreachable from the cluster.
+
+**Restore errored** — the backup exists but will not apply. Often a CRD present when the backup
+was taken and absent now, or the reverse.
+
+**Objects mismatched** — the restore completed but produced different objects. The report names
+which.
+
+**Volume data mismatched** — the most serious. Object storage has the volume but its contents do
+not match. Suspect the volume snapshot path rather than Velero itself.
+
+### Re-run it by hand
+
+```bash filename="terminal"
+kubenest backup drill --cluster crest-client-a --verbose
+```
+
+A drill that passes on a manual re-run points at something transient — a network blip to the
+bucket, or contention with another operation. Still worth understanding; not an emergency.
+
+### Take a fresh backup and drill that
+
+```bash filename="terminal"
+kubenest backup now --cluster crest-client-a
+kubenest backup drill --cluster crest-client-a --latest
+```
+
+If a fresh backup drills clean, the problem was that specific backup. If it fails too, the problem
+is the pipeline, and you have no working backup right now.
+
+### Do not upgrade until it passes
+
+The upgrade pre-flight already blocks this, but it is worth stating: with no proven restore, an
+upgrade has no way back.
+
+</Steps>
+
+<Callout type="warning">
+**OQ-BACKUP-1 — does the drill restore every volume, or a sample?** Restoring volume data proves
+the most and costs the most. On a cluster with a 500 GiB volume, a nightly full-data drill is
+expensive in time, in provisioned scratch storage, and in egress.
+
+Options: full restore every time (strongest, most expensive), full objects plus sampled volume
+data with checksums (probably the right balance), or objects only with volumes drilled weekly
+rather than nightly.
+
+Whatever is chosen, the drill result must state **what it actually verified**. A result that says
+PASSED while having skipped volumes is worse than no drill, because it manufactures exactly the
+false confidence this feature exists to remove.
+</Callout>
+
+## Restoring for real
+
+### A namespace or a workload
+
+```bash filename="terminal"
+kubenest backup restore --cluster crest-client-a \
+  --from daily-20260813-0200 \
+  --namespace payments
+```
+
+Restores into the live cluster. It reports what it will change before doing it.
+
+### A whole cluster, from a datastore snapshot
+
+The disaster case: the control-plane node is gone. You are rebuilding the cluster itself.
+
+<Steps>
+
+### Install the platform on replacement hardware
+
+Same bundle version, same profile set, same HA tier as the cluster you are replacing. All three
+are on the cluster record, so you do not have to remember them.
+
+### Restore the datastore snapshot
+
+```bash filename="terminal"
+kubenest platform restore --cluster crest-client-a \
+  --snapshot datastore-20260813-0400
+```
+
+The cluster comes back with every workload definition, secret and config it had at snapshot time.
+
+### Restore volume data
+
+Datastore snapshots do not contain your persistent volumes. Restore the most recent workload
+backup on top.
+
+### Verify
+
+Run the [install verification checks](/platform/install#verifying-the-install), then confirm your
+own applications.
+
+</Steps>
+
+<Callout type="warning">
+**OQ-BACKUP-2 — how long does a full cluster restore take?** Unmeasured, and it is the single most
+important unmeasured number in the product.
+
+The `single-server` tier's entire honest promise is *"we restore within X hours"*. **X is
+currently undefined.** Until it is measured on a real cluster and stated in writing, that tier is
+being sold on a promise with a blank in it.
+
+Measure across cluster sizes and state it as a function of data volume, not a single figure.
+Owned by `kn-ze1`. This blocks the [HA tiers page](/platform/ha) more than it blocks this one.
+</Callout>
+
+<Callout type="warning">
+**OQ-BACKUP-3 — default schedules and retention are not chosen.** Needed: workload backup
+frequency, datastore snapshot frequency, retention for each, and drill frequency.
+
+The datastore snapshot should be considerably more frequent than the workload backup — it is
+small, and on the single-server tier the gap between snapshots is exactly how much cluster state a
+disk failure costs you.
+
+Retention interacts with your bucket costs, which are yours, so the defaults should be modest and
+obviously adjustable rather than generous and surprising.
+</Callout>
+
+<Callout type="warning">
+**OQ-BACKUP-4 — the single-server datastore is SQLite, and it snapshots differently from etcd.**
+k3s uses SQLite for a single server and embedded etcd for the `ha` tier. etcd has first-class
+snapshot tooling; SQLite means capturing a database file consistently.
+
+Two mechanisms means two code paths, two failure modes, and two restore runbooks — for the tier
+where restore matters *most*, since it is the tier with no redundancy.
+
+The [HA tiers page](/platform/ha) raises a way to avoid this entirely: run the single-server tier
+on single-node embedded etcd rather than SQLite. See **OQ-HA-1**, which has consequences well
+beyond backup.
+</Callout>
+
+## Open design questions
+
+| ID | Question | Blocks |
+|---|---|---|
+| OQ-BACKUP-1 | Does the drill restore every volume or a sample? | `kn-mzn` drill design |
+| OQ-BACKUP-2 | How long does a full cluster restore take? X in "restore within X hours" | The `single-server` tier's promise |
+| OQ-BACKUP-3 | Default schedules and retention | `kn-mzn`, bucket cost expectations |
+| OQ-BACKUP-4 | SQLite versus etcd snapshot paths for single-server | Two restore runbooks, or one — see OQ-HA-1 |
