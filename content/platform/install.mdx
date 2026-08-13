@@ -3,7 +3,7 @@ title: Install the platform
 description: Install the KubeNest Platform bundle — a pinned, tested k3s stack — onto Ubuntu hosts you supply.
 ---
 
-import { Callout, Steps, Tabs } from 'nextra/components'
+import { Callout, Steps } from 'nextra/components'
 
 <Callout type="error">
 **DRAFT — SPECIFICATION, NOT SHIPPED SOFTWARE.**
@@ -15,9 +15,9 @@ Do not follow this page against a real cluster, and do not quote it to a custome
 It is promoted to published only when `kn-ze1` has verified every claim on it against a real
 cluster. Passing the test is what publishes the page.
 
-Unresolved decisions are marked <strong>OQ-INSTALL-*</strong> and collected in
-[Open design questions](#open-design-questions) at the bottom. Where you see one, no answer
-has been chosen — do not implement past it without closing it first.
+Eleven of the thirteen original open questions were decided on 2026-08-13 and are recorded in
+[Decisions](#decisions). Two remain open, plus one new one, marked <strong>OQ-INSTALL-*</strong>
+and collected in [Still open](#still-open). Do not implement past an open question.
 </Callout>
 
 # Install the platform
@@ -41,7 +41,7 @@ The claim is deliberately narrow, because a claim we can test is worth more than
 sounds bigger:
 
 > From a single machine with SSH access to your target nodes, one command installs the complete
-> core bundle with no further human steps.
+> core bundle in under fifteen minutes, with no further human steps.
 
 What that does **not** mean:
 
@@ -54,32 +54,31 @@ What that does **not** mean:
 
 ### Supported hosts
 
-Ubuntu only. The installer refuses to run on any other distribution rather than half-installing
-one.
+**Ubuntu LTS only.** The installer refuses to run on a non-LTS Ubuntu release or on any other
+distribution, rather than half-installing one.
 
-Locking the operating system is what makes the bundle testable: a known kernel and a deterministic
-LVM layout are preconditions for the storage and OS-patching components, and for replicated
-storage later.
+Locking the operating system is what makes the bundle testable: a known kernel and a
+deterministic LVM layout are preconditions for the storage and OS-patching components, and for
+replicated storage later.
 
-<Callout type="warning">
-**OQ-INSTALL-1 — which Ubuntu releases?** LTS only, or LTS plus current? Which specific
-releases are in the tested matrix for Platform 1.x? Every release added is a multiplier on the
-six tested configurations per bundle, so this list should be as short as we can defend. It also
-needs a stated policy for what happens when a release reaches end of standard support mid-bundle.
-</Callout>
+The specific LTS releases tested for a given bundle are recorded in that bundle's manifest, not
+here, so that the supported set moves with the bundle rather than with this page. Pinning that
+list, and setting the policy for what happens when a release reaches end of standard support
+mid-bundle, belongs to `kn-boj`.
 
 ### Host sizing
 
 <Callout type="warning">
-**OQ-INSTALL-2 — minimum and recommended host specification.** Not yet measured. The core
-bundle is materially heavier than bare k3s: cert-manager, OpenEBS, Velero,
+**OQ-INSTALL-2 — minimum and recommended host specification. To be measured, not guessed.**
+
+The core bundle is materially heavier than bare k3s: cert-manager, OpenEBS, Velero,
 `system-upgrade-controller`, `kured` and the KubeNest agent all run continuously before a single
 workload is scheduled. Publishing a guessed number here is how a customer's first install fails
 on an under-provisioned box.
 
-Measure the idle resident footprint of core on a single-server install and of core plus every
-profile, then state minimum and recommended figures separately for server and agent nodes.
-Owned by `kn-ze1`, which will have the environment to measure it.
+Method: measure the idle resident CPU, memory and disk footprint of core on a single-server
+install, and of core plus every profile, then state minimum and recommended figures separately
+for server and agent nodes. Owned by `kn-ze1`, which will have the environment to measure it.
 </Callout>
 
 ### Disks and storage
@@ -89,41 +88,44 @@ profile, not core — it is itself a source of operational dread, and durability
 configuration comes from verified backups plus application-level replication instead.
 
 Local PV LVM provisions volumes out of an LVM volume group that must exist on each node that will
-host persistent data.
+host persistent data. There are two supported ways to get one, and you pick per install.
 
-<Callout type="warning">
-**OQ-INSTALL-3 — who creates the volume group?** Three options, and they are not equivalent:
+**Option 1 — you create the volume group (default).** Create a volume group named `kubenest-vg`
+on each data-bearing node before running the installer. Preflight verifies it exists and has free
+extents. The installer never touches your block devices.
 
-1. **The customer pre-creates it** to a documented name (e.g. `kubenest-vg`) and the installer
-   verifies it in preflight. Safe, but adds a manual step before the "one command", which
-   weakens the claim.
-2. **The installer creates it** from a dedicated blank disk the customer names with a flag
-   (e.g. `--storage-device /dev/nvme1n1`). Still one command, but the installer now writes to
-   a block device on infrastructure we do not own. That must be impossible to trigger by accident.
-3. **The installer creates it from free space** on the existing root disk. Most convenient,
-   worst failure mode.
+**Option 2 — the installer creates it.** Name a blank device explicitly:
 
-This decision also determines what uninstall is allowed to destroy — see **OQ-INSTALL-11**.
-Recommend (1) as the default with (2) available behind an explicit device flag, but this needs
-a decision before `kn-7k8` starts.
-</Callout>
+```bash
+--storage-device /dev/nvme1n1
+```
 
-### Backup target
+The installer creates `kubenest-vg` on that device. Preflight refuses if the device holds a
+partition table, a filesystem or an existing volume group, so this cannot silently overwrite data.
+The flag is required — there is no device auto-detection, because guessing which disk is
+disposable on someone else's infrastructure is not a risk worth taking.
 
-Velero is in core, so backup is not optional. Velero needs somewhere to put backups — an
-S3-compatible object store — and that is outside the cluster by definition.
+Creating a volume group from free space on the root disk is not supported.
 
-<Callout type="warning">
-**OQ-INSTALL-4 — is a backup target required at install time?** If the installer demands
-bucket credentials up front, the one-command claim now depends on the customer having provisioned
-object storage first. If Velero installs unconfigured, then a cluster can sit in production with
-a backup component that has never taken a backup, which is precisely the quiet failure this
-product exists to prevent.
+Which option you used is recorded against the cluster, because it determines what
+[uninstall](#uninstall) is allowed to remove.
 
-Middle option: install Velero unconfigured but have the cluster report `backup: unconfigured`
-through fleet telemetry from the first heartbeat, and surface it as a warning in the console
-until a target is set. That keeps the install path clean without letting the gap go unnoticed.
-Needs a decision jointly with the backup and restore page.
+### Backup
+
+Velero is installed as part of core. Configuring a backup target at install time is **optional**.
+
+If you supply an S3-compatible target, Velero is configured and the first scheduled backup runs
+per the schedule on the backup and restore page. If you do not, Velero is installed unconfigured
+and the cluster reports `backup: unconfigured` in every fleet-telemetry heartbeat from the first
+one onward. The console shows that as a warning against the cluster until a target is set.
+
+An unconfigured backup is visible, not silent. A cluster that has never taken a backup is exactly
+the quiet failure this product exists to prevent, so it is surfaced continuously rather than
+blocking the install.
+
+<Callout type="info">
+Velero itself is not optional and is not a profile. Core is a fixed set — variation comes from
+profiles only, or the tested-configuration count stops being N+2.
 </Callout>
 
 ### Network
@@ -137,65 +139,42 @@ Between cluster nodes:
 | 10250 | TCP | all ↔ all | Kubelet metrics |
 | 2379–2380 | TCP | server ↔ server | Embedded etcd — **3-node HA tier only** |
 
-Outbound from the cluster:
+Outbound from the cluster and from the machine running the installer:
 
 - HTTPS to container registries and Helm repositories, for the duration of the install.
-- Persistent outbound WSS to your KubeNest hub. The agent dials out; no node needs a public
-  address and no inbound port needs opening for KubeNest itself.
+- HTTPS to your KubeNest control plane, from the installer.
+- Persistent outbound WSS to your KubeNest hub, from the cluster. The agent dials out; no node
+  needs a public address and no inbound port needs opening for KubeNest itself.
 
-<Callout type="warning">
-**OQ-INSTALL-5 — air-gapped installs.** k3s supports air-gapped installation and this is an
-open question with Crest's clients that has not been asked yet. Supporting it means shipping the
-bundle as a versioned image archive and a local chart bundle, which is real work and real ongoing
-release cost. Not supporting it means saying so in writing here.
-
-Either commit or descope explicitly. Silence is the worst option, because a prospect will assume
-one answer and find out late.
+<Callout type="info">
+**Air-gapped installs are not supported and are a roadmap item.** Both the install and the
+cluster require outbound internet access. Supporting air-gapped operation means shipping the
+bundle as a versioned image archive plus a local chart bundle, with its own release process. It
+is planned, not present. Disconnected installs — installing with no control plane reachable —
+are part of the same roadmap item, since they share the packaging work.
 </Callout>
 
 ### Access
 
-The machine you run the installer from needs SSH to every target node, with sudo on each.
+The machine you run the installer from needs SSH to every target node, with **passwordless sudo**
+on each.
 
-<Callout type="warning">
-**OQ-INSTALL-6 — the privilege and credential model.** Does the install require passwordless
-sudo, or can it prompt? More importantly: where does the SSH key live?
+The installer uses your existing SSH setup: `~/.ssh/config`, `ssh-agent`, or a key file named
+with `--ssh-key`. Key material stays on your machine. It is never uploaded to the control plane,
+never stored by KubeNest, and never written to the installer's logs.
 
-The existing provisioner path runs inside a container that the control plane invokes, holding the
-key material, because it provisions the machines itself. On customer-supplied infrastructure that
-inverts the trust question — we would be asking Crest to hand a third-party control plane SSH
-access into their clients' production hosts. That is a procurement conversation, not just a
-technical one, and it may be the single biggest objection to the install flow.
-
-Alternative: the installer is a binary the customer runs from their own admin workstation or
-bastion, and the key never leaves their side. See **OQ-INSTALL-7**, which is the same decision
-seen from the other end.
-</Callout>
+Preflight runs `sudo -n true` on each node and fails with the exact remediation if it does not
+succeed. The default `ubuntu` user on official Ubuntu cloud images already has passwordless sudo
+configured by cloud-init, so on a stock AWS Ubuntu host this needs nothing from you.
 
 ### An existing cluster on these hosts
 
-<Callout type="warning">
-**OQ-INSTALL-8 — do we adopt existing clusters, or only build new ones?** This is the largest
-open question on the page and it changes the shape of the installer.
+**Not supported.** The installer builds new clusters only. Preflight refuses to run on any host
+where k3s, RKE2, kubelet or containerd is already present, and says so plainly.
 
-Sidero Omni cannot adopt an existing EKS, GKE, AKS, RKE2 or k3s cluster — it boots machines from
-its own image. We have treated that as one of our openings. But "install the bundle onto bare
-Ubuntu hosts" and "install the bundle into a cluster that already exists" are two different
-products sharing a name:
-
-- The **bare-hosts** path owns the whole stack and can pin every version. It is testable in six
-  configurations.
-- The **adopt** path inherits whatever ingress, CSI and cert manager are already there,
-  which is exactly the untested interaction surface the bundle exists to eliminate. Adoption
-  would have to mean either replacing those components or refusing to manage them, and both
-  need designing.
-
-Until this is decided, the installer should **refuse to run on a host that already has
-Kubernetes** and say so clearly, rather than guessing. That is the safe default, not the answer.
-
-Worth asking Crest directly: do their clients have existing clusters to bring, or are these
-greenfield deployments on new infrastructure?
-</Callout>
+Adopting a cluster that already exists means inheriting whatever ingress, CSI and cert manager
+are already installed on it — which is the untested component combination the bundle exists to
+eliminate. It is a different product and it is out of scope for now.
 
 ## Choose your tiers before you run
 
@@ -204,8 +183,8 @@ Two choices are made at install time and recorded permanently against the cluste
 ### HA tier
 
 <Callout type="warning">
-Migrating a single-server cluster to embedded etcd afterwards is disruptive, so this is not a
-day-2 item. Choose deliberately.
+Migrating a single-server cluster to embedded etcd afterwards is disruptive and there is no
+supported migration path. This is not a day-2 item. Choose deliberately.
 </Callout>
 
 **`single-server`** — one control-plane node, plus verified snapshots. Simpler, cheaper, fewer
@@ -221,13 +200,30 @@ failure, which cascades with no recovery path.
 control-plane cost and introduces etcd quorum operations.
 
 <Callout type="warning">
-**OQ-INSTALL-9 — is the 3-node etcd tier in the first bundle release, or later?** The flag and
-the recorded value should exist from day one either way, so that no cluster is ever ambiguous
-about which tier it bought. But if the tier itself ships later, this page must say so plainly
-rather than documenting a flag that returns an error.
+**OQ-INSTALL-9 — does the 3-node etcd tier ship in the first bundle release?** Open. The context
+needed to decide:
 
-Also unanswered from the Crest question list: what availability do their clients actually need?
-That answer decides whether this is urgent or not.
+**What it costs to build.** k3s supports embedded etcd directly — `--cluster-init` on the first
+server, the other two join. The work is install orchestration, quorum verification after install,
+and the knock-on effects: etcd snapshot handling in the backup path, and upgrade sequencing in
+`kn-fuo` that drains and upgrades three servers in order instead of one. Moderate, not large.
+
+**What it costs to run.** Two extra instances per cluster, plus etcd quorum operations, which is
+dread we have absorbed on the customer's behalf and must therefore price.
+
+**Why it might wait.** Crest question 3 in the strategy document — *what availability do your
+clients actually need* — is unanswered. If single-server plus a verified restore is acceptable to
+their clients, building this first is wasted effort.
+
+**Why it might not.** There is no migration path. Every cluster installed before this tier exists
+is permanently single-server unless it is rebuilt from scratch. That is a one-way door on every
+customer cluster we deploy in the meantime.
+
+Recommendation regardless of timing: the `--ha` flag and the recorded tier value ship in the
+first bundle, so no cluster is ever ambiguous about which tier it bought. If the tier itself
+slips, `--ha ha` returns a clear "not available in bundle X" error rather than being undocumented.
+The tier itself should land before the first customer cluster carries production traffic. Ask
+Crest question 3 to settle it.
 </Callout>
 
 ### Profiles
@@ -247,27 +243,21 @@ Profiles, what changing one later does, and what it does not do, are covered on 
 
 ## The install command
 
-<Callout type="warning">
-**OQ-INSTALL-7 — what is the entry point?** The command below is written as a CLI run from an
-operator workstation. That is not yet decided. The candidates:
+The installer is the `kubenest` CLI, run from your own workstation or bastion. Your SSH keys and
+your cloud credentials stay on your machine.
 
-1. **A `kubenest` CLI binary** the customer downloads and runs. Keys stay on their side
-   (addresses **OQ-INSTALL-6**), works with no control plane reachable, and is the easiest thing
-   to demo. Costs us a new distributable artifact with its own release and signing pipeline.
-2. **Control-plane-driven**, reusing the existing provisioner container: the customer registers
-   hosts in the console, the backend runs the install over SSH, and progress streams to the UI
-   for free. This is closest to what exists today, and it is what makes the console demo
-   compelling — but it requires the customer to hand us credentials into their infrastructure.
-3. **A bootstrap script** curled onto the first node, which then reaches the others.
+Authenticate to your control plane once:
 
-These are not mutually exclusive — (1) with the CLI reporting progress to the control plane is
-plausibly the answer — but the primary path decides what `kn-7k8` builds first, and what the
-Crest demo video records. **Decide this before writing the installer.**
-</Callout>
+```bash filename="terminal"
+kubenest login --control-plane https://api.your-domain.com
+```
+
+Then install:
 
 ```bash filename="terminal"
 kubenest platform install \
   --bundle 1.4 \
+  --name crest-client-a \
   --server 10.0.1.10 \
   --agent  10.0.1.11 \
   --agent  10.0.1.12 \
@@ -286,27 +276,79 @@ Bundle contents page.
 Re-running the same command against the same cluster is safe. The installer converges: it does
 not duplicate resources and it does not fail because something is already present.
 
+### A control plane is required
+
+`kubenest platform install` registers the cluster with your control plane as part of the install,
+and will not run without it. That is deliberate rather than incidental:
+
+- The cluster's bundle version, profile set and HA tier have to be recorded somewhere durable, or
+  no later upgrade is safe. You cannot upgrade a cluster whose contents you only think you know.
+- Fleet health telemetry starts at install. Not knowing the state of a cluster is what turns
+  support into an unbounded commitment.
+- Upgrade orchestration, scoped per-client access and the restore drills all read that record.
+
+Installing with no control plane reachable is part of the air-gapped roadmap item above.
+
+### Provisioning the machines
+
+`kubenest platform install` expects hosts to exist. It does not create them.
+
+<Callout type="warning">
+**OQ-INSTALL-14 — where does machine provisioning live?** New question, opened by the decision
+to make the CLI the entry point.
+
+Some customers supply their own hosts, which is the Crest case and the path this page documents.
+Others will want KubeNest to create the AWS instances first. That path exists today as
+`provisioner/entrypoint.sh`, a container the backend invokes, which runs `terraform apply` and
+then installs. Two candidates:
+
+1. **Move it into the CLI** as `kubenest cluster provision --provider aws ...`, reusing the
+   existing Terraform modules, then hand off to the same install path. One consistent story: the
+   customer's AWS credentials stay on the customer's machine, exactly like their SSH keys. Costs
+   a port of the provisioner and shipping Terraform alongside the CLI.
+2. **Leave it control-plane-driven** and have two entry points. Less work now. It means cloud
+   credentials go to the control plane while SSH keys do not, which is hard to explain and
+   re-opens the procurement objection that choosing the CLI just closed.
+
+Recommend (1), but this is a real scope decision and it should be made before `kn-7k8` starts,
+because it determines whether the CLI is the only install entry point or one of two.
+</Callout>
+
+### Do customers manage clusters through the console?
+
+For installing, no — the CLI is sufficient and self-contained. For everything after, yes. The
+console and the control plane own the bundle and profile record, fleet health, upgrades, backup
+and restore drills, and Crest's scoped per-client access. Day 1 is a CLI. Day 2 is the product.
+
 ## What the installer does, in order
 
-Twelve stages. Each emits a progress event so the console can show real progress rather than a
+Thirteen stages. Each emits a progress event so the console can show real progress rather than a
 spinner, and each names itself in any failure.
 
 The order is not arbitrary — every stage depends on the ones above it.
 
 | # | Stage | What happens |
 |---|---|---|
-| 1 | `preflight` | Every check in the table below, against every node, before anything is written |
-| 2 | `k3s-server` | k3s at the pinned version on the control-plane node, or all three for the `ha` tier |
-| 3 | `k3s-agents` | Agents join the server |
-| 4 | `platform-networking` | Traefik with the Gateway API provider, and the Gateway API CRDs |
-| 5 | `platform-certs` | cert-manager |
-| 6 | `platform-storage` | OpenEBS Local PV LVM against the volume group, and the default StorageClass |
-| 7 | `platform-backup` | Velero |
-| 8 | `platform-day2` | `system-upgrade-controller` and `kured` |
-| 9 | `kubenest-agent` | The KubeNest agent, the hub handshake, and the first telemetry heartbeat |
-| 10 | `profiles` | Each selected profile, in the order listed above |
-| 11 | `record` | The bundle version and profile set are written against the cluster record |
-| 12 | `verify` | The acceptance checks below are run and reported |
+| 1 | `preflight` | Control-plane authentication, then every check in the table below, against every node |
+| 2 | `register` | The cluster record is created and the agent JWT issued |
+| 3 | `k3s-server` | k3s at the pinned version on the control-plane node, or all three for the `ha` tier |
+| 4 | `k3s-agents` | Agents join the server |
+| 5 | `platform-networking` | Traefik with the Gateway API provider, and the Gateway API CRDs |
+| 6 | `platform-certs` | cert-manager |
+| 7 | `platform-storage` | The volume group is verified or created, then OpenEBS Local PV LVM and the default StorageClass |
+| 8 | `platform-backup` | Velero, configured if a target was supplied |
+| 9 | `platform-day2` | `system-upgrade-controller` and `kured` |
+| 10 | `kubenest-agent` | The KubeNest agent, the hub handshake, and the first telemetry heartbeat |
+| 11 | `profiles` | Each selected profile, in the order listed above |
+| 12 | `record` | The bundle version, profile set, HA tier and volume-group ownership are written against the cluster record |
+| 13 | `verify` | The acceptance checks below are run and reported |
+
+Stage 1 writes nothing anywhere. Stage 2 writes only to the control plane. The first change to any
+of your machines happens in stage 3.
+
+**The whole sequence must complete in under fifteen minutes**, for both reference shapes: a
+single-server core install, and a three-node install with every profile enabled. `kn-ze1` asserts
+this. If a measured install exceeds it, that is a defect to fix, not a number to revise upward.
 
 <Callout type="info">
 **Traefik with Gateway API, not ingress-nginx.** `kubernetes/ingress-nginx` reached end of life
@@ -315,15 +357,14 @@ after four HIGH-severity CVEs disclosed together in February 2026 and the Ingres
 unauthenticated RCE before them. Traefik is already the k3s default, so this is the lighter
 choice as well as the safe one.
 
-If you are migrating a cluster that uses ingress-nginx, `ingress2gateway` converts existing
-Ingress resources to Gateway API. **OQ-INSTALL-12:** is that conversion part of the install
-flow, a separate documented migration, or out of scope for the first bundle?
+Converting existing Ingress resources to Gateway API with `ingress2gateway` is **not** part of the
+install flow. It is tracked separately as `kn-xs31`.
 </Callout>
 
 <Callout type="warning">
 **Spec delta for `kn-7k8`.** The current `provisioner/entrypoint.sh` does the opposite of
-stage 4: it installs k3s with `--disable traefik` and then installs ingress-nginx. It also does
-not pin the k3s version, and installs none of stages 6, 7 or 8. Stage 11 depends on the manifest
+stage 5: it installs k3s with `--disable traefik` and then installs ingress-nginx. It also does
+not pin the k3s version, and installs none of stages 7, 8 or 9. Stage 12 depends on the manifest
 schema from `kn-boj`, which does not exist yet. The installer is a rewrite of that path, not an
 extension of it.
 </Callout>
@@ -331,30 +372,25 @@ extension of it.
 ### Preflight checks
 
 Preflight is the whole reason a failed install is cheap. Everything here is checked on every node
-before the first byte is written anywhere, and any failure aborts before the cluster is touched.
+before the first byte is written anywhere, and any failure aborts before a machine is touched.
 
 | Check | Fails when |
 |---|---|
+| Control plane | The control plane is unreachable, or the CLI is not logged in |
 | SSH reachability | A node cannot be reached, or the key is rejected |
-| Operating system | The node is not a supported Ubuntu release (**OQ-INSTALL-1**) |
-| Privilege | sudo is unavailable (**OQ-INSTALL-6**) |
-| Existing Kubernetes | k3s, RKE2, kubelet or containerd is already present (**OQ-INSTALL-8**) |
-| Volume group | The LVM volume group is missing, or the named device is not blank (**OQ-INSTALL-3**) |
+| Operating system | The node is not a supported Ubuntu LTS release |
+| Privilege | `sudo -n true` fails |
+| Existing Kubernetes | k3s, RKE2, kubelet or containerd is already present |
+| Volume group | `kubenest-vg` is missing, or `--storage-device` names a device that is not blank |
 | Node-to-node ports | Any port in the table above is blocked between nodes |
-| Outbound egress | Registries, Helm repositories or the hub are unreachable (**OQ-INSTALL-5**) |
+| Outbound egress | Registries, Helm repositories, the control plane or the hub are unreachable |
 | Host resources | CPU, memory or disk below minimum (**OQ-INSTALL-2**) |
 | Node count | Fewer than three control-plane nodes for `--ha ha` |
-
-<Callout type="warning">
-**OQ-INSTALL-10 — how long should this take?** A stated install-duration budget for the two
-reference shapes (single-server core, and three-node core plus all profiles) turns "it felt slow"
-into a test assertion. Measure it once the environment exists, then publish it here and assert
-on it in `kn-ze1`.
-</Callout>
+| Bundle availability | The requested bundle version does not exist, or does not offer the requested tier |
 
 ## Verifying the install
 
-Stage 12 runs these automatically and reports the result. They are also the checks to run by hand
+Stage 13 runs these automatically and reports the result. They are also the checks to run by hand
 when something looks wrong, and they are the acceptance criteria `kn-ze1` will assert against a
 real cluster.
 
@@ -384,13 +420,13 @@ way a storage install looks successful and is not.
 ### The cluster reports in
 
 The cluster shows as connected in the console, and the first fleet-telemetry heartbeat has
-arrived carrying the bundle version, the profile set and the HA tier.
+arrived carrying the bundle version, the profile set, the HA tier and the backup configuration
+state.
 
 ### The recorded manifest matches reality
 
 The bundle version and profile set recorded against the cluster match what is actually installed
-on it, component by component. Nothing else in the day-2 story is trustworthy if this drifts —
-you cannot safely upgrade a cluster whose contents you only think you know.
+on it, component by component. Nothing else in the day-2 story is trustworthy if this drifts.
 
 </Steps>
 
@@ -399,25 +435,34 @@ you cannot safely upgrade a cluster whose contents you only think you know.
 A failed install that says `error` is worse than no installer. Every failure reports three things:
 **which stage**, **which component**, and **what to do next**.
 
-**A failed stage stops the install.** Stages that already completed are left in place, and the
-cluster is left in a state a re-run can converge from. There is no automatic teardown.
+**There is no automatic rollback.** A failed stage stops the install and leaves completed stages
+in place. Automatic teardown would destroy the evidence needed to diagnose the failure, can itself
+fail and leave a worse state, and is more expensive than resuming.
 
-<Callout type="warning">
-**OQ-INSTALL-13 — should a failed install roll back?** Leaving a half-installed cluster in place
-makes re-runs cheap and preserves the evidence needed to diagnose the failure. It also means a
-customer's first experience of KubeNest can be a machine in an in-between state they did not ask
-for and cannot reason about — and because we abstracted k3s away, they cannot diagnose it either.
-They will call, and that is exactly the unbounded-support path that has to stay closed.
+What makes that safe is that a half-installed cluster is never an unexplained state:
 
-Rollback on *upgrade* is settled and belongs to `kn-fuo`. Rollback on *first install* is not the
-same problem and is not decided. The cheap middle option is no automatic rollback plus a
-documented, tested [uninstall](#uninstall) that returns the hosts to a known state.
-</Callout>
+- **The installer keeps a journal.** Each completed stage is recorded, locally and against the
+  cluster record. Resume is deterministic — it reads the journal rather than relying on every
+  component happening to be idempotent.
+- **The cluster is marked `install-failed`** in the control plane, carrying the failing stage.
+  It never appears as a healthy managed cluster. Fleet telemetry knows about it immediately, so
+  a support call about it is never a surprise.
+- **There are exactly two supported exits**, and the failure message prints both.
 
-**To recover**, fix what the error names and re-run the identical command. The installer skips
-completed stages and resumes at the one that failed.
+To recover, either:
 
-**If preflight failed**, nothing was written to any node. Fix the reported condition and re-run.
+```bash filename="terminal"
+# Resume: fix what the error names, then re-run the identical command.
+kubenest platform install ...   # skips completed stages, resumes at the failure
+```
+
+```bash filename="terminal"
+# Or start over: return the hosts to a known state.
+kubenest platform uninstall --confirm
+```
+
+**If preflight failed**, nothing was written to any node and no cluster record exists. Fix the
+reported condition and re-run. This is the common case, and it is why preflight is thorough.
 
 ## Uninstall
 
@@ -431,37 +476,38 @@ kubenest platform uninstall --confirm
 This removes k3s and every component the installer placed, and leaves the machines in a known
 state.
 
-<Callout type="warning">
-**OQ-INSTALL-11 — what is uninstall allowed to destroy?** Specifically: persistent volume data
-and the LVM volume group. If the installer created the volume group (**OQ-INSTALL-3** option 2),
-symmetry argues it should remove it — and that destroys customer data. If the customer created
-it, we must not touch it.
+**Uninstall never destroys data by default.** Persistent volumes and their contents survive.
 
-Proposal: uninstall never destroys data by default, requires a separate explicit
-`--destroy-data` flag to remove volumes, and never removes a volume group it did not create.
-Needs confirming alongside **OQ-INSTALL-3**, since the two answers have to agree.
-</Callout>
+To remove them, pass `--destroy-data` as well. Even then, uninstall only removes the
+`kubenest-vg` volume group if the installer created it — recorded at install time. A volume group
+you created yourself is never removed, on either path.
 
-## Open design questions
+## Decisions
 
-Every question below blocks some part of `kn-7k8`, `kn-boj` or `kn-kp3`. They are listed here so
-they can be closed deliberately rather than discovered during implementation.
+Recorded 2026-08-13. These were open questions on the first draft of this page; they are settled
+and the page above reflects them.
+
+| ID | Question | Decision |
+|---|---|---|
+| OQ-INSTALL-1 | Which Ubuntu releases? | LTS only for now. The tested release list per bundle belongs to `kn-boj`'s manifest |
+| OQ-INSTALL-3 | Who creates the LVM volume group? | Both options. Customer-created `kubenest-vg` is the default; installer-created requires an explicit `--storage-device`. Root-disk free space is not supported |
+| OQ-INSTALL-4 | Backup target required at install? | Optional. Velero installs unconfigured and the cluster reports `backup: unconfigured` until a target is set |
+| OQ-INSTALL-5 | Air-gapped installs | Roadmap item. Not supported in bundle 1.x, stated in writing. Disconnected install folds into the same item |
+| OQ-INSTALL-6 | Privilege and credential model | CLI-side keys via existing SSH setup, never uploaded or stored. Passwordless sudo required, checked in preflight |
+| OQ-INSTALL-7 | Entry point | The `kubenest` CLI |
+| OQ-INSTALL-8 | Adopt existing clusters? | No. New clusters only. Preflight refuses hosts that already run Kubernetes |
+| OQ-INSTALL-10 | Install duration budget | Fifteen minutes, both reference shapes. An overrun is a defect, not a revised number |
+| OQ-INSTALL-11 | What may uninstall destroy? | Nothing by default. `--destroy-data` removes volumes. Never removes a volume group it did not create |
+| OQ-INSTALL-12 | `ingress2gateway` in the install flow? | No. Tracked separately as `kn-xs31` |
+| OQ-INSTALL-13 | Roll back a failed install? | No automatic rollback. Stage journal, `install-failed` cluster state, and exactly two exits: resume or uninstall |
+
+## Still open
 
 | ID | Question | Blocks |
 |---|---|---|
-| OQ-INSTALL-1 | Which Ubuntu releases are supported, and what happens at end of support? | Preflight, test matrix |
-| OQ-INSTALL-2 | Minimum and recommended host sizing — needs measuring, not guessing | Preflight, sales collateral |
-| OQ-INSTALL-3 | Who creates the LVM volume group, and may the installer write to a block device? | Storage stage, preflight |
-| OQ-INSTALL-4 | Is a Velero backup target required at install, or reported as unconfigured? | Backup stage, telemetry |
-| OQ-INSTALL-5 | Air-gapped installs — commit or descope explicitly | Bundle packaging, release cost |
-| OQ-INSTALL-6 | Privilege and credential model — where does the SSH key live? | Entry point, procurement |
-| OQ-INSTALL-7 | Entry point: CLI, control-plane-driven, or bootstrap script? | All of `kn-7k8`, Crest demo |
-| OQ-INSTALL-8 | Do we adopt existing clusters, or only build new ones? | Installer shape, positioning |
-| OQ-INSTALL-9 | Does the 3-node etcd tier ship in the first bundle release? | `kn-kp3`, pricing |
-| OQ-INSTALL-10 | Stated install-duration budget for the two reference shapes | `kn-ze1` assertions |
-| OQ-INSTALL-11 | What may uninstall destroy? | Uninstall path |
-| OQ-INSTALL-12 | Is `ingress2gateway` migration part of the install flow? | Scope, onboarding pitch |
-| OQ-INSTALL-13 | Should a failed first install roll back? | Failure handling, support load |
+| OQ-INSTALL-2 | Minimum and recommended host sizing — to be measured empirically | Preflight thresholds, sales collateral |
+| OQ-INSTALL-9 | Does the 3-node etcd tier ship in the first bundle release? | `kn-kp3`, pricing, every cluster installed before it lands |
+| OQ-INSTALL-14 | Does machine provisioning move into the CLI, or stay control-plane-driven? | `kn-7k8` scope, whether the CLI is the only entry point |
 
-Four of these — **OQ-INSTALL-5**, **OQ-INSTALL-8**, **OQ-INSTALL-9** and, indirectly,
-**OQ-INSTALL-6** — cannot be answered from our side. They are questions for Crest.
+`OQ-INSTALL-9` needs Crest question 3 — *what availability do your clients actually need* — before
+it can be settled.
