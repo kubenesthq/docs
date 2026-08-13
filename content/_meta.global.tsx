@@ -11,6 +11,7 @@ const meta: MetaRecord = {
       install: 'Install the platform',
       bundle: 'What is in the bundle',
       profiles: 'Profiles',
+      upgrades: 'Upgrades',
     },
   },
   concepts: 'Concepts',
