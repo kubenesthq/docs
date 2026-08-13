@@ -15,9 +15,9 @@ Do not follow this page against a real cluster, and do not quote it to a custome
 It is promoted to published only when `kn-ze1` has verified every claim on it against a real
 cluster. Passing the test is what publishes the page.
 
-Eleven of the thirteen original open questions were decided on 2026-08-13 and are recorded in
-[Decisions](#decisions). Two remain open, plus one new one, marked <strong>OQ-INSTALL-*</strong>
-and collected in [Still open](#still-open). Do not implement past an open question.
+Thirteen of the fourteen open questions were decided on 2026-08-13 and are recorded in
+[Decisions](#decisions). One remains — host sizing, which needs measuring rather than deciding —
+and is collected in [Still open](#still-open).
 </Callout>
 
 # Install the platform
@@ -69,16 +69,18 @@ mid-bundle, belongs to `kn-boj`.
 ### Host sizing
 
 <Callout type="warning">
-**OQ-INSTALL-2 — minimum and recommended host specification. To be measured, not guessed.**
+**OQ-INSTALL-2 — minimum and recommended host specification. Not yet measured.**
 
-The core bundle is materially heavier than bare k3s: cert-manager, OpenEBS, Velero,
-`system-upgrade-controller`, `kured` and the KubeNest agent all run continuously before a single
-workload is scheduled. Publishing a guessed number here is how a customer's first install fails
-on an under-provisioned box.
+This is the one open item on the page, and it is open because the number has to be measured
+rather than decided. The core bundle is materially heavier than bare k3s: cert-manager, OpenEBS,
+Velero, `system-upgrade-controller`, `kured` and the KubeNest agent all run continuously before a
+single workload is scheduled. Publishing a guessed figure here is how a customer's first install
+fails on an under-provisioned box.
 
-Method: measure the idle resident CPU, memory and disk footprint of core on a single-server
-install, and of core plus every profile, then state minimum and recommended figures separately
-for server and agent nodes. Owned by `kn-ze1`, which will have the environment to measure it.
+Method, agreed: measure the idle resident CPU, memory and disk footprint of core on a
+single-server install, and of core plus every profile, then state minimum and recommended figures
+separately for server and agent nodes. Owned by `kn-ze1`, which will have the environment to
+measure it. Until then the preflight resource thresholds have no values to check against.
 </Callout>
 
 ### Disks and storage
@@ -199,31 +201,25 @@ failure, which cascades with no recovery path.
 **`ha`** — three control-plane nodes with embedded etcd. Survives the loss of one node. Triples
 control-plane cost and introduces etcd quorum operations.
 
-<Callout type="warning">
-**OQ-INSTALL-9 — does the 3-node etcd tier ship in the first bundle release?** Open. The context
-needed to decide:
+<Callout type="info">
+**OQ-INSTALL-9 — tier availability.** The `--ha` flag and the recorded tier value ship in the
+first bundle regardless of when the 3-node tier itself lands, so that no cluster is ever ambiguous
+about which tier it bought. If the tier is not yet available in the bundle you requested,
+`--ha ha` fails with a clear "not available in bundle X" error rather than being undocumented or
+silently downgrading.
 
-**What it costs to build.** k3s supports embedded etcd directly — `--cluster-init` on the first
-server, the other two join. The work is install orchestration, quorum verification after install,
-and the knock-on effects: etcd snapshot handling in the backup path, and upgrade sequencing in
-`kn-fuo` that drains and upgrades three servers in order instead of one. Moderate, not large.
+**The tier itself must land before the first customer cluster carries production traffic**, because
+there is no migration path. Every cluster installed before it exists is permanently single-server
+unless rebuilt from scratch — a one-way door on each cluster deployed in the meantime.
 
-**What it costs to run.** Two extra instances per cluster, plus etcd quorum operations, which is
-dread we have absorbed on the customer's behalf and must therefore price.
+Build cost is moderate: k3s supports embedded etcd directly via `--cluster-init` on the first
+server, so the work is install orchestration, quorum verification, etcd snapshot handling in the
+backup path, and upgrade sequencing in `kn-fuo` across three servers instead of one. Run cost is
+two extra instances per cluster plus etcd quorum operations, which is dread we absorb on the
+customer's behalf and must therefore price.
 
-**Why it might wait.** Crest question 3 in the strategy document — *what availability do your
-clients actually need* — is unanswered. If single-server plus a verified restore is acceptable to
-their clients, building this first is wasted effort.
-
-**Why it might not.** There is no migration path. Every cluster installed before this tier exists
-is permanently single-server unless it is rebuilt from scratch. That is a one-way door on every
-customer cluster we deploy in the meantime.
-
-Recommendation regardless of timing: the `--ha` flag and the recorded tier value ship in the
-first bundle, so no cluster is ever ambiguous about which tier it bought. If the tier itself
-slips, `--ha ha` returns a clear "not available in bundle X" error rather than being undocumented.
-The tier itself should land before the first customer cluster carries production traffic. Ask
-Crest question 3 to settle it.
+Exact sequencing against bundle 1 depends on Crest question 3 in the strategy document — *what
+availability do your clients actually need*. Tracked in `kn-kp3`.
 </Callout>
 
 ### Profiles
@@ -293,25 +289,39 @@ Installing with no control plane reachable is part of the air-gapped roadmap ite
 
 `kubenest platform install` expects hosts to exist. It does not create them.
 
-<Callout type="warning">
-**OQ-INSTALL-14 — where does machine provisioning live?** New question, opened by the decision
-to make the CLI the entry point.
+If you supply your own hosts — the Crest case, and the path the rest of this page documents —
+that is all you need. If you want KubeNest to create the machines first, the CLI does that too,
+as a separate command:
 
-Some customers supply their own hosts, which is the Crest case and the path this page documents.
-Others will want KubeNest to create the AWS instances first. That path exists today as
-`provisioner/entrypoint.sh`, a container the backend invokes, which runs `terraform apply` and
-then installs. Two candidates:
+```bash filename="terminal"
+kubenest cluster provision \
+  --provider aws \
+  --region ap-south-1 \
+  --name crest-client-a \
+  --instance-type t3.large \
+  --agents 2 \
+  --disk-size 100
+```
 
-1. **Move it into the CLI** as `kubenest cluster provision --provider aws ...`, reusing the
-   existing Terraform modules, then hand off to the same install path. One consistent story: the
-   customer's AWS credentials stay on the customer's machine, exactly like their SSH keys. Costs
-   a port of the provisioner and shipping Terraform alongside the CLI.
-2. **Leave it control-plane-driven** and have two entry points. Less work now. It means cloud
-   credentials go to the control plane while SSH keys do not, which is hard to explain and
-   re-opens the procurement objection that choosing the CLI just closed.
+It prints the resulting node addresses, which you then pass to `kubenest platform install`.
 
-Recommend (1), but this is a real scope decision and it should be made before `kn-7k8` starts,
-because it determines whether the CLI is the only install entry point or one of two.
+Provisioning and installing stay two commands rather than one. They fail in different ways and
+are re-run under different circumstances, and a failed install must never re-run
+`terraform apply`.
+
+AWS is the only supported provider. GCP and Azure are out of scope.
+
+<Callout type="info">
+**Your cloud credentials stay on your machine**, exactly like your SSH keys. The CLI reads your
+existing AWS credential chain — environment variables, `~/.aws/credentials`, or an instance
+profile — and runs Terraform locally. Nothing is uploaded to the control plane.
+
+That is why provisioning lives in the CLI rather than in the control plane (**OQ-INSTALL-14**).
+Holding cloud credentials centrally while explicitly not holding SSH keys is hard to explain to a
+security reviewer, and re-opens the procurement objection that choosing the CLI closed.
+
+The Terraform modules already exist in `kubenest-backend/provisioner/terraform`. The port is
+tracked in `kn-plcc`.
 </Callout>
 
 ### Do customers manage clusters through the console?
@@ -496,18 +506,18 @@ and the page above reflects them.
 | OQ-INSTALL-6 | Privilege and credential model | CLI-side keys via existing SSH setup, never uploaded or stored. Passwordless sudo required, checked in preflight |
 | OQ-INSTALL-7 | Entry point | The `kubenest` CLI |
 | OQ-INSTALL-8 | Adopt existing clusters? | No. New clusters only. Preflight refuses hosts that already run Kubernetes |
+| OQ-INSTALL-9 | Does the 3-node etcd tier ship in bundle 1? | The `--ha` flag and recorded tier ship in bundle 1 regardless; `--ha ha` errors clearly if the tier is unavailable. The tier must land before any customer cluster carries production traffic, since there is no migration path. Exact sequencing needs Crest question 3 — `kn-kp3` |
 | OQ-INSTALL-10 | Install duration budget | Fifteen minutes, both reference shapes. An overrun is a defect, not a revised number |
 | OQ-INSTALL-11 | What may uninstall destroy? | Nothing by default. `--destroy-data` removes volumes. Never removes a volume group it did not create |
 | OQ-INSTALL-12 | `ingress2gateway` in the install flow? | No. Tracked separately as `kn-xs31` |
 | OQ-INSTALL-13 | Roll back a failed install? | No automatic rollback. Stage journal, `install-failed` cluster state, and exactly two exits: resume or uninstall |
+| OQ-INSTALL-14 | Where does machine provisioning live? | In the CLI, as `kubenest cluster provision`. Cloud credentials stay customer-side, like SSH keys. Port tracked in `kn-plcc` |
 
 ## Still open
 
 | ID | Question | Blocks |
 |---|---|---|
-| OQ-INSTALL-2 | Minimum and recommended host sizing — to be measured empirically | Preflight thresholds, sales collateral |
-| OQ-INSTALL-9 | Does the 3-node etcd tier ship in the first bundle release? | `kn-kp3`, pricing, every cluster installed before it lands |
-| OQ-INSTALL-14 | Does machine provisioning move into the CLI, or stay control-plane-driven? | `kn-7k8` scope, whether the CLI is the only entry point |
+| OQ-INSTALL-2 | Minimum and recommended host sizing — to be measured, not decided | Preflight resource thresholds, sizing guidance for customers |
 
-`OQ-INSTALL-9` needs Crest question 3 — *what availability do your clients actually need* — before
-it can be settled.
+Nothing else on this page is undecided. `OQ-INSTALL-2` is waiting on an environment to measure in,
+which arrives with `kn-0i0`, and is then owned by `kn-ze1`.
