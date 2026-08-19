@@ -5,15 +5,12 @@ description: How Ubuntu security patches are applied, how node reboots are coord
 
 import { Callout } from 'nextra/components'
 
-<Callout type="error">
-**DRAFT — SPECIFICATION, NOT SHIPPED SOFTWARE.**
+<Callout type="warning">
+**In development.** This page describes the KubeNest platform as it is being built. The software
+it documents is not released yet, and details will change before it is.
 
-Build specification for `kn-nqj`, written before it exists. Do not rely on it and do not quote it
-to a customer.
-
-Promoted to published only when `kn-ze1` has verified it against a real cluster.
-Open questions are marked <strong>OQ-PATCH-*</strong> and collected at the
-[bottom](#open-design-questions).
+It is published so the design can be read and challenged early — not as instructions for a system
+you can run today.
 </Callout>
 
 # OS patching and reboots
@@ -125,7 +122,7 @@ sits on that absence is the entire safety net for the tier.
 ### Reboot windows
 
 ```bash filename="terminal"
-kubenest cluster set-reboot-window --cluster crest-client-a \
+kubenest cluster set-reboot-window --cluster prod-1 \
   --days sat,sun --start 02:00 --end 06:00 --timezone Asia/Kolkata
 ```
 
@@ -154,7 +151,7 @@ That is an announced, deliberate action, not something a daemon does at 3am. So 
 pending reboot and **waits for an explicit decision**:
 
 ```bash filename="terminal"
-kubenest node reboot --cluster crest-client-a --node server-1 --confirm
+kubenest node reboot --cluster prod-1 --node server-1 --confirm
 ```
 
 Agent nodes on a single-server cluster reboot automatically within the window as normal. It is
@@ -165,42 +162,6 @@ This is a real, recurring operational task that the `single-server` tier hands y
 tier does not. On the `ha` tier, control-plane nodes reboot automatically one at a time while
 quorum holds and the API stays up. Worth weighing when choosing a tier — see
 [HA tiers](/platform/ha).
-</Callout>
-
-<Callout type="warning">
-**OQ-PATCH-1 — how long may a node sit pending reboot before it is an alert?** A node that has
-been waiting three weeks for a window has an unpatched kernel and a false sense of safety around
-it, and on the single-server tier — where the reboot needs a human — that is the likely default
-outcome rather than the exception.
-
-Needs a threshold that escalates, and a stated policy for what happens when a *critical* kernel
-CVE lands and the next window is five days away. Recommend: pending-reboot age is reported in
-telemetry from day one, escalates to an alert at a stated threshold, and a critical-severity patch
-raises the alert immediately rather than waiting.
-</Callout>
-
-<Callout type="warning">
-**OQ-PATCH-2 — kernel livepatching would remove most of this problem.** Canonical's livepatch
-service applies kernel security fixes without rebooting. On the `single-server` tier, where every
-control-plane reboot is an outage requiring a human, that is not a small convenience.
-
-It requires Ubuntu Pro, which is a per-machine cost on infrastructure the customer owns, so it
-cannot simply be switched on. But it is a genuine answer to the single-server reboot problem and
-it should be a documented, supported option rather than something a customer discovers themselves.
-
-Decide: supported and documented, detected-and-respected if the customer already has it, or
-explicitly out of scope.
-</Callout>
-
-<Callout type="warning">
-**OQ-PATCH-3 — the exact `unattended-upgrades` policy is not written.** "Security patches
-automatic" needs to become a specific configuration: which origins, whether `-updates` is included
-alongside `-security`, whether any package is held back, and what happens when a patch fails to
-apply.
-
-Whatever it is, it must be identical on every node of every cluster, and it belongs in the
-[bundle manifest](/platform/bundle) so it is versioned and testable rather than a one-time
-install-script decision.
 </Callout>
 
 ## Seeing patch state
@@ -214,11 +175,3 @@ Every node reports through fleet telemetry:
 
 This is in core, not a profile. Not knowing which of your hosts is unpatched is precisely the
 situation the product is sold to prevent.
-
-## Open design questions
-
-| ID | Question | Blocks |
-|---|---|---|
-| OQ-PATCH-1 | Pending-reboot alert threshold, and handling of critical CVEs | `kn-nqj`, telemetry alerting |
-| OQ-PATCH-2 | Is kernel livepatching supported, respected, or out of scope? | The single-server reboot burden |
-| OQ-PATCH-3 | The exact `unattended-upgrades` policy | `kn-nqj`, manifest contents |

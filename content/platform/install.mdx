@@ -5,23 +5,12 @@ description: Install the KubeNest Platform bundle — a pinned, tested k3s stack
 
 import { Callout, Steps } from 'nextra/components'
 
-<Callout type="error">
-**DRAFT — SPECIFICATION, NOT SHIPPED SOFTWARE.**
+<Callout type="warning">
+**In development.** This page describes the KubeNest platform as it is being built. The software
+it documents is not released yet, and details will change before it is.
 
-This page is the build specification for `kn-7k8` (installer), written before the installer
-exists. Commands, flags, output and stage names on this page describe intended behaviour.
-Do not follow this page against a real cluster, and do not quote it to a customer.
-
-It is promoted to published only when `kn-ze1` has verified every claim on it against a real
-cluster. Passing the test is what publishes the page.
-
-All fourteen open questions are now closed and recorded in [Decisions](#decisions). Four were
-closed on an **assumption** rather than an answer, because the answers depend on Crest and we
-chose not to block on them — those are marked in the table and mirrored in §9.3 of the strategy
-document, which records what to unwind if an assumption turns out wrong.
-
-One value on the page is still unmeasured: the recommended host sizing in
-[Host sizing](#host-sizing). See [Still open](#still-open).
+It is published so the design can be read and challenged early — not as instructions for a system
+you can run today.
 </Callout>
 
 # Install the platform
@@ -68,7 +57,7 @@ replicated storage later.
 The specific LTS releases tested for a given bundle are recorded in that bundle's manifest, not
 here, so that the supported set moves with the bundle rather than with this page. Pinning that
 list, and setting the policy for what happens when a release reaches end of standard support
-mid-bundle, belongs to `kn-boj`.
+mid-bundle, is part of the bundle definition.
 
 ### Host sizing
 
@@ -97,25 +86,6 @@ cloud host, not rounded on paper.
 Preflight compares against the **GiB** columns. Comparing a `4 GB` floor against `MemTotal` as
 though it were GiB refuses a machine that meets the specification — and because the floor fails
 rather than warns, the customer is told to buy a bigger box for a box that was already correct.
-</Callout>
-
-<Callout type="warning">
-**OQ-INSTALL-2 — the recommended figures are not measured.** This is the one genuinely open item
-on the page, and it is open because it has to be measured rather than decided.
-
-The core bundle is materially heavier than bare k3s: cert-manager, OpenEBS, Velero,
-`system-upgrade-controller`, `kured` and the KubeNest agent all run continuously before a single
-workload is scheduled. Enabling every profile adds VictoriaMetrics, Grafana, Loki and a replicated
-storage engine on top.
-
-Method, agreed: measure the idle resident CPU, memory and disk footprint of core on a
-single-server install, and of core plus every profile, then replace the table above with real
-figures, separately for server and agent nodes. Owned by `kn-ze1`, which needs `kn-0i0`'s
-environment first.
-
-**Do not quote the table above to a customer** and do not publish this page until the figures are
-measured. Warn-not-fail is the compromise that lets the installer be built against a threshold
-that might be wrong, without a guess turning into a failed first install on a customer's box.
 </Callout>
 
 ### Disks and storage
@@ -228,7 +198,9 @@ supported migration path. This is not a day-2 item. Choose deliberately.
 </Callout>
 
 **`single-server`** — one control-plane node, plus verified snapshots. Simpler, cheaper, fewer
-moving parts. The honest promise is *"we restore within X hours"*, never *"highly available"*.
+moving parts. The honest promise is *"we restore, and the restore is drilled"*, never *"highly
+available"*. Restore duration depends on your data volume, so the drill reports your own measured
+figure rather than quoting one.
 
 Be clear on what a single-server control-plane failure actually does: running pods keep running,
 because the kubelet does not need the API server. But nothing new schedules, nothing self-heals,
@@ -238,21 +210,6 @@ failure, which cascades with no recovery path.
 
 **`ha`** — three control-plane nodes with embedded etcd. Survives the loss of one node. Triples
 control-plane cost and introduces etcd quorum operations.
-
-<Callout type="info">
-**OQ-INSTALL-9 — both tiers ship in bundle 1.** Decided on an assumption, not on evidence: we
-assume some clients need HA, so the 3-node tier is in the first bundle rather than deferred.
-
-The reasoning is asymmetric risk. There is no migration from single-server to embedded etcd, so
-every cluster installed before the tier exists is permanently single-server unless it is rebuilt
-from scratch. Building the tier early costs moderate work — k3s supports embedded etcd directly
-via `--cluster-init`, so it is install orchestration, quorum verification, etcd snapshot handling
-in the backup path, and three-server upgrade sequencing in `kn-fuo`. Building it late costs a
-rebuild per cluster. The cheaper mistake is to build it.
-
-Revisit if Crest's answer to strategy question 2 is that a frozen control plane at 2am is an
-inconvenience rather than an incident. Tracked in `kn-kp3`.
-</Callout>
 
 ### Profiles
 
@@ -285,7 +242,7 @@ Then install:
 ```bash filename="terminal"
 kubenest platform install \
   --bundle 1.4 \
-  --name crest-client-a \
+  --name prod-1 \
   --server 10.0.1.10 \
   --agent  10.0.1.11 \
   --agent  10.0.1.12 \
@@ -329,7 +286,7 @@ as a separate command:
 kubenest cluster provision \
   --provider aws \
   --region ap-south-1 \
-  --name crest-client-a \
+  --name prod-1 \
   --instance-type t3.large \
   --agents 2 \
   --disk-size 100
@@ -342,19 +299,6 @@ are re-run under different circumstances, and a failed install must never re-run
 `terraform apply`.
 
 AWS is the only supported provider. GCP and Azure are out of scope.
-
-<Callout type="info">
-**Your cloud credentials stay on your machine**, exactly like your SSH keys. The CLI reads your
-existing AWS credential chain — environment variables, `~/.aws/credentials`, or an instance
-profile — and runs Terraform locally. Nothing is uploaded to the control plane.
-
-That is why provisioning lives in the CLI rather than in the control plane (**OQ-INSTALL-14**).
-Holding cloud credentials centrally while explicitly not holding SSH keys is hard to explain to a
-security reviewer, and re-opens the procurement objection that choosing the CLI closed.
-
-The Terraform modules already exist in `kubenest-backend/provisioner/terraform`. The port is
-tracked in `kn-plcc`.
-</Callout>
 
 ### Do customers manage clusters through the console?
 
@@ -430,12 +374,12 @@ ordering exists to give you: the expensive checks happen while abandoning the in
 nothing.
 
 **The whole sequence must complete in under fifteen minutes**, for both reference shapes: a
-single-server core install, and a three-node install with every profile enabled. `kn-ze1` asserts
-this. If a measured install exceeds it, that is a defect to fix, not a number to revise upward.
+single-server core install, and a three-node install with every profile enabled. The release tests
+assert this. If a measured install exceeds it, that is a defect to fix, not a number to revise upward.
 
 <Callout type="info">
 **The budget and the timeout are different numbers, deliberately.** Fifteen minutes is the
-*target*, and `kn-ze1` failing it is a defect in the installer. `limits.timeouts.install-total`
+*target*, and failing it is a defect in the installer. `limits.timeouts.install-total`
 (default 30m) is the *deadline*, after which the install aborts and reports which stage was
 still running.
 
@@ -452,15 +396,7 @@ unauthenticated RCE before them. Traefik is already the k3s default, so this is 
 choice as well as the safe one.
 
 Converting existing Ingress resources to Gateway API with `ingress2gateway` is **not** part of the
-install flow. It is tracked separately as `kn-pgu`.
-</Callout>
-
-<Callout type="warning">
-**Spec delta for `kn-7k8`.** The current `provisioner/entrypoint.sh` does the opposite of
-stage 5: it installs k3s with `--disable traefik` and then installs ingress-nginx. It also does
-not pin the k3s version, and installs none of stages 7, 8 or 9. Stage 12 depends on the manifest
-schema from `kn-boj`, which does not exist yet. The installer is a rewrite of that path, not an
-extension of it.
+install flow. It is a separate migration.
 </Callout>
 
 ### Preflight checks
@@ -478,14 +414,14 @@ before the first byte is written anywhere, and any failure aborts before a machi
 | Volume group | `kubenest-vg` is missing, or `--storage-device` names a device that is not blank — the check is that `blkid` on the device returns nothing. A device carrying a partition table, a filesystem or an existing LVM PV reports a `TYPE`, and that is a refusal |
 | Node-to-node ports | Any port in the table above is blocked between nodes |
 | Outbound egress | Registries, Helm repositories, the control plane or the hub are unreachable |
-| Host resources | Reported CPU, `MemTotal` or filesystem free space is below `limits.resources.floor`, **compared in binary units** (**OQ-INSTALL-2**) |
+| Host resources | Reported CPU, `MemTotal` or filesystem free space is below `limits.resources.floor`, **compared in binary units** |
 | Node count | Fewer than three control-plane nodes for `--ha ha` |
 | Bundle availability | The requested bundle version does not exist, or does not offer the requested tier |
 
 ## Verifying the install
 
 Stage 13 runs these automatically and reports the result. They are also the checks to run by hand
-when something looks wrong, and they are the acceptance criteria `kn-ze1` will assert against a
+when something looks wrong, and they are the acceptance criteria the release tests assert against a
 real cluster.
 
 <Callout type="warning">
@@ -605,38 +541,3 @@ state.
 To remove them, pass `--destroy-data` as well. Even then, uninstall only removes the
 `kubenest-vg` volume group if the installer created it — recorded at install time. A volume group
 you created yourself is never removed, on either path.
-
-## Decisions
-
-Recorded 2026-08-13. These were open questions on the first draft of this page; they are settled
-and the page above reflects them.
-
-| ID | Question | Decision |
-|---|---|---|
-| OQ-INSTALL-1 | Which Ubuntu releases? | LTS only for now. The tested release list per bundle belongs to `kn-boj`'s manifest |
-| OQ-INSTALL-3 | Who creates the LVM volume group? | Both options. Customer-created `kubenest-vg` is the default; installer-created requires an explicit `--storage-device`. Root-disk free space is not supported |
-| OQ-INSTALL-4 | Backup target required at install? | Optional. Velero installs unconfigured and the cluster reports `backup: unconfigured` until a target is set |
-| OQ-INSTALL-5 | Air-gapped installs | **Assumed not needed** for the first customers, since D5 narrows us to AWS. Roadmap item, not supported in bundle 1.x, stated in writing. Disconnected install folds into the same item |
-| OQ-INSTALL-6 | Privilege and credential model | CLI-side keys via existing SSH setup, never uploaded or stored. Passwordless sudo required, checked in preflight |
-| OQ-INSTALL-7 | Entry point | The `kubenest` CLI |
-| OQ-INSTALL-8 | Adopt existing clusters? | No — **assumes greenfield**. New clusters only; preflight refuses hosts that already run Kubernetes. A client with an existing cluster gets a new one plus a workload migration |
-| OQ-INSTALL-9 | Does the 3-node etcd tier ship in bundle 1? | **Assumed yes.** Both tiers ship in bundle 1. No migration path means a wrong guess costs a rebuild per cluster, so the cheaper mistake is to build it — `kn-kp3` |
-| OQ-INSTALL-10 | Install duration budget | Fifteen minutes, both reference shapes. An overrun is a defect, not a revised number |
-| OQ-INSTALL-11 | What may uninstall destroy? | Nothing by default. `--destroy-data` removes volumes. Never removes a volume group it did not create |
-| OQ-INSTALL-12 | `ingress2gateway` in the install flow? | No. Tracked separately as `kn-pgu`, which **assumes** Crest's clients do run ingress-nginx |
-| OQ-INSTALL-13 | Roll back a failed install? | No automatic rollback. Stage journal, `install-failed` cluster state, and exactly two exits: resume or uninstall |
-| OQ-INSTALL-14 | Where does machine provisioning live? | In the CLI, as `kubenest cluster provision`. Cloud credentials stay customer-side, like SSH keys. Port tracked in `kn-plcc` |
-
-## Still open
-
-| ID | Question | Blocks |
-|---|---|---|
-| OQ-INSTALL-2 | Recommended host sizing is provisional and unmeasured | Publishing this page; the accuracy of preflight's warn threshold |
-
-Provisional figures are in place so the installer can be built, and preflight warns rather than
-fails against them. The page cannot be published until they are measured. Waiting on `kn-0i0`'s
-environment, then owned by `kn-ze1`.
-
-Four decisions rest on assumptions rather than answers — **OQ-INSTALL-5**, **OQ-INSTALL-8**,
-**OQ-INSTALL-9** and **OQ-INSTALL-12**. They are settled enough to build on, and §9.3 of the
-strategy document records the basis for each and what unwinding it would cost.

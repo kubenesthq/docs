@@ -5,16 +5,12 @@ description: The pinned, tested component set that makes up a KubeNest Platform 
 
 import { Callout } from 'nextra/components'
 
-<Callout type="error">
-**DRAFT — SPECIFICATION, NOT SHIPPED SOFTWARE.**
+<Callout type="warning">
+**In development.** This page describes the KubeNest platform as it is being built. The software
+it documents is not released yet, and details will change before it is.
 
-This page is the build specification for `kn-boj` (bundle manifest), written before the manifest
-exists. It defines what a bundle *is*; the component versions for the first release are not yet
-chosen. Do not quote it to a customer.
-
-Promoted to published only when `kn-ze1` has verified it against a real cluster.
-Open questions are marked <strong>OQ-BUNDLE-*</strong> and collected at the
-[bottom](#open-design-questions).
+It is published so the design can be read and challenged early — not as instructions for a system
+you can run today.
 </Callout>
 
 # What is in the bundle
@@ -99,7 +95,7 @@ them. Its intended successor, InGate, never matured and was itself retired.
 Reportedly around half of all cloud-native environments are affected.
 
 If you are running it today, `ingress2gateway` converts existing Ingress resources to Gateway API.
-That is a separate migration, not part of installing the bundle — see `kn-pgu`.
+That is a separate migration, not part of installing the bundle.
 
 ## Fleet health telemetry is core; your observability is not
 
@@ -170,20 +166,9 @@ versioned with the release, and changed by shipping a new bundle.
 
 This exists because the alternative is worse in a specific way. A timeout hardcoded in the
 installer is untestable, undocumented, and identical for a two-node lab and a loaded production
-cluster. Put it in the manifest and it becomes a property of a tested configuration: `kn-twe` can
-assert against it, `kn-ze1` can measure it, an upgrade can change it deliberately, and a support
-conversation can start with *"which bundle, and what were its limits"* rather than a guess.
-
-<Callout type="warning">
-**OQ-BUNDLE-8 — the values above are provisional.** The *structure* is settled: limits live in
-the manifest and every wait has one. The numbers are informed guesses that need `kn-ze1` to
-replace them with measurements, and three of them are already owned elsewhere —
-`install-total` by `OQ-INSTALL-2`'s sizing work, `upgrade-per-node` by `OQ-UPGRADE-6`, and
-`restore-drill` by `OQ-BACKUP-2`.
-
-Ship provisional numbers rather than none. A missing timeout is not a cautious choice, it is a
-hang with no error message.
-</Callout>
+cluster. Put it in the manifest and it becomes a property of a tested configuration: the release
+tests can assert against it, it can be measured, an upgrade can change it deliberately, and a
+support conversation can start with *"which bundle, and what were its limits"* rather than a guess.
 
 ### Units
 
@@ -231,83 +216,3 @@ cluster-a: Platform 1.0 + [observability, secrets]
 installed, and a cluster you did not install last week is otherwise a guess.
 
 ## Version numbers
-
-<Callout type="warning">
-**OQ-BUNDLE-1 — what do the digits mean?** Undecided, and it needs deciding before the first
-release, because customers will infer a meaning whether or not we state one.
-
-The question is what forces which bump:
-
-- A k3s **minor** upgrade — `1.4 → 2.0`, or `1.4 → 1.5`?
-- A component **patch** for a CVE — a bundle bump at all, or something else entirely?
-- Adding a profile, or a new Ubuntu LTS to the tested set?
-
-The trap: if a CVE patch bumps the bundle, then bundle versions change often, and "upgrade to the
-next bundle" stops being a considered event and becomes noise. If it does not, we need a separate
-mechanism for shipping urgent patches — see **OQ-BUNDLE-3**.
-</Callout>
-
-<Callout type="warning">
-**OQ-BUNDLE-2 — how far behind upstream k3s do we track?** Kubernetes ships three minors a year
-and supports roughly the last three. Tracking latest gives customers current features and us a
-constant upgrade treadmill; tracking N-2 is calmer and risks a cluster reaching end of upstream
-support inside its bundle's lifetime.
-
-State the policy, because "it always lagged decently far behind in support for Kubernetes
-versions" is a documented reason teams left Rancher. We should not inherit the complaint by
-accident.
-</Callout>
-
-<Callout type="warning">
-**OQ-BUNDLE-3 — what happens when a component has a CVE between bundle releases?** This is the
-one we are least able to be vague about. The ingress-nginx EOL is a headline argument for buying
-KubeNest; a customer who has read that argument will reasonably ask what our own response looks
-like.
-
-Needs a stated mechanism and a stated timeframe: out-of-band patch bundles (`1.4.1`), an
-accelerated minor, or fold-into-next-release with a documented severity threshold. Any of them is
-defensible. Silence is not.
-</Callout>
-
-<Callout type="warning">
-**OQ-BUNDLE-4 — how many bundles are supported at once, and can upgrades skip versions?** Can a
-cluster go `1.2 → 1.5` directly, or must it step through each release? This decides whether the
-upgrade orchestration in `kn-fuo` tests one transition per release or a matrix of them, and it
-sets how long a customer can defer before they are unsupported.
-
-Stepping through every release is the cheaper commitment and the more annoying product.
-</Callout>
-
-<Callout type="warning">
-**OQ-BUNDLE-5 — the agent and the control plane version separately.** The bundle pins the agent
-that runs in your cluster. It does not pin the control plane the agent talks to, which upgrades on
-its own schedule.
-
-That is a second compatibility axis and it is not in the six tested configurations. Needs a stated
-support window — which agent versions a given control plane accepts — or the first control-plane
-upgrade breaks clusters running older bundles.
-</Callout>
-
-<Callout type="warning">
-**OQ-BUNDLE-6 — actual pinned versions for the first release.** Not chosen. This is a task rather
-than a design question, but it blocks the release and it depends on **OQ-BUNDLE-2**.
-</Callout>
-
-<Callout type="warning">
-**OQ-BUNDLE-7 — is the manifest public?** Publishing what each bundle contains lets a prospect
-evaluate the stack before talking to us, and lets a customer see exactly what an upgrade changes.
-Both are good. It also tells competitors precisely what we ship, and commits us publicly to
-versions. Recommend publishing; confirm before doing it.
-</Callout>
-
-## Open design questions
-
-| ID | Question | Blocks |
-|---|---|---|
-| OQ-BUNDLE-1 | What do the version digits mean, and what forces a bump? | `kn-boj`, upgrade expectations |
-| OQ-BUNDLE-2 | How far behind upstream k3s do we track? | `kn-boj`, OQ-BUNDLE-6 |
-| OQ-BUNDLE-3 | Response to a component CVE between releases | Credibility of the whole pitch |
-| OQ-BUNDLE-4 | Concurrent supported bundles; can upgrades skip versions? | `kn-fuo` test matrix |
-| OQ-BUNDLE-5 | Agent ↔ control plane compatibility window | `kn-j5s`, control-plane releases |
-| OQ-BUNDLE-6 | Actual pinned versions for release 1 | The first release |
-| OQ-BUNDLE-7 | Is the manifest published publicly? | Sales collateral |

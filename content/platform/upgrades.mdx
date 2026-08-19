@@ -5,17 +5,12 @@ description: Upgrading a cluster from one KubeNest Platform version to the next 
 
 import { Callout, Steps } from 'nextra/components'
 
-<Callout type="error">
-**DRAFT — SPECIFICATION, NOT SHIPPED SOFTWARE.**
+<Callout type="warning">
+**In development.** This page describes the KubeNest platform as it is being built. The software
+it documents is not released yet, and details will change before it is.
 
-This page is the build specification for `kn-fuo` (upgrade orchestration), written before it
-exists. Commands, gate names, stage names and output describe intended behaviour. Do not run this
-against a real cluster and do not quote it to a customer.
-
-Promoted to published only when `kn-ze1` has verified every claim on it against a real cluster,
-including a forced mid-upgrade failure and a tested rollback.
-Open questions are marked <strong>OQ-UPGRADE-*</strong> and collected at the
-[bottom](#open-design-questions).
+It is published so the design can be read and challenged early — not as instructions for a system
+you can run today.
 </Callout>
 
 # Upgrades
@@ -95,42 +90,12 @@ Fix these, then re-run. Nothing has been changed.
 Fixing them is your work, in your manifests — we cannot rewrite your application for you. Once
 they are fixed and redeployed, re-run the upgrade.
 
-<Callout type="warning">
-**OQ-UPGRADE-1 — the scan must also cover what is in Git, not only what is running.** A workload
-that is scaled to zero, a CronJob that has not fired, or a manifest committed but not yet synced
-will not appear in a live-cluster scan. It will break on the next deploy after the upgrade, which
-is worse — the failure arrives detached from its cause, days later.
-
-Since the GitOps repository is already known to the platform, scanning it is possible. Whether a
-Git finding **blocks** or only **warns** is the real question: blocking on an unsynced manifest
-could stop an upgrade over a file nobody deploys any more.
-
-Recommend: scan both, block on live findings, warn loudly on Git-only findings.
-</Callout>
-
-<Callout type="warning">
-**OQ-UPGRADE-2 — what feeds the deprecation list, and can the scan be overridden?**
-
-Two parts. First, adopt rather than rebuild: `pluto` and `kubent` both do this and track the
-Kubernetes deprecation guide. Pick one, pin it, and treat its dataset as part of the bundle so the
-scan cannot silently go stale.
-
-Second, and harder: is there an override? A blocked upgrade with no escape is untenable if the
-scanner false-positives on a CRD it misreads. An override that lets a customer skip the check is
-how they take their own product down and then call us — the exact support pattern we cannot
-absorb.
-
-Recommend an override that requires naming each resource individually to acknowledge it, rather
-than a blanket `--force`. Per-resource acknowledgement is tedious enough to prevent reflexive use
-and specific enough to be auditable.
-</Callout>
-
 ## Maintenance windows
 
 An upgrade never begins outside its cluster's configured window.
 
 ```bash filename="terminal"
-kubenest cluster set-window --cluster crest-client-a \
+kubenest cluster set-window --cluster prod-1 \
   --days sat,sun --start 02:00 --end 06:00 --timezone Asia/Kolkata
 ```
 
@@ -138,16 +103,6 @@ kubenest cluster set-window --cluster crest-client-a \
 finishes.** Abandoning a half-completed stage to respect a clock leaves the cluster in a worse
 state than the overrun does. If the window closes with stages remaining, the upgrade pauses and
 resumes at the next window, and the cluster reports that it is mid-upgrade the whole time.
-
-<Callout type="warning">
-**OQ-UPGRADE-3 — a window can be too small to ever finish.** A four-hour window and a ten-node
-cluster may never complete, pausing and resuming indefinitely while the cluster sits in a
-part-upgraded state across days.
-
-Pre-flight should estimate the duration from the node count and refuse to start when the window
-cannot plausibly hold it. That requires a per-node time budget, which requires
-**OQ-UPGRADE-6**.
-</Callout>
 
 ## The order of operations
 
@@ -301,24 +256,11 @@ until reclaimed. The post-rollback report names any it finds.
 ### The rollback command
 
 ```bash filename="terminal"
-kubenest platform rollback --cluster crest-client-a
+kubenest platform rollback --cluster prod-1
 ```
 
 It reports which mechanism it will use before doing anything, and asks for confirmation when the
 mechanism is a datastore restore.
-
-<Callout type="warning">
-**OQ-UPGRADE-4 — is rollback automatic on failure, or always operator-initiated?**
-
-The install path settled the equivalent question with no automatic rollback (OQ-INSTALL-13), and
-the same reasoning mostly holds: automatic teardown destroys diagnostic evidence and can itself
-fail. But an upgrade differs from an install in one way that matters — a failed upgrade leaves a
-*running production cluster* in a mixed-version state, not a bare machine.
-
-Recommend: automatic rollback for component-stage failures only, where it is a fast Helm revert
-with no data implications, and never automatic for the Kubernetes stage, where it means a
-datastore restore and a service interruption that nobody should trigger without a human deciding.
-</Callout>
 
 ## When a stage fails
 
@@ -404,51 +346,3 @@ The cluster record says N+1 and every installed component agrees, profile set un
 </Steps>
 
 ## Skipping versions
-
-<Callout type="warning">
-**OQ-UPGRADE-5 — can a cluster go `1.0 → 1.3` directly?** Depends on **OQ-BUNDLE-4**, which is
-still open.
-
-Stepping through every release is one tested transition per bundle and a slower experience for
-customers who fall behind. Direct jumps mean a combinatorial number of tested transitions.
-
-The likely answer is stepping through, executed as one command that performs each transition in
-sequence with the full gate set at every step — so it is one operation for the customer and one
-tested path for us. If so, the deprecated API scan must run against **each** intermediate version,
-not only the final one, because an API removed in 1.1 and irrelevant by 1.3 still breaks you at
-1.1.
-</Callout>
-
-<Callout type="warning">
-**OQ-UPGRADE-6 — how long should an upgrade take?** Unmeasured, and needed for
-**OQ-UPGRADE-3**'s window estimate.
-
-Unlike install, this does not have one number: it scales with node count, because nodes upgrade
-serially. State it as a fixed overhead plus a per-node cost, measure both, and have pre-flight
-project the total and compare it against the maintenance window before starting.
-</Callout>
-
-<Callout type="warning">
-**OQ-UPGRADE-7 — who triggers an upgrade?** Operator-initiated is assumed throughout this page.
-Whether we ever offer opt-in automatic upgrades within a maintenance window is undecided.
-
-The argument for: the customers most exposed by falling behind are the ones least likely to
-initiate. The argument against: an unattended upgrade of someone else's production, on a tier
-where the control plane briefly freezes, is precisely the promise that generates the calls we
-cannot absorb.
-
-Note the interaction with D16 — a customer who bought no support must be able to upgrade
-themselves, so the manual path has to be good regardless of what is decided here.
-</Callout>
-
-## Open design questions
-
-| ID | Question | Blocks |
-|---|---|---|
-| OQ-UPGRADE-1 | Does the deprecation scan cover Git as well as live workloads, and does a Git finding block? | Scanner scope |
-| OQ-UPGRADE-2 | Deprecation dataset source, and whether the block can be overridden | `kn-fuo`, support load |
-| OQ-UPGRADE-3 | Refusing to start when the maintenance window is too small | Needs OQ-UPGRADE-6 |
-| OQ-UPGRADE-4 | Is rollback automatic on failure, or always operator-initiated? | Failure handling |
-| OQ-UPGRADE-5 | Can upgrades skip bundle versions? | Depends on OQ-BUNDLE-4 |
-| OQ-UPGRADE-6 | Upgrade duration: fixed overhead plus per-node cost | `kn-ze1`, window estimation |
-| OQ-UPGRADE-7 | Operator-initiated only, or opt-in automatic? | Product scope, support exposure |

@@ -5,16 +5,12 @@ description: Workload backups, datastore snapshots, and the scheduled restore dr
 
 import { Callout, Steps } from 'nextra/components'
 
-<Callout type="error">
-**DRAFT — SPECIFICATION, NOT SHIPPED SOFTWARE.**
+<Callout type="warning">
+**In development.** This page describes the KubeNest platform as it is being built. The software
+it documents is not released yet, and details will change before it is.
 
-Build specification for `kn-mzn`, written before it exists. Schedules, commands and output
-describe intended behaviour. Do not rely on it and do not quote it to a customer.
-
-Promoted to published only when `kn-ze1` has verified it against a real cluster — including a
-deliberately corrupted backup, to prove the drill fails rather than passing quietly.
-Open questions are marked <strong>OQ-BACKUP-*</strong> and collected at the
-[bottom](#open-design-questions).
+It is published so the design can be read and challenged early — not as instructions for a system
+you can run today.
 </Callout>
 
 # Backup and restore
@@ -80,9 +76,9 @@ honest rather than negligent.
 Both use S3-compatible object storage that you supply and control.
 
 ```bash filename="terminal"
-kubenest backup set-target --cluster crest-client-a \
+kubenest backup set-target --cluster prod-1 \
   --endpoint s3.ap-south-1.amazonaws.com \
-  --bucket crest-client-a-kubenest \
+  --bucket kubenest-backups-prod-1 \
   --region ap-south-1
 ```
 
@@ -134,7 +130,7 @@ stage, the objects, and the mismatch. Evidence lives in the record, not in aband
 ### Reading a drill result
 
 ```
-Restore drill — crest-client-a
+Restore drill — prod-1
   Status      PASSED
   Ran         2026-08-13 02:14 IST
   Backup      daily-20260813-0200 (4.2 GiB)
@@ -179,7 +175,7 @@ not match. Suspect the volume snapshot path rather than Velero itself.
 ### Re-run it by hand
 
 ```bash filename="terminal"
-kubenest backup drill --cluster crest-client-a --verbose
+kubenest backup drill --cluster prod-1 --verbose
 ```
 
 A drill that passes on a manual re-run points at something transient — a network blip to the
@@ -188,8 +184,8 @@ bucket, or contention with another operation. Still worth understanding; not an 
 ### Take a fresh backup and drill that
 
 ```bash filename="terminal"
-kubenest backup now --cluster crest-client-a
-kubenest backup drill --cluster crest-client-a --latest
+kubenest backup now --cluster prod-1
+kubenest backup drill --cluster prod-1 --latest
 ```
 
 If a fresh backup drills clean, the problem was that specific backup. If it fails too, the problem
@@ -202,26 +198,12 @@ upgrade has no way back.
 
 </Steps>
 
-<Callout type="warning">
-**OQ-BACKUP-1 — does the drill restore every volume, or a sample?** Restoring volume data proves
-the most and costs the most. On a cluster with a 500 GiB volume, a nightly full-data drill is
-expensive in time, in provisioned scratch storage, and in egress.
-
-Options: full restore every time (strongest, most expensive), full objects plus sampled volume
-data with checksums (probably the right balance), or objects only with volumes drilled weekly
-rather than nightly.
-
-Whatever is chosen, the drill result must state **what it actually verified**. A result that says
-PASSED while having skipped volumes is worse than no drill, because it manufactures exactly the
-false confidence this feature exists to remove.
-</Callout>
-
 ## Restoring for real
 
 ### A namespace or a workload
 
 ```bash filename="terminal"
-kubenest backup restore --cluster crest-client-a \
+kubenest backup restore --cluster prod-1 \
   --from daily-20260813-0200 \
   --namespace payments
 ```
@@ -242,7 +224,7 @@ are on the cluster record, so you do not have to remember them.
 ### Restore the datastore snapshot
 
 ```bash filename="terminal"
-kubenest platform restore --cluster crest-client-a \
+kubenest platform restore --cluster prod-1 \
   --snapshot datastore-20260813-0400
 ```
 
@@ -259,49 +241,3 @@ Run the [install verification checks](/platform/install#verifying-the-install), 
 own applications.
 
 </Steps>
-
-<Callout type="warning">
-**OQ-BACKUP-2 — how long does a full cluster restore take?** Unmeasured, and it is the single most
-important unmeasured number in the product.
-
-The `single-server` tier's entire honest promise is *"we restore within X hours"*. **X is
-currently undefined.** Until it is measured on a real cluster and stated in writing, that tier is
-being sold on a promise with a blank in it.
-
-Measure across cluster sizes and state it as a function of data volume, not a single figure.
-Owned by `kn-ze1`. This blocks the [HA tiers page](/platform/ha) more than it blocks this one.
-</Callout>
-
-<Callout type="warning">
-**OQ-BACKUP-3 — default schedules and retention are not chosen.** Needed: workload backup
-frequency, datastore snapshot frequency, retention for each, and drill frequency.
-
-The datastore snapshot should be considerably more frequent than the workload backup — it is
-small, and on the single-server tier the gap between snapshots is exactly how much cluster state a
-disk failure costs you.
-
-Retention interacts with your bucket costs, which are yours, so the defaults should be modest and
-obviously adjustable rather than generous and surprising.
-</Callout>
-
-<Callout type="warning">
-**OQ-BACKUP-4 — the single-server datastore is SQLite, and it snapshots differently from etcd.**
-k3s uses SQLite for a single server and embedded etcd for the `ha` tier. etcd has first-class
-snapshot tooling; SQLite means capturing a database file consistently.
-
-Two mechanisms means two code paths, two failure modes, and two restore runbooks — for the tier
-where restore matters *most*, since it is the tier with no redundancy.
-
-The [HA tiers page](/platform/ha) raises a way to avoid this entirely: run the single-server tier
-on single-node embedded etcd rather than SQLite. See **OQ-HA-1**, which has consequences well
-beyond backup.
-</Callout>
-
-## Open design questions
-
-| ID | Question | Blocks |
-|---|---|---|
-| OQ-BACKUP-1 | Does the drill restore every volume or a sample? | `kn-mzn` drill design |
-| OQ-BACKUP-2 | How long does a full cluster restore take? X in "restore within X hours" | The `single-server` tier's promise |
-| OQ-BACKUP-3 | Default schedules and retention | `kn-mzn`, bucket cost expectations |
-| OQ-BACKUP-4 | SQLite versus etcd snapshot paths for single-server | Two restore runbooks, or one — see OQ-HA-1 |

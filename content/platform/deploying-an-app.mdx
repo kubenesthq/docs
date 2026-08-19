@@ -5,10 +5,9 @@ description: Deploying workloads onto a KubeNest platform cluster, via Helm char
 
 import { Callout } from 'nextra/components'
 
-<Callout type="error">
-**DRAFT.** Part of the day-2 platform set (`kn-nlaf`), promoted to published only when `kn-ze1`
-has verified it. Unlike the rest of this section, the app layer already exists and is documented
-— this page mostly points at those pages.
+<Callout type="info">
+**The app layer already exists**, unlike the rest of this section — this page mostly points at
+the pages that document it.
 </Callout>
 
 # Deploying an app
@@ -67,8 +66,7 @@ Worth knowing, because it changes what you need to configure:
 Two things to know rather than discover:
 
 **Write `HTTPRoute`, not `Ingress`.** The bundle is Gateway API native. Existing `Ingress`
-resources can be converted with `ingress2gateway`; that is a separate migration, tracked as
-`kn-pgu`.
+resources can be converted with `ingress2gateway`; that is a separate migration.
 
 **Local storage is node-local.** A pod using a Local PV LVM volume is bound to the node holding
 it, and if that node is lost the volume is gone — restore it from backup. Workloads needing
