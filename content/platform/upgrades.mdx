@@ -54,9 +54,9 @@ outcome.
 | **Deprecated API scan** | No running workload uses an API removed in the target Kubernetes version | See [below](#the-deprecated-api-scan). This is the one that matters most |
 | **Restore drill** | The most recent verified restore drill passed | Rollback partly depends on restore. An untested restore is not a rollback plan |
 | **Backup** | A fresh backup completes immediately before the upgrade starts | The state you may need to return to must be from *now*, not from last night |
-| **Node readiness** | Every node reports Ready | Upgrading onto an already-degraded cluster turns one problem into two |
-| **Disk headroom** | Every node has room for new images alongside the old ones | Running out of disk mid-upgrade is a hard failure at the worst moment |
-| **Pod disruption budgets** | No PDB would block a drain indefinitely | A PDB that permits zero disruption stalls the upgrade forever, holding the cluster mid-transition |
+| **Node readiness** | Every node reports Ready, and has done for `limits.timeouts.node-ready` | Upgrading onto an already-degraded cluster turns one problem into two. A node that is flapping in and out of Ready fails this gate, which a single sample would miss |
+| **Disk headroom** | Every node has at least `limits.resources.upgrade-headroom.disk` free (default 10 GiB) on the filesystem holding `/var/lib/rancher` | Running out of disk mid-upgrade is a hard failure at the worst moment. The new images land beside the old ones, so the requirement is free space, not total size |
+| **Pod disruption budgets** | No PDB would block a drain for longer than `limits.timeouts.node-drain` | A PDB that permits zero disruption stalls the upgrade forever, holding the cluster mid-transition. The gate is *"would this drain finish in the window"*, which is answerable in advance, not *"is this PDB reasonable"*, which is not |
 | **Maintenance window** | Now is inside the cluster's configured window | See [maintenance windows](#maintenance-windows) |
 | **Bundle path** | N+1 is a supported transition from N for this profile set | Untested transitions are not offered |
 
@@ -170,11 +170,65 @@ step last means the great majority of failures happen while retreating is still 
 | 7 | `verify` | Full post-upgrade verification |
 | 8 | `record` | The cluster's bundle version is updated |
 
+```mermaid
+flowchart TD
+    S1["1 · preflight"] --> S2["2 · backup"]
+    S2 --> S3["3 · platform components"]
+    S3 --> S4["4 · profiles"] --> S5["5 · agent"]
+    S5 --> S6["6 · kubernetes<br/>node by node"]
+    S6 --> S7["7 · verify"] --> S8["8 · record"]
+
+    S3 -. "fails" .-> R1["helm rollback<br/>seconds"]
+    S4 -. "fails" .-> R1
+    S5 -. "fails" .-> R1
+    S6 -. "fails" .-> R2["restore the datastore<br/>snapshot from stage 2"]
+    S7 -. "fails" .-> R2
+
+    R1 --> BACK["Back where you started"]
+    R2 --> BACK
+
+    style R1 stroke-dasharray: 4 4
+    style R2 stroke-dasharray: 4 4
+    style S6 stroke-width:3px
+```
+
+The diagram is the argument for the ordering. Every stage before 6 exits through the cheap path on
+the left; only 6 and 7 exit through a datastore restore. Five of the seven ways an upgrade can
+fail cost you seconds, and that is a consequence of *sequencing*, not of any recovery machinery.
+
 **Health checks run between every stage**, and a failed check halts the sequence rather than
 continuing. Continuing past a failed check is how one broken component becomes a broken cluster.
 
 Stage 6 upgrades nodes one at a time. Each node is cordoned, drained, upgraded, and must return to
 Ready and pass its health check before the next node is touched.
+
+### Every wait in that sequence has a deadline
+
+Each step below takes its limit from `limits.timeouts` in the bundle manifest, and reports
+`converging` with visible progress until the deadline rather than sitting silent:
+
+| Step | Limit | On expiry |
+|---|---|---|
+| Drain a node | `node-drain` (15m) | Halt. Report which pods would not evict and which PDB held them. Never force-delete — an operator decides that, not the upgrade |
+| Node returns Ready | `node-ready` (5m) | Halt with the node uncordoned-pending. The cluster is mid-upgrade and says so |
+| A component reaches Ready | `component-ready` (10m) | Halt. Report the release, its pods, and their last events |
+| One node, end to end | `upgrade-per-node` (30m) | Halt regardless of which sub-step is outstanding, so a slow loop cannot run indefinitely |
+
+**Halting is not rolling back.** An expired deadline stops the sequence and leaves the cluster
+where it is, exactly as a failed check does — see [when a stage fails](#when-a-stage-fails).
+Timing out is evidence that something is wrong, and destroying that evidence automatically is how
+a stall becomes an outage.
+
+<Callout type="warning">
+**A transient failure is not a failure.** Components pass through `Error`, `CrashLoopBackOff` and
+`Pending` during a normal upgrade — images pull, hooks retry, pods reschedule behind a drain. A
+check that samples once and judges will halt a healthy upgrade partway through, which is a
+strictly worse position than either finishing or not starting.
+
+So every check waits for its condition to hold within the window and only then decides. This was
+observed for real on a clean install, where `helm-install-traefik` entered `Error` before
+retrying and completing.
+</Callout>
 
 <Callout type="info">
 The node upgrade mechanism itself is Rancher's `system-upgrade-controller` — the same tool RKE2
@@ -307,6 +361,11 @@ before each stage rather than after.
 
 Stage 7 runs these automatically. They are also what to check by hand.
 
+These are **convergence checks with deadlines**, on the same three-outcome rule as the install
+checks — `pass`, `converging`, or `fail` with the last observed state. A post-upgrade cluster is
+in more motion than a freshly installed one, because every drained pod is rescheduling at once, so
+sampling once here is even less defensible than it is at install.
+
 <Steps>
 
 ### Every node is Ready and on the expected version
@@ -315,9 +374,15 @@ Stage 7 runs these automatically. They are also what to check by hand.
 kubectl get nodes -o wide
 ```
 
+Within `limits.timeouts.node-ready` of that node's upgrade completing.
+
 ### Every core and profile component is Running at its new version
 
-No pod in CrashLoopBackOff or Pending. Component versions match the target manifest.
+Component versions match the target manifest, and every release reaches Ready within
+`limits.timeouts.component-ready`.
+
+`CrashLoopBackOff` and `Pending` fail this check only if they persist to the deadline. Immediately
+after a drain they are the expected state, not a fault.
 
 ### Storage still provisions
 

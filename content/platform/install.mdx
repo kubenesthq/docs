@@ -75,15 +75,29 @@ mid-bundle, belongs to `kn-boj`.
 These figures are **provisional and unmeasured**. They exist so that preflight has thresholds to
 work with, not because anyone has profiled the bundle yet.
 
-| | vCPU | RAM | Disk |
-|---|---|---|---|
-| Server node — hard floor | 2 | 4 GB | 40 GB |
-| Server node — provisional recommendation | 4 | 8 GB | 100 GB |
-| Agent node — hard floor | 2 | 4 GB | 40 GB |
-| Agent node — provisional recommendation | 4 | 8 GB | 100 GB |
+| | vCPU | RAM | Disk | Buy a machine advertised as |
+|---|---|---|---|---|
+| Server node — hard floor | 2 | 3.7 GiB | 36 GiB | 4 GB / 40 GB |
+| Server node — provisional recommendation | 4 | 7.4 GiB | 92 GiB | 8 GB / 100 GB |
+| Agent node — hard floor | 2 | 3.7 GiB | 36 GiB | 4 GB / 40 GB |
+| Agent node — provisional recommendation | 4 | 7.4 GiB | 92 GiB | 8 GB / 100 GB |
 
 Preflight **fails** below the hard floor and **warns** below the recommendation. The floor is
 k3s's own documented minimum plus headroom for the rest of core; the recommendation is a guess.
+
+The thresholds themselves live in the bundle manifest under `limits.resources`, so they are
+versioned with the release rather than compiled into the installer.
+
+<Callout type="warning">
+**The two columns are the same machine.** The last column is what a vendor advertises; the
+others are what the kernel reports once you own it. A host sold as 8 GB gives `/proc/meminfo`
+7.57 GiB; sold as 80 GB it leaves roughly 74.8 GiB on the root filesystem. Measured on a real
+cloud host, not rounded on paper.
+
+Preflight compares against the **GiB** columns. Comparing a `4 GB` floor against `MemTotal` as
+though it were GiB refuses a machine that meets the specification — and because the floor fails
+rather than warns, the customer is told to buy a bigger box for a box that was already correct.
+</Callout>
 
 <Callout type="warning">
 **OQ-INSTALL-2 — the recommended figures are not measured.** This is the one genuinely open item
@@ -116,6 +130,9 @@ host persistent data. There are two supported ways to get one, and you pick per 
 **Option 1 — you create the volume group (default).** Create a volume group named `kubenest-vg`
 on each data-bearing node before running the installer. Preflight verifies it exists and has free
 extents. The installer never touches your block devices.
+
+This asks nothing extra of you in packaging terms: `lvm2` ships on the stock Ubuntu cloud image,
+so `pvcreate` and `vgcreate` are already present on a fresh host.
 
 **Option 2 — the installer creates it.** Name a blank device explicitly:
 
@@ -371,9 +388,61 @@ The order is not arbitrary — every stage depends on the ones above it.
 Stage 1 writes nothing anywhere. Stage 2 writes only to the control plane. The first change to any
 of your machines happens in stage 3.
 
+```mermaid
+flowchart TD
+    subgraph safe ["Nothing on your machines has changed"]
+        direction TB
+        S1["1 · preflight<br/>every check, every node"]
+        S2["2 · register<br/>control plane only"]
+        S1 --> S2
+    end
+
+    subgraph k8s ["Kubernetes"]
+        direction TB
+        S3["3 · k3s-server"] --> S4["4 · k3s-agents"]
+    end
+
+    subgraph core ["Platform core"]
+        direction TB
+        S5["5 · networking<br/>Traefik + Gateway API"] --> S6["6 · certs"]
+        S6 --> S7["7 · storage<br/>volume group, OpenEBS"]
+        S7 --> S8["8 · backup<br/>Velero"] --> S9["9 · day-2<br/>upgrades, kured"]
+    end
+
+    subgraph fin ["Identity and proof"]
+        direction TB
+        S10["10 · kubenest-agent<br/>first heartbeat"] --> S11["11 · profiles"]
+        S11 --> S12["12 · record"] --> S13["13 · verify"]
+    end
+
+    S2 -- "first write to your machines" --> S3
+    S4 --> S5
+    S9 --> S10
+
+    S13 -- "any stage fails" --> STOP["Halt. Journal written,<br/>cluster marked install-failed.<br/>Resume or uninstall."]
+
+    style safe fill:transparent,stroke-dasharray: 4 4
+    style STOP stroke-dasharray: 4 4
+```
+
+Everything above the labelled edge is recoverable by walking away. That is the property the
+ordering exists to give you: the expensive checks happen while abandoning the install costs
+nothing.
+
 **The whole sequence must complete in under fifteen minutes**, for both reference shapes: a
 single-server core install, and a three-node install with every profile enabled. `kn-ze1` asserts
 this. If a measured install exceeds it, that is a defect to fix, not a number to revise upward.
+
+<Callout type="info">
+**The budget and the timeout are different numbers, deliberately.** Fifteen minutes is the
+*target*, and `kn-ze1` failing it is a defect in the installer. `limits.timeouts.install-total`
+(default 30m) is the *deadline*, after which the install aborts and reports which stage was
+still running.
+
+Collapsing the two would mean either a target so loose it asserts nothing, or an install that
+aborts on a slow image pull. A run that takes twenty minutes has failed its budget and succeeded
+at its job — those deserve different outcomes.
+</Callout>
 
 <Callout type="info">
 **Traefik with Gateway API, not ingress-nginx.** `kubernetes/ingress-nginx` reached end of life
@@ -406,10 +475,10 @@ before the first byte is written anywhere, and any failure aborts before a machi
 | Operating system | The node is not a supported Ubuntu LTS release |
 | Privilege | `sudo -n true` fails |
 | Existing Kubernetes | k3s, RKE2, kubelet or containerd is already present |
-| Volume group | `kubenest-vg` is missing, or `--storage-device` names a device that is not blank |
+| Volume group | `kubenest-vg` is missing, or `--storage-device` names a device that is not blank — the check is that `blkid` on the device returns nothing. A device carrying a partition table, a filesystem or an existing LVM PV reports a `TYPE`, and that is a refusal |
 | Node-to-node ports | Any port in the table above is blocked between nodes |
 | Outbound egress | Registries, Helm repositories, the control plane or the hub are unreachable |
-| Host resources | CPU, memory or disk below minimum (**OQ-INSTALL-2**) |
+| Host resources | Reported CPU, `MemTotal` or filesystem free space is below `limits.resources.floor`, **compared in binary units** (**OQ-INSTALL-2**) |
 | Node count | Fewer than three control-plane nodes for `--ha ha` |
 | Bundle availability | The requested bundle version does not exist, or does not offer the requested tier |
 
@@ -419,6 +488,28 @@ Stage 13 runs these automatically and reports the result. They are also the chec
 when something looks wrong, and they are the acceptance criteria `kn-ze1` will assert against a
 real cluster.
 
+<Callout type="warning">
+**These are convergence checks, not snapshots.** Every one of them waits for a condition to hold
+within a window and reports the *last* state it saw. None of them samples once and judges.
+
+This is not a refinement. A clean k3s install puts `helm-install-traefik` into `Error` before it
+retries and completes — observed on a real host. A check that sampled at that moment would fail
+a healthy install, and the operator would be debugging the installer rather than using the
+cluster.
+
+Each check has a deadline from `limits.timeouts` in the bundle manifest, and each reports one of
+three outcomes, never two:
+
+| Outcome | Meaning |
+|---|---|
+| `pass` | The condition held within its window |
+| `converging` | Not there yet, deadline not reached. Progress is printed, not silence |
+| `fail` | The deadline passed. Reports the last observed state and which object was stuck |
+
+`converging` is the outcome that stops false failures, and printing progress while it lasts is
+what stops the operator killing an install that was going to succeed.
+</Callout>
+
 <Steps>
 
 ### Every node is Ready
@@ -427,6 +518,8 @@ real cluster.
 kubectl get nodes
 ```
 
+Every node reaches `Ready` within `limits.timeouts.node-ready` (default 5m).
+
 ### Every core component is Running
 
 ```bash filename="terminal"
@@ -434,7 +527,13 @@ kubectl get pods -A
 ```
 
 Traefik, cert-manager, OpenEBS, Velero, `system-upgrade-controller`, `kured` and the KubeNest
-agent all reach Ready. No pod is in CrashLoopBackOff or Pending.
+agent all reach Ready within `limits.timeouts.component-ready` (default 10m per release).
+
+**`CrashLoopBackOff` and `Pending` are not immediate failures.** Both are legitimate transient
+states during an install — images pull, dependencies order themselves, a Helm hook retries. They
+fail the check only if they are still present at the deadline. What the check reports on failure
+is the pod, its state, and its last event, because *"traefik is Pending, no node matches its
+node selector"* is a fix and *"install failed"* is not.
 
 ### Storage provisions a volume for real
 

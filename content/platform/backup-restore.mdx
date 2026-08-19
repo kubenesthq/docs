@@ -41,6 +41,28 @@ them is how people discover they only had half a backup.
 You need both. A workload backup does not rebuild a cluster. A datastore snapshot does not contain
 your database.
 
+```mermaid
+flowchart TB
+    subgraph disaster1 ["“someone deleted the payments namespace”"]
+        D1["objects gone<br/>volume data gone"]
+    end
+    subgraph disaster2 ["“the control-plane disk died”"]
+        D2["the cluster itself is gone"]
+    end
+
+    WB["Workload backup<br/>Velero"] -- "restores" --> D1
+    DS["Datastore snapshot<br/>k3s"] -- "restores" --> D2
+
+    WB -. "cannot rebuild a cluster" .-> D2
+    DS -. "does not contain your database" .-> D1
+
+    style disaster1 stroke-dasharray: 4 4
+    style disaster2 stroke-dasharray: 4 4
+```
+
+The dotted edges are the half-backup people discover during the disaster: each tool is useless for
+the other's failure, and neither is a superset of the other.
+
 <Callout type="warning">
 **The single-server datastore is the one people forget.** A single-server k3s cluster keeps its
 entire state in a local database on the control-plane node. If that disk dies and there is no
@@ -94,6 +116,20 @@ On a schedule, and without anyone asking, the cluster:
 The result goes into fleet telemetry and is visible against the cluster. **A failed drill is an
 alert, not a log line.** It is also a gate: the [upgrade](/platform/upgrades) pre-flight refuses to
 run when the last drill did not pass, because rollback depends on restore working.
+
+The whole drill runs inside `limits.timeouts.restore-drill` (default 2h). Exceeding it is recorded
+as a **failure with reason `timeout`**, distinct from a restore that completed and mismatched —
+the first says the pipeline is too slow or wedged, the second says the data came back wrong, and
+they need different responses.
+
+<Callout type="warning">
+**Step 5 runs even when steps 3 or 4 fail.** A drill that leaves its scratch namespace behind on
+failure will, on a nightly schedule, fill the cluster with the debris of every failed drill —
+and the most likely reason a drill fails is that the cluster is already short of resources.
+
+The teardown is unconditional, and what the failure preserves is the *result record* naming the
+stage, the objects, and the mismatch. Evidence lives in the record, not in abandoned state.
+</Callout>
 
 ### Reading a drill result
 

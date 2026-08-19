@@ -7,7 +7,7 @@ This file lives at the repo root, **outside `content/`**, so Nextra cannot route
 never be published to docs.kubenest.io. Keep it that way — it names unmade decisions and
 unmeasured numbers.
 
-**42 questions. 13 decided, 29 open.**
+**43 questions. 13 decided, 30 open.**
 
 Each question is written up in full on its page, inline where it arises, with the reasoning and a
 recommendation where there is one. This file is the index, not the content.
@@ -24,6 +24,7 @@ Nothing ships until these are answered. Six of them.
 | OQ-BUNDLE-2 | How far behind upstream k3s do we track? | bundle |
 | OQ-BUNDLE-3 | Response to a component CVE between releases | bundle |
 | OQ-BUNDLE-6 | Actual pinned versions for release 1 — a task, not a design question, but it blocks | bundle |
+| OQ-BUNDLE-8 | Values for `limits.timeouts` and `limits.resources`. The structure is settled; the numbers are provisional | bundle |
 | OQ-PROFILE-2 | `secrets` offers a choice inside a slot, which the matrix rule forbids | profiles |
 | OQ-PROFILE-4 | Which replicated storage engine — Mayastor, Longhorn, or Piraeus/LINSTOR? | profiles |
 
@@ -93,6 +94,7 @@ Release blockers above, plus:
 |---|---|
 | OQ-BUNDLE-4 | Concurrent supported bundles; can upgrades skip versions? Blocks OQ-UPGRADE-5 |
 | OQ-BUNDLE-7 | Is the manifest published publicly? Recommend yes |
+| OQ-BUNDLE-8 | Provisional values for every threshold and timeout in `limits` |
 
 ### `profiles.mdx` — 5 open
 

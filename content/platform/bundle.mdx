@@ -137,12 +137,73 @@ os:
 
 ha-tiers: [single-server, ha]
 
+limits:
+  # Binary units throughout. 1 GiB = 1024³ bytes, which is what /proc/meminfo and
+  # statfs actually report. See "Units" below — this is not pedantry, it decides
+  # whether preflight passes a correctly-sized machine.
+  resources:
+    floor:        { cpu: 2, memory: 3.7Gi, disk: 36Gi }
+    recommended:  { cpu: 4, memory: 7.4Gi, disk: 92Gi }
+    upgrade-headroom: { disk: 10Gi }   # free space required before an upgrade starts
+
+  # Every wait has a limit. Nothing in the platform waits forever.
+  timeouts:
+    node-ready:        5m    # k3s started, or a node returning after reboot
+    component-ready:  10m    # one Helm release reaching its ready condition
+    node-drain:       15m    # cordon + drain before reboot or node upgrade
+    node-reboot:      20m    # node leaves, comes back, reports Ready
+    install-total:    30m    # all 13 stages; the 15-minute budget is the target
+    upgrade-per-node: 30m
+    restore-drill:     2h
+
 profiles:
   observability: { ... }      # each profile pins its own components
   secrets:       { ... }
   replicated-storage: { ... }
   ha:            { ... }
 ```
+
+### Limits are part of the bundle, not constants in the code
+
+Every threshold preflight enforces and every window the platform waits through is declared here,
+versioned with the release, and changed by shipping a new bundle.
+
+This exists because the alternative is worse in a specific way. A timeout hardcoded in the
+installer is untestable, undocumented, and identical for a two-node lab and a loaded production
+cluster. Put it in the manifest and it becomes a property of a tested configuration: `kn-twe` can
+assert against it, `kn-ze1` can measure it, an upgrade can change it deliberately, and a support
+conversation can start with *"which bundle, and what were its limits"* rather than a guess.
+
+<Callout type="warning">
+**OQ-BUNDLE-8 — the values above are provisional.** The *structure* is settled: limits live in
+the manifest and every wait has one. The numbers are informed guesses that need `kn-ze1` to
+replace them with measurements, and three of them are already owned elsewhere —
+`install-total` by `OQ-INSTALL-2`'s sizing work, `upgrade-per-node` by `OQ-UPGRADE-6`, and
+`restore-drill` by `OQ-BACKUP-2`.
+
+Ship provisional numbers rather than none. A missing timeout is not a cautious choice, it is a
+hang with no error message.
+</Callout>
+
+### Units
+
+**Binary units, everywhere, stated explicitly.** A host sold as "8 GB" delivers 7.57 GiB to
+`/proc/meminfo`; one sold as "80 GB" leaves about 74.8 GiB on the root filesystem after the
+image. Those are measured figures from a real cloud host, not a rounding argument.
+
+So a floor written as `8 GB` and compared against `MemTotal` as though it were GiB **fails a
+machine that meets the specification**. The floor is a hard failure rather than a warning, which
+means the customer's correctly-sized host is refused with a message telling them to buy a bigger
+one.
+
+Hence `3.7Gi` and `36Gi` above rather than `4 GB` and `40 GB`: the same intent — a 4 GB, 40 GB
+machine — expressed as what the kernel will actually report on one.
+
+Two rules follow, and they apply to any number in this bundle:
+
+1. **Every threshold carries its unit in the manifest**, in the binary form the check will use.
+2. **Vendor-nominal figures are for prose only.** Anything a check compares against is written in
+   the units the check reads.
 
 The schema belongs in `kubenest-contracts` before the backend or the installer implement against
 it.

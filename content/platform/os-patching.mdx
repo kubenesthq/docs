@@ -58,13 +58,69 @@ For each node that needs one, in turn:
 1. Check the reboot window is open
 2. Check no other node is currently rebooting
 3. Check the cluster can lose this node — quorum holds, no unsatisfiable disruption budget
-4. Cordon and drain
+4. Cordon and drain, within `limits.timeouts.node-drain`
 5. Reboot
-6. Wait for the node to return Ready
+6. Wait for the node to return Ready, within `limits.timeouts.node-reboot`
 7. Uncordon, and only then consider the next node
 
 **One node at a time, always.** Quorum is never lost on the `ha` tier, and a stuck node halts the
 sequence rather than letting a second node go down behind it.
+
+A node that does not come back inside `node-reboot` (default 20m) leaves the sequence halted with
+that node cordoned and drained. No further node is touched. This is the correct outcome: a machine
+that did not survive a reboot is a hardware or boot problem, and rebooting a second node while the
+first is missing turns one absent node into two.
+
+### Who is watching, and from where
+
+Step 6 has a problem the other steps do not, and it is worth being explicit because the naive
+implementation cannot work.
+
+**On the `ha` tier**, `kured` runs in the cluster and the API server stays up throughout, so
+"wait for the node to return Ready" means what it says: another node's control plane observes the
+rebooting node and reports when it comes back.
+
+**On the `single-server` tier, if the node being rebooted is the control-plane node, there is no
+API server to ask.** The observer went down with the observed. Anything waiting inside the cluster
+for a `Ready` condition is waiting on a component that does not exist for the duration.
+
+So on that path the wait is external, and belongs to whoever issued the reboot:
+
+| Observer | Waits on | Reports |
+|---|---|---|
+| The CLI that ran `kubenest node reboot` | SSH reachable, then k3s active, then the node's own API answering | Progress, then Ready or the `node-reboot` deadline |
+| Fleet telemetry | The agent's heartbeat resuming | The cluster as **unreachable** while it is down, and recovered when the heartbeat returns |
+
+The cluster showing as unreachable during an announced reboot is correct and expected, not an
+incident. It is also the only signal available if the operator's terminal is closed — which is why
+the reboot is recorded against the cluster before the node goes down, so telemetry can tell a
+planned outage from a dead machine.
+
+```mermaid
+flowchart TD
+    HA1["ha tier<br/>server-1 rebooting"]
+    HA2["server-2 and server-3<br/>API server still up"]
+    HA2 -- "asks Kubernetes: is it Ready?" --> HA1
+
+    SS1["single-server tier<br/>server-1 rebooting<br/>API server, agent and kured all on it"]
+    SS2["nothing left inside the cluster"]
+    SS2 -. "no one to ask" .-> SS1
+
+    CLI["the CLI that ran the reboot"] -- "SSH, then k3s, then the API" --> SS1
+    TEL["fleet telemetry"] -- "absence of a heartbeat" --> SS1
+
+    style SS2 stroke-dasharray: 4 4
+```
+
+The `ha` tier can ask Kubernetes a question. The `single-server` tier can only be *waited for*,
+from outside, by two observers who each see part of the picture.
+
+<Callout type="warning">
+**A `single-server` control-plane reboot that never returns is not detectable from inside the
+cluster, by construction.** There is no quorum to notice, and the agent that would report is on
+the machine that is gone. It surfaces as an absent heartbeat and nothing more. Whatever alerting
+sits on that absence is the entire safety net for the tier.
+</Callout>
 
 ### Reboot windows
 
