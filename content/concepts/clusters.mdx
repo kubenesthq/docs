@@ -13,26 +13,20 @@ A Cluster in kubenest represents a Kubernetes cluster that the operator has been
 
 Registration is a two-phase process: you create a cluster record in the backend (which reserves a UUID and issues a cluster JWT), and then you install the operator on the actual Kubernetes cluster (which uses that JWT to authenticate with the hub).
 
-```
-Backend                    Hub                     Operator (on cluster)
-   │                        │                             │
-   │  POST /orgs/{id}/      │                             │
-   │       clusters         │                             │
-   │◄──────────────────────┤                             │
-   │  returns cluster_id    │                             │
-   │  + connection_token    │                             │
-   │                        │                             │
-   │             (operator installed via Helm)            │
-   │                        │                             │
-   │                        │◄────────────────────────────┤
-   │                        │  WS CONNECT + JWT           │
-   │                        │                             │
-   │◄───────────────────────┤                             │
-   │  "cluster connected"   │                             │
-   │  event                 │                             │
-   │                        │                             │
-   │  update cluster.status │                             │
-   │  to "connected"        │                             │
+```mermaid
+sequenceDiagram
+    autonumber
+    actor You
+    participant BE as Backend
+    participant Hub as Hub
+    participant Op as Operator (on your cluster)
+
+    You->>BE: POST /orgs/{id}/clusters
+    BE-->>You: cluster_id + connection_token
+    Note over Op: operator installed via Helm,<br/>carrying that token
+    Op->>Hub: WebSocket CONNECT + JWT (outbound)
+    Hub->>BE: cluster connected
+    BE->>BE: cluster.status = connected
 ```
 
 The operator never needs a public IP or inbound firewall rules. It initiates a WebSocket connection outbound to the hub, authenticates with the JWT, and maintains a persistent session. All subsequent communication — deploy events, status updates, log streams — flows over this connection.
@@ -41,25 +35,17 @@ The operator never needs a public IP or inbound firewall rules. It initiates a W
 
 A cluster record transitions through the following states:
 
-```
-pending  ← (record created; BYO clusters stay here until the operator connects)
-  │
-  ├──────────────────────┐
-  │                      ▼
-  │              provisioning  ← (cloud-provisioned only — VMs coming up)
-  │                      │
-  │                      ▼
-  │              awaiting_operator  ← (cloud-provisioned only — infra ready,
-  │                      │             waiting for operator to connect)
-  ▼                      ▼
-connected  ← (operator has authenticated; hub has an active session)
-  │
-  ├──► disconnected  (hub lost the WebSocket session; operator may be restarting)
-  │         │
-  │         ▼
-  │      connected  (operator reconnects automatically)
-  │
-  └──► error  (provisioning failed or operator reported a fatal error)
+```mermaid
+stateDiagram-v2
+    [*] --> pending: record created
+    pending --> connected: operator connects (BYO cluster)
+    pending --> provisioning: cloud-provisioned
+    provisioning --> awaiting_operator: infrastructure ready
+    awaiting_operator --> connected: operator connects
+    connected --> disconnected: hub lost the session
+    disconnected --> connected: automatic reconnect, exponential backoff
+    provisioning --> error: provisioning failed
+    connected --> error: operator reported a fatal error
 ```
 
 | State | Meaning |

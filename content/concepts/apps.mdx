@@ -15,23 +15,13 @@ From a user's perspective, an App is a named, deployable bundle: a web service a
 
 Under the hood, an App maps to a **StackDeploy** — a Kubernetes Custom Resource Definition (CRD) managed by the kubenest operator. The operator watches for `StackDeploy` objects and reconciles them by writing Helm values to Git and letting ArgoCD sync the cluster state. This means that the source of truth for what is deployed is always Git, and every state change has an audit trail.
 
-```
-POST /api/v1/apps
-        │
-        ▼
-  Backend validates spec
-        │
-        ▼
-  Hub routes CREATE event to operator
-        │
-        ▼
-  Operator writes StackDeploy CR
-        │
-        ▼
-  Operator reconciles: writes Helm values → Git → ArgoCD → Kubernetes
-        │
-        ▼
-  Status events flow back: StackDeploy.status.phase → Hub → Backend → SSE
+```mermaid
+flowchart TD
+    A["POST /api/v1/apps"] --> B["Backend validates the spec"]
+    B --> C["Hub routes a CREATE event to the operator"]
+    C --> D["Operator writes the StackDeploy CR"]
+    D --> E["Operator reconciles:<br/>Helm values → Git → ArgoCD → Kubernetes"]
+    E -- "StackDeploy.status.phase" --> F["Hub → Backend → SSE"]
 ```
 
 ### App vs Workload vs StackDeploy

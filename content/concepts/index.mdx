@@ -9,14 +9,14 @@ import { Cards, Callout } from 'nextra/components'
 
 kubenest organizes everything around a hierarchy of five objects. Understanding how they relate to each other is the fastest way to understand the system as a whole.
 
-```
-Organization
-└── Clusters (one or more Kubernetes clusters)
-    └── Projects (namespaces — isolation boundary)
-        ├── Apps (StackDeploys — the primary deployable unit)
-        │   ├── Workload components (containerized services)
-        │   └── Addon components (backing services: Postgres, Redis…)
-        └── Standalone Addons (addon instances outside an App)
+```mermaid
+flowchart TD
+    ORG["Organization"] --> CL["Clusters<br/>one or more Kubernetes clusters"]
+    CL --> PR["Projects<br/>namespaces, the isolation boundary"]
+    PR --> APP["Apps<br/>StackDeploys, the primary deployable unit"]
+    PR --> SA["Standalone addons<br/>addon instances outside an App"]
+    APP --> WC["Workload components<br/>containerized services"]
+    APP --> AC["Addon components<br/>Postgres, Redis, and so on"]
 ```
 
 Each level in this hierarchy answers a different question: *who owns it* (organization), *where it runs* (cluster), *what scope it belongs to* (project), and *what it does* (app and its components).

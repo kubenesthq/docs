@@ -49,54 +49,47 @@ The contracts repository is not a running service — it is the shared source of
 
 ## System topology
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                         kubenest-ui                              │
-│                    Next.js management console                    │
-└────────────────────────┬─────────────────────────────────────────┘
-                         │  HTTPS REST  │  SSE (events/stream)
-┌────────────────────────▼─────────────────────────────────────────┐
-│                      kubenest-backend                            │
-│   FastAPI · PostgreSQL · Redis · stateless re: Kubernetes        │
-└──────────────────┬───────────────────────────────────────────────┘
-                   │
-                   │  WSS (authenticated, persistent)
-                   │  client_type: "backend" JWT claim
-                   │
-┌──────────────────▼───────────────────────────────────────────────┐
-│                        kubenest-hub                              │
-│   Go WebSocket broker · connection registry in Redis             │
-│   validates sender identity · routes by cluster_id              │
-└──────────────────────┬───────────────────────────────────────────┘
-                       │
-          ┌────────────┼────────────┐
-          │            │            │    WSS per cluster (cluster JWT)
-          │            │            │
-   ┌──────▼──┐  ┌──────▼──┐  ┌─────▼───┐
-   │ op · A  │  │ op · B  │  │ op · C  │   kubenest-operator
-   │cluster A│  │cluster B│  │cluster C│   (one instance per cluster)
-   └────┬────┘  └────┬────┘  └────┬────┘
-        │            │            │
-        ▼            ▼            ▼
-   Kubernetes   Kubernetes   Kubernetes
-    CRDs +        CRDs +       CRDs +
-    ArgoCD        ArgoCD       ArgoCD
-        │            │            │
-        ▼            ▼            ▼
-      Git ◄──── operator writes Helm values
-        │
-        ▼
-   ArgoCD syncs cluster state from Git
+```mermaid
+flowchart TD
+    UI["kubenest-ui<br/>Next.js management console"]
+    BE["kubenest-backend<br/>FastAPI · PostgreSQL · Redis<br/>stateless with respect to Kubernetes"]
+    HUB["kubenest-hub<br/>Go WebSocket broker · registry in Redis<br/>validates sender identity, routes by cluster_id"]
+    OA["operator<br/>cluster A"]
+    OB["operator<br/>cluster B"]
+    OC["operator<br/>cluster C"]
+    KA["Kubernetes A<br/>CRDs + ArgoCD"]
+    KB["Kubernetes B<br/>CRDs + ArgoCD"]
+    KC["Kubernetes C<br/>CRDs + ArgoCD"]
+    GIT[("Git<br/>Helm values")]
+
+    UI -- "HTTPS REST + SSE" --> BE
+    BE -- "WSS, authenticated and persistent<br/>client_type: backend" --> HUB
+    HUB -- "WSS per cluster, cluster JWT" --> OA
+    HUB -- "WSS per cluster" --> OB
+    HUB -- "WSS per cluster" --> OC
+    OA --> KA
+    OB --> KB
+    OC --> KC
+    OA -- "writes values" --> GIT
+    GIT -- "ArgoCD syncs from Git" --> KA
 ```
 
 The data flow for the two main directions:
 
+```mermaid
+flowchart LR
+    subgraph down ["Commands — backend to operator"]
+        direction LR
+        A1["UI"] -- REST --> A2["Backend"] -- WSS --> A3["Hub"] -- WSS --> A4["Operator"] --> A5["Kubernetes CRDs"]
+    end
 ```
-Commands (backend → operator):
-  UI ──REST──▶ Backend ──WSS──▶ Hub ──WSS──▶ Operator ──▶ K8s CRDs
 
-Status updates (operator → backend → UI):
-  ArgoCD ──▶ Operator ──WSS──▶ Hub ──WSS──▶ Backend ──SSE──▶ UI
+```mermaid
+flowchart LR
+    subgraph up ["Status — operator back to the UI"]
+        direction LR
+        B1["ArgoCD"] -- watch --> B2["Operator"] -- WSS --> B3["Hub"] -- WSS --> B4["Backend"] -- SSE --> B5["UI"]
+    end
 ```
 
 ---
@@ -129,10 +122,15 @@ This architecture eliminates HTTP timeouts from the critical path and makes the 
 
 Some operations complete entirely within the backend and return a result immediately. These are pure metadata operations that do not touch Kubernetes.
 
-```
-UI ──POST /api/v1/projects──▶ Backend ──INSERT──▶ PostgreSQL
-                                              ◀── row
-         ◀── 201 Created ──────────────────────────────────
+```mermaid
+sequenceDiagram
+    participant UI
+    participant BE as Backend
+    participant DB as PostgreSQL
+    UI->>BE: POST /api/v1/projects
+    BE->>DB: INSERT
+    DB-->>BE: row
+    BE-->>UI: 201 Created
 ```
 
 Examples: creating a project record, listing clusters, reading deployment history, fetching a stack template.
@@ -141,53 +139,27 @@ Examples: creating a project record, listing clusters, reading deployment histor
 
 Operations that change Kubernetes state are asynchronous. The backend dispatches a command event and immediately returns; the operator reconciles and streams status back.
 
-```
-UI ──POST /api/v1/apps──▶ Backend ──validate──▶ PostgreSQL (record intent)
-                                    │
-                              dispatch event
-                                    │
-                                    ▼
-                          Hub ──route──▶ Operator
-                                              │
-                                         reconcile
-                                              │
-                                    ┌─────────▼──────────┐
-                                    │ write Helm values   │
-                                    │ commit to Git       │
-                                    │ upsert ArgoCD App   │
-                                    └─────────┬──────────┘
-                                              │
-                                         status event
-                                              │
-                          Hub ◀──────────────┘
-                           │
-                   Backend ◀── update deployment row
-                           │
-                    SSE ──▶ UI (phase: deploying → running)
+```mermaid
+flowchart TD
+    UI["UI: POST /api/v1/apps"] --> BE["Backend validates the spec"]
+    BE --> DB[("PostgreSQL<br/>records intent")]
+    BE -- "dispatch event" --> HUB["Hub routes to the operator"]
+    HUB --> OP["Operator reconciles"]
+    OP --> W["write Helm values<br/>commit to Git<br/>upsert the ArgoCD Application"]
+    W -- "status event" --> HUB
 ```
 
 ### Status update loop
 
 The operator runs a continuous reconcile loop. Whenever ArgoCD reports a sync or health change, the operator emits a status event that propagates all the way to the UI:
 
-```
-ArgoCD (health/sync change)
-        │
-        ▼
-  Operator watches CRD status
-        │
-  emit status event via hub WebSocket
-        │
-        ▼
-  Hub routes to backend WebSocket session
-        │
-        ▼
-  Backend updates Deployment row in PostgreSQL
-        │
-  Backend fans out SSE event to subscribed UI clients
-        │
-        ▼
-  UI re-renders App status panel (no page refresh)
+```mermaid
+flowchart TD
+    A["ArgoCD: health or sync changes"] --> B["Operator watches the CRD status"]
+    B -- "status event over the hub WebSocket" --> C["Hub routes to the backend session"]
+    C --> D["Backend updates the Deployment row"]
+    D -- "fans out SSE" --> E["Subscribed UI clients"]
+    E --> F["App status panel re-renders<br/>no page refresh"]
 ```
 
 ---

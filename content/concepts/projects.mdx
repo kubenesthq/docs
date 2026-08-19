@@ -13,12 +13,12 @@ A Project is the unit of isolation in kubenest. Every App, Addon, and Secret you
 
 When you create a project, the backend sends a message to the operator (via the hub) instructing it to create the corresponding Kubernetes namespace. The namespace name matches the project name — slugified to conform to DNS label rules — and carries labels that tie it to the kubenest project ID.
 
-```
-Project "my-api-team"
-  └── Kubernetes namespace: my-api-team
-        ├── App "my-api" (StackDeploy CR)
-        ├── App "my-worker" (StackDeploy CR)
-        └── AddonInstance "shared-postgres" (Helm release via ArgoCD)
+```mermaid
+flowchart TD
+    P["Project my-api-team"] --> NS["Kubernetes namespace<br/>my-api-team"]
+    NS --> A1["App my-api<br/>StackDeploy CR"]
+    NS --> A2["App my-worker<br/>StackDeploy CR"]
+    NS --> A3["AddonInstance shared-postgres<br/>Helm release via ArgoCD"]
 ```
 
 One project, one namespace. You cannot split a project across namespaces, and you cannot put two projects into the same namespace.

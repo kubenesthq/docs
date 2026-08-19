@@ -10,7 +10,7 @@ export const metadata = {
     default: 'KubeNest Docs',
   },
   description:
-    'Official documentation for KubeNest — the multi-cluster Kubernetes application platform.',
+    'Official documentation for KubeNest — a tested, versioned Kubernetes platform for servers you already own, with upgrades, backups, restore drills and OS patching handled.',
   metadataBase: new URL('https://docs.kubenest.io'),
 }
 

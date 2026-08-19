@@ -1,18 +1,28 @@
 ---
-title: kubenest — App-First Kubernetes Platform
-description: Deploy multi-component applications across any Kubernetes cluster without ever touching a manifest.
+title: kubenest — Kubernetes without the maintenance dread
+description: A tested, versioned Kubernetes platform that installs on servers you already own — with upgrades, backups, restore drills and OS patching handled. Deploying apps onto it is the easy part.
 ---
 
 import { Cards, Callout, Steps } from 'nextra/components'
 
 # kubenest
 
-**Deploy applications across multiple Kubernetes clusters without ever touching a raw manifest.**
+**Kubernetes on the servers you already own, with the maintenance handled.**
 
-kubenest is a self-hosted application platform that gives your team the developer experience of a modern PaaS — one-click deploys, real-time status, environment wiring, stack templates — while running entirely on your own infrastructure. You bring the clusters; kubenest manages everything above the Kubernetes API.
+Standing a cluster up is the easy day. What costs you is everything after: the upgrade nobody wants
+to run, the backup nobody has restored, the certificate that expires while the person who set it up
+is on holiday, the kernel patch that never gets applied.
+
+kubenest is a **tested, versioned platform bundle** — Kubernetes plus the ingress, storage,
+certificate, backup and patching components that every cluster needs anyway — installed as one
+thing, upgraded as one thing, and carrying one version number for the whole set.
 
 <Callout type="info">
-kubenest follows an **app-first model**: the primary unit of work is an *App* (a bundle of one or more components), not individual workloads or Kubernetes objects. Components can be containerized services, Helm charts, or backing services like PostgreSQL — all wired together in a single deployment.
+**Day-2 operations is the product.** The bundle, its upgrades with rollback, its verified restore
+drills and its OS patching are what kubenest is for.
+
+The app layer — deploying multi-component applications without writing manifests — exists, is
+supported, and is documented here. It is not the reason to buy.
 </Callout>
 
 ---
@@ -20,99 +30,135 @@ kubenest follows an **app-first model**: the primary unit of work is an *App* (a
 ## Start here
 
 <Cards>
-  <Cards.Card title="Getting Started" href="/getting-started" description="Install kubenest on your cluster and deploy your first app in under 15 minutes." />
-  <Cards.Card title="Core Concepts" href="/concepts" description="Understand the hierarchy: Organizations → Clusters → Projects → Apps → Components." />
-  <Cards.Card title="Architecture" href="/concepts/clusters" description="How the backend, hub, and operator fit together — and why the backend never holds your kubeconfig." />
+  <Cards.Card title="Install the platform" href="/platform/install" description="Preflight, the thirteen install stages, and what to verify afterwards." />
+  <Cards.Card title="What is in the bundle" href="/platform/bundle" description="The components, the manifest, and what a version number actually pins." />
+  <Cards.Card title="Upgrades" href="/platform/upgrades" description="The gates, the ordering, what rolls back — and what does not." />
+  <Cards.Card title="Backup and restore" href="/platform/backup-restore" description="Two kinds of backup, and the drill that proves a restore works." />
 </Cards>
+
+---
+
+## What you actually get
+
+**One version number for the whole platform.** Not eight component upgrades you sequence yourself
+and hope about. `Platform 1.4 → 1.5` is a single tested transition, and what changed between any
+two versions is in the [bundle manifest](/platform/bundle).
+
+**Upgrades that check before they run.** Every upgrade scans your live workloads for Kubernetes
+APIs removed in the target version and refuses to start if it finds any — because an upgrade that
+cleanly upgrades the cluster and silently breaks your application has actively harmed you. The
+[ordering](/platform/upgrades#the-order-of-operations) puts the irreversible step last, so most
+failures happen while retreating is still cheap.
+
+**Backups that have been restored.** A backup nobody has restored is not a backup. Scheduled
+[restore drills](/platform/backup-restore#the-restore-drill) restore into a scratch namespace,
+verify objects *and* volume data match, tear it down, and record the result. A failed drill is an
+alert, and it blocks the next upgrade.
+
+**The machines get patched too.** Ubuntu security updates apply automatically; reboots are
+[coordinated](/platform/os-patching) one node at a time inside a window you choose. Unpatched
+kernels are not a Kubernetes problem, which is exactly why they get left.
+
+**Someone notices before you do.** Fleet telemetry reports cluster health, bundle version, and
+backup configuration state continuously — so a cluster that has never taken a backup is visible
+rather than silent.
+
+**Deploying apps, when you want it.** Apps are the unit of deployment rather than individual
+Pods — a web tier, a worker and a PostgreSQL addon deployed together, connection strings wired
+between them automatically. GitOps underneath, so there is an audit trail and a rollback.
+See [apps and components](/concepts/apps).
+
+---
+
+## The honest comparison
+
+Some of these are good products, and for some teams they are the right answer. Here is where each
+one stops.
+
+| Instead of kubenest | Where it stops |
+|---|---|
+| **EKS, GKE, AKS** | They run the coordination layer in the middle — genuinely hard, and a small part. Everything your applications actually touch is still yours to choose, connect and maintain, on their hardware in their region |
+| **Rancher** | A good control panel, and looking at your clusters was never the hard part. It does not decide which networking, storage, certificate or backup tools you run, or promise they survive the next upgrade together. Its automated maintenance features are a paid tier |
+| **Omni or Talos** | Well-built, and they require their own operating system on your machines. If you run Ubuntu today, that is a migration project before you see any benefit |
+| **Headlamp, k9s, Lens** | Free, light, good at what they do — a view onto a cluster, with no fleet view and no day-2 automation |
+| **Hiring a platform engineer** | You should, past a certain size. It costs more, takes months to recruit and months more to become useful, and the knowledge leaves when they do |
+| **Carrying on as you are** | Works, right up until a certificate expires on a holiday or an upgrade needs a maintenance window nobody wants to own |
+
+The assembly problem is the product. Every cluster needs ingress, certificates, storage, backup,
+upgrade orchestration and OS patch handling — and somebody has to pick each one, wire them
+together, and own whether they still work after the next upgrade.
 
 ---
 
 ## How it works
 
-kubenest spans five cooperating repositories, each with a distinct responsibility. Understanding the boundary between them explains why the system behaves the way it does.
+kubenest spans five cooperating repositories, each with a distinct responsibility. The boundary
+between them explains why the system behaves the way it does.
 
-```
-                        ┌─────────────────────────────────┐
-                        │         kubenest-ui              │
-                        │   Next.js management console    │
-                        └──────────────┬──────────────────┘
-                                       │  REST + SSE
-                        ┌──────────────▼──────────────────┐
-                        │       kubenest-backend           │
-                        │  FastAPI — multi-tenant control  │
-                        │  plane; owns users, orgs,        │
-                        │  clusters, projects, apps,       │
-                        │  templates, deployments          │
-                        └────────┬──────────┬─────────────┘
-                                 │          │
-                    PostgreSQL   │          │  WebSocket (authenticated)
-                                 │    ┌─────▼──────────────────────────┐
-                                 │    │         kubenest-hub            │
-                                 │    │  Go — real-time message broker; │
-                                 │    │  multiplexes operator sessions  │
-                                 │    └─────────────┬──────────────────┘
-                                 │                  │  WebSocket (per cluster)
-                                 │    ┌─────────────▼──────────────────┐
-                                 │    │         op3 (operator)          │
-                                 │    │  Go controller-runtime;         │
-                                 │    │  reconciles StackDeploy CRDs;   │
-                                 │    │  drives ArgoCD on the cluster   │
-                                 │    └─────────────┬──────────────────┘
-                                 │                  │
-                                 │    ┌─────────────▼──────────────────┐
-                                 │    │          GitOps layer           │
-                                 │    │  Operator writes Helm values    │
-                                 │    │  → Git → ArgoCD → Kubernetes   │
-                                 │    └────────────────────────────────┘
-                                 │
-                   ┌─────────────▼──────────────────────────────────┐
-                   │              kubenest-contracts                  │
-                   │  JSON Schema / event definitions — the shared   │
-                   │  contract between backend, hub, and operator    │
-                   └────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    UI["kubenest-ui<br/>Next.js management console"]
+    BE["kubenest-backend<br/>FastAPI multi-tenant control plane<br/>users, orgs, clusters, projects, apps"]
+    DB[("PostgreSQL")]
+    HUB["kubenest-hub<br/>Go message broker<br/>multiplexes operator sessions"]
+    OP["op3 operator<br/>Go controller-runtime<br/>runs inside your cluster"]
+    GIT["GitOps layer<br/>Helm values → Git → ArgoCD → Kubernetes"]
+    CON["kubenest-contracts<br/>JSON Schema and event definitions"]
+
+    UI -- "REST + SSE" --> BE
+    BE --- DB
+    BE -- "WebSocket, authenticated" --> HUB
+    HUB -- "WebSocket, one per cluster" --> OP
+    OP --> GIT
+
+    CON -.- BE
+    CON -.- HUB
+    CON -.- OP
+
+    style CON stroke-dasharray: 4 4
+    style DB stroke-dasharray: 4 4
 ```
 
-The design has one key consequence: **the backend never holds a kubeconfig or cluster credentials**. All cluster operations flow through the hub's WebSocket layer to the operator, which runs inside the cluster and has local Kubernetes API access. This means a compromised backend cannot issue arbitrary kubectl commands — the operator only acts on signed, schema-validated events.
+The dotted contract is shared by all three services: a change to an event shape lands there first.
+
+That design has one consequence worth stating plainly: **the backend never holds a kubeconfig or
+cluster credentials.** Every cluster operation flows through the hub to the operator, which runs
+inside the cluster and has local Kubernetes API access. A compromised backend cannot issue
+arbitrary kubectl commands — the operator acts only on signed, schema-validated events.
+
+The operator dials **out** to the hub, so no node needs a public address and no inbound firewall
+rule is required.
 
 ---
 
-## Key capabilities
+## Deploying onto it
 
-**Multi-cluster management.** Register any number of Kubernetes clusters — self-managed, cloud-provisioned, or both. Each cluster runs its own operator instance; the backend aggregates status across all of them. Per-component `clusterID` targeting lets a single App span multiple clusters.
-
-**App-first deployment.** Apps are the unit of deployment, not individual Pods or Deployments. An App can have a web tier, a worker, a PostgreSQL addon, and a Redis addon — all deployed together, with connection strings wired automatically between components via the `exportRef` mechanism.
-
-**GitOps under the hood.** The operator never applies Kubernetes manifests directly. Instead, it writes Helm values to a Git repository and ArgoCD reconciles the cluster state from Git. This gives you a complete audit trail, drift detection, and rollback at the Git level — without your team needing to manage ArgoCD themselves.
-
-**Stack templates.** Capture a running application as a reusable template, or pull from the community registry. Templates expose typed parameter slots so users can deploy complex multi-component stacks by filling in a form — no YAML editing required.
-
-**Real-time status.** The operator streams status events back through the hub to the backend, which publishes them as Server-Sent Events. The UI and any API client can watch an App's phase transition from `Pending` through `Deploying` to `Running` without polling.
-
-**Pause and resume.** Suspending an App snapshots its replica counts and sets all workload replicas to zero — a clean way to stop paying for compute without destroying the deployment. Resume restores the exact replica configuration.
-
----
-
-## The deployment path in three steps
+Once the platform is installed, the cluster is an ordinary conformant Kubernetes cluster with a
+tested set of components on it. Deploy to it however you already deploy to Kubernetes — or use the
+app layer.
 
 <Steps>
 ### Register a cluster
 
-Install the kubenest Helm chart on your Kubernetes cluster. The operator connects outbound to the hub over WebSocket using a cluster-scoped JWT. The backend marks the cluster `connected` when the first heartbeat arrives. No inbound firewall rules needed.
+Install the kubenest Helm chart. The operator connects outbound to the hub over WebSocket using a
+cluster-scoped JWT, and the backend marks the cluster `connected` when the first heartbeat arrives.
 
 ### Create a project
 
-A project is a Kubernetes namespace — the isolation boundary for all apps and addons belonging to a team or environment. Projects carry optional resource quotas and RBAC role bindings.
+A project is a Kubernetes namespace — the isolation boundary for the apps and addons belonging to a
+team or environment, with optional resource quotas and RBAC bindings.
 
 ### Deploy an app
 
-POST a JSON body to `/api/v1/apps` describing your components. The backend validates the spec, writes the `StackDeploy` CRD to the cluster via the hub, and the operator begins reconciling. Watch status in real time via the SSE stream.
+POST a spec to `/api/v1/apps`. The backend writes a `StackDeploy` CRD to the cluster via the hub,
+the operator reconciles it, and status streams back over SSE.
 </Steps>
 
 ---
 
 ## Next steps
 
-- [Installation guide](/getting-started/installation) — Helm values, required secrets, post-install verification
-- [First deployment walkthrough](/getting-started/first-deployment) — end-to-end tutorial with real API calls
-- [Apps and components](/concepts/apps) — the most important concept page; covers deployment modes, export wiring, pause/resume, and rollback
-- [Stack templates](/concepts/stack-templates) — reusable blueprints for complex multi-component stacks
+- [Install the platform](/platform/install) — preflight, the install stages, and the acceptance checks
+- [What is in the bundle](/platform/bundle) — components, the manifest, and what a version pins
+- [HA tiers](/platform/ha) — single-server versus three-node, and how to choose
+- [Apps and components](/concepts/apps) — the app layer: deployment modes, export wiring, pause and resume
