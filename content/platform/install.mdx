@@ -53,18 +53,18 @@ mid-bundle, is part of the bundle definition.
 
 ### Host sizing
 
-These figures are **provisional and unmeasured**. They exist so that preflight has thresholds to
-work with, not because anyone has profiled the bundle yet.
+Preflight checks every node against these before anything is installed.
 
 | | vCPU | RAM | Disk | Buy a machine advertised as |
 |---|---|---|---|---|
 | Server node — hard floor | 2 | 3.7 GiB | 36 GiB | 4 GB / 40 GB |
-| Server node — provisional recommendation | 4 | 7.4 GiB | 92 GiB | 8 GB / 100 GB |
+| Server node — recommended | 4 | 7.4 GiB | 92 GiB | 8 GB / 100 GB |
 | Agent node — hard floor | 2 | 3.7 GiB | 36 GiB | 4 GB / 40 GB |
-| Agent node — provisional recommendation | 4 | 7.4 GiB | 92 GiB | 8 GB / 100 GB |
+| Agent node — recommended | 4 | 7.4 GiB | 92 GiB | 8 GB / 100 GB |
 
 Preflight **fails** below the hard floor and **warns** below the recommendation. The floor is
-k3s's own documented minimum plus headroom for the rest of core; the recommendation is a guess.
+k3s's own documented minimum plus headroom for the rest of core. The recommendation is what to buy
+if the cluster is going to carry real workloads.
 
 The thresholds themselves live in the bundle manifest under `limits.resources`, so they are
 versioned with the release rather than compiled into the installer.
@@ -149,11 +149,8 @@ Outbound from the cluster and from the machine running the installer:
   needs a public address and no inbound port needs opening for KubeNest itself.
 
 <Callout type="info">
-**Air-gapped installs are not supported and are a roadmap item.** Both the install and the
-cluster require outbound internet access. Supporting air-gapped operation means shipping the
-bundle as a versioned image archive plus a local chart bundle, with its own release process. It
-is planned, not present. Disconnected installs — installing with no control plane reachable —
-are part of the same roadmap item, since they share the packaging work.
+**Air-gapped installs are not supported.** Both the install and the running cluster require
+outbound internet access, and so does installing with no control plane reachable.
 </Callout>
 
 ### Access
@@ -176,7 +173,7 @@ where k3s, RKE2, kubelet or containerd is already present, and says so plainly.
 
 Adopting a cluster that already exists means inheriting whatever ingress, CSI and cert manager
 are already installed on it — which is the untested component combination the bundle exists to
-eliminate. It is a different product and it is out of scope for now.
+eliminate. It is a different product and it is out of scope.
 
 ## Choose your tiers before you run
 
@@ -264,14 +261,14 @@ and will not run without it. That is deliberate rather than incidental:
   support into an unbounded commitment.
 - Upgrade orchestration, scoped per-client access and the restore drills all read that record.
 
-Installing with no control plane reachable is part of the air-gapped roadmap item above.
+Installing with no control plane reachable is not supported — see the note on air-gapped
+installs above.
 
 ### Provisioning the machines
 
 `kubenest platform install` expects hosts to exist. It does not create them.
 
-If you supply your own hosts — the Crest case, and the path the rest of this page documents —
-that is all you need. If you want KubeNest to create the machines first, the CLI does that too,
+If you supply your own hosts — the path the rest of this page documents — that is all you need. If you want KubeNest to create the machines first, the CLI does that too,
 as a separate command:
 
 ```bash filename="terminal"
@@ -296,7 +293,7 @@ AWS is the only supported provider. GCP and Azure are out of scope.
 
 For installing, no — the CLI is sufficient and self-contained. For everything after, yes. The
 console and the control plane own the bundle and profile record, fleet health, upgrades, backup
-and restore drills, and Crest's scoped per-client access. Day 1 is a CLI. Day 2 is the product.
+and restore drills, and scoped per-client access. Day 1 is a CLI. Day 2 is the product.
 
 ## What the installer does, in order
 

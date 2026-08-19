@@ -165,7 +165,7 @@ To issue a fresh cluster JWT, call `GET /api/v1/clusters/{id}/install-command`. 
 kubenest can provision a Kubernetes cluster on AWS by creating EC2 instances and bootstrapping Kubernetes automatically. This path is appropriate when you do not have an existing cluster and want kubenest to manage the infrastructure lifecycle as well as the application lifecycle.
 
 <Callout type="info">
-Cloud-provisioned clusters are currently supported on **AWS EC2** only. Support for GCP GKE and Azure AKS is planned. The provisioner uses Terraform under the hood; you need a `CloudCredential` record with valid AWS credentials before proceeding.
+Cloud-provisioned clusters are supported on **AWS EC2** only. The provisioner uses Terraform under the hood; you need a `CloudCredential` record with valid AWS credentials before proceeding.
 </Callout>
 
 ### Prerequisites

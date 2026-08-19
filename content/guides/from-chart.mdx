@@ -12,7 +12,7 @@ kubenest can wrap any publicly available Helm chart as a Stack Template, exposin
 The from-chart workflow has four steps: inspect the chart, decide which values to promote as parameters, create the template, and deploy it into a project.
 
 <Callout type="info">
-**OCI registries are not yet supported.** The chart source must be an HTTP/HTTPS Helm repository (the kind you add with `helm repo add`). OCI-hosted charts (`oci://...`) will return an error from the inspect endpoint. If you need to deploy an OCI chart, pull it to a local HTTP repo and serve it from there, or package the chart values manually and use the `from-yaml` import path.
+**OCI registries are not supported.** The chart source must be an HTTP/HTTPS Helm repository (the kind you add with `helm repo add`). OCI-hosted charts (`oci://...`) will return an error from the inspect endpoint. If you need to deploy an OCI chart, pull it to a local HTTP repo and serve it from there, or package the chart values manually and use the `from-yaml` import path.
 </Callout>
 
 ---

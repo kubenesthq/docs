@@ -174,23 +174,20 @@ means the customer's correctly-sized host is refused with a message telling them
 one.
 
 Hence `3.7Gi` and `36Gi` above rather than `4 GB` and `40 GB`: the same intent — a 4 GB, 40 GB
-machine — expressed as what the kernel will actually report on one.
+machine — expressed as what the kernel actually reports on one.
 
 Two rules follow, and they apply to any number in this bundle:
 
-1. **Every threshold carries its unit in the manifest**, in the binary form the check will use.
+1. **Every threshold carries its unit in the manifest**, in the binary form the check uses.
 2. **Vendor-nominal figures are for prose only.** Anything a check compares against is written in
    the units the check reads.
-
-The schema belongs in `kubenest-contracts` before the backend or the installer implement against
-it.
 
 <Callout type="info">
 **The manifest carries the OS matrix, not just components.** Which Ubuntu LTS releases are tested
 is a property of the bundle, so that support moves forward with releases rather than with an edit
 to this page.
 
-It also declares which HA tiers it offers, so `--ha ha` against a bundle that does not yet provide
+It also declares which HA tiers it offers, so `--ha ha` against a bundle that does not provide
 it fails with a clear error instead of silently installing single-server.
 </Callout>
 
