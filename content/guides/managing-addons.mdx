@@ -125,7 +125,7 @@ Without a definition, kubenest cannot auto-discover exports. You will need to re
 </Tabs.Tab>
 </Tabs>
 
-The response includes the addon instance `id` and initial `phase: pending`. The operator deploys the Helm chart asynchronously.
+The response includes the addon instance `id` and initial `phase: Pending`. The operator deploys the Helm chart asynchronously.
 
 ---
 
@@ -141,16 +141,16 @@ curl -N -H "Authorization: Bearer $TOKEN" \
 The phase sequence for a healthy deploy:
 
 ```
-pending → deploying → running
+Pending → Deploying → Running
 ```
 
-`deploying` can take several minutes for large charts (PostgreSQL with persistence, Kafka with Zookeeper). The operator polls the ArgoCD Application health status and emits a status event each time it changes.
+`Deploying` can take several minutes for large charts (PostgreSQL with persistence, Kafka with Zookeeper). The operator polls the ArgoCD Application health status and emits a status event each time it changes.
 
 ---
 
 ## Reading exports
 
-After the addon reaches `running`, its exports are available on the instance record:
+After the addon reaches `Running`, its exports are available on the instance record:
 
 ```bash filename="read exports"
 curl -H "Authorization: Bearer $TOKEN" \
@@ -216,7 +216,7 @@ curl -X PATCH https://api.your-domain.com/api/v1/addon-instances/$INSTANCE_ID \
 
 The `note` field is stored on the revision record and appears in the revision history. Use it to leave a human-readable explanation of why the change was made — your future self will thank you.
 
-The PATCH creates a new **revision** and triggers a `helm upgrade`. The operator emits status events throughout the upgrade. If the upgrade fails, the revision is marked `failed` and the previous revision's values remain active (Helm's rollback-on-failure behavior).
+The PATCH creates a new **revision** and triggers a `helm upgrade`. The operator emits status events throughout the upgrade. If the upgrade fails, the revision is marked `Failed` and the previous revision's values remain active (Helm's rollback-on-failure behavior).
 
 To upgrade the chart version itself:
 
@@ -357,7 +357,7 @@ kubectl delete addon my-postgres -n my-project
 
 **Export keys vary for custom (definition-less) addons.** The standard export keys (`connection_string`, `host`, `port`, etc.) are a convention defined in the `AddonDefinition`. For a `generic` type addon without a definition, kubenest cannot auto-discover exports — they will be empty. You must read the relevant values from the Kubernetes Secret the chart creates and set them manually as workload environment variables, or create a custom `AddonDefinition` that specifies the export schema.
 
-**`deploying` phase that never transitions to `running`.** The most common cause is the chart's readiness probe never passing — typically because a password is too long (some chart versions have PostgreSQL password length limits), the PVC cannot be provisioned (storage class unavailable), or the image pull is failing. Check the ArgoCD Application in the cluster for the detailed Helm release status.
+**`Deploying` phase that never transitions to `Running`.** The most common cause is the chart's readiness probe never passing — typically because a password is too long (some chart versions have PostgreSQL password length limits), the PVC cannot be provisioned (storage class unavailable), or the image pull is failing. Check the ArgoCD Application in the cluster for the detailed Helm release status.
 
 **Upgrading to a chart version that drops a values key you are using.** If a chart upgrade removes a values key your `chart_config.values` specifies, Helm will typically ignore the extra key — but the behavior is chart-specific. Always read the chart's changelog before upgrading a minor or major version.
 

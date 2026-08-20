@@ -208,7 +208,7 @@ curl -X POST \
   }'
 ```
 
-`db_password` is omitted — the `generator` handles it. The backend resolves all parameters, writes the final values, and dispatches the deploy event to the operator. The response is the new App record with `phase: pending`.
+`db_password` is omitted — the `generator` handles it. The backend resolves all parameters, writes the final values, and dispatches the deploy event to the operator. The response is the new App record with `phase: Pending`.
 
 ### Monitor the deployment
 
@@ -220,10 +220,10 @@ curl -N -H "Authorization: Bearer $TOKEN" \
 The phase progression for a PostgreSQL chart deploy is typically:
 
 ```
-pending → deploying → running
+Pending → Deploying → Running
 ```
 
-The addon's first-run setup (database creation, user provisioning) happens inside the chart's init containers. Once the Helm release reports `deployed` and the pod passes its readiness probe, the operator discovers the addon's exports and the App transitions to `running`.
+The addon's first-run setup (database creation, user provisioning) happens inside the chart's init containers. Once the Helm release reports `deployed` and the pod passes its readiness probe, the operator discovers the addon's exports and the App transitions to `Running`.
 
 Read the resolved exports (including the auto-generated password):
 

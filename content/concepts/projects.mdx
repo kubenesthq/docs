@@ -35,10 +35,10 @@ Projects move through two phases:
 
 | Phase | Meaning |
 |-------|---------|
-| `pending` | Backend has created the project record; operator has not yet confirmed namespace creation |
-| `ready` | Operator has created the namespace and the project is available for deployments |
+| `Pending` | Backend has created the project record; operator has not yet confirmed namespace creation |
+| `Ready` | Operator has created the namespace and the project is available for deployments |
 
-The transition from `pending` to `ready` is fast — typically under a second when the cluster is connected. If a cluster is disconnected at the time of project creation, the project stays `pending` until the operator reconnects and processes the backlog.
+The transition from `Pending` to `Ready` is fast — typically under a second when the cluster is connected. If a cluster is disconnected at the time of project creation, the project stays `Pending` until the operator reconnects and processes the backlog.
 
 ## Resource quotas
 

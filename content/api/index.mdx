@@ -113,7 +113,7 @@ Pass `?page=2&page_size=50` to paginate. The default page size is 20; the maximu
 
 ## Response conventions
 
-**Success codes.** `200 OK` for reads and updates; `201 Created` for creates; `202 Accepted` for async operations that return before completion (the response body contains the initial state with `phase: pending`); `204 No Content` for deletes.
+**Success codes.** `200 OK` for reads and updates; `201 Created` for creates; `202 Accepted` for async operations that return before completion (the response body contains the initial state with `phase: Pending`); `204 No Content` for deletes.
 
 **Async responses.** Operations that dispatch events to the operator (app create/patch/delete, addon install/upgrade) return `202 Accepted` with the initial resource state. Subscribe to the SSE stream or poll the resource endpoint to track progress.
 

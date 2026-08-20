@@ -43,7 +43,7 @@ curl -X POST https://api.your-domain.com/api/v1/apps \
   }'
 ```
 
-The backend responds immediately with `phase: pending`. The operator begins reconciling asynchronously. Watch progress:
+The backend responds immediately with `phase: Pending`. The operator begins reconciling asynchronously. Watch progress:
 
 ```bash filename="watch status"
 curl -N -H "Authorization: Bearer $TOKEN" \
@@ -58,7 +58,7 @@ data: {"type":"app.status","name":"my-app","phase":"deploying","message":"ArgoCD
 data: {"type":"app.status","name":"my-app","phase":"running","message":""}
 ```
 
-Once `running`, the ingress is live with TLS provisioned automatically by cert-manager.
+Once `Running`, the ingress is live with TLS provisioned automatically by cert-manager.
 
 **Key `workload_spec` fields:**
 
@@ -279,7 +279,7 @@ curl -X POST https://api.your-domain.com/api/v1/apps/my-project/my-api/resume \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-The App re-enters the `deploying` → `running` flow as the replicas come back up.
+The App re-enters the `Deploying` → `Running` flow as the replicas come back up.
 
 <Callout type="info">
 If you scale a component while the App is paused (e.g., from `2` to `4` via the scale endpoint), the resume operation restores the *pre-pause* count, not the count you set while paused. The scale change while paused is effectively discarded by resume. To change the replica count permanently, wait until the App is running and then use the scale endpoint.

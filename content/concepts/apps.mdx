@@ -92,7 +92,7 @@ If you need to wire an environment variable from an **existing** addon instance 
 ```
 
 <Callout type="warning">
-An `exportRef` that uses `component` must refer to a name that exists within the same App. A reference to a nonexistent component name will cause the operator to set the App's phase to `failed` with an explanatory message. The API validates component names at create time, but cross-component references are only resolved at reconcile time.
+An `exportRef` that uses `component` must refer to a name that exists within the same App. A reference to a nonexistent component name will cause the operator to set the App's phase to `Failed` with an explanatory message. The API validates component names at create time, but cross-component references are only resolved at reconcile time.
 </Callout>
 
 ## App lifecycle states
@@ -101,24 +101,24 @@ An App moves through a defined set of phases. The current phase is always availa
 
 ```mermaid
 stateDiagram-v2
-    [*] --> pending
-    pending --> deploying
-    deploying --> running
-    deploying --> failed: timeout exceeded
-    running --> degraded: some components unhealthy
-    running --> failed
-    degraded --> running: operator retries
-    degraded --> failed
-    failed --> running: re-deploy / patch
+    [*] --> Pending
+    Pending --> Deploying
+    Deploying --> Running
+    Deploying --> Failed: timeout exceeded
+    Running --> Degraded: some components unhealthy
+    Running --> Failed
+    Degraded --> Running: operator retries
+    Degraded --> Failed
+    Failed --> Running: re-deploy / patch
 ```
 
 | Phase | Meaning |
 |-------|---------|
-| `pending` | Backend has recorded the App; operator has not yet begun reconciling |
-| `deploying` | Operator is reconciling; ArgoCD sync in progress |
-| `running` | All components are healthy; ArgoCD reports Synced + Healthy |
-| `degraded` | One or more components are unhealthy but the App is still partially operational |
-| `failed` | Deployment failed; `message` field contains the error |
+| `Pending` | Backend has recorded the App; operator has not yet begun reconciling |
+| `Deploying` | Operator is reconciling; ArgoCD sync in progress |
+| `Running` | All components are healthy; ArgoCD reports Synced + Healthy |
+| `Degraded` | One or more components are unhealthy but the App is still partially operational |
+| `Failed` | Deployment failed; `message` field contains the error |
 
 ## A worked example: web, worker, and Postgres
 
@@ -254,7 +254,7 @@ When you resume:
 
 1. The backend reads the snapshot.
 2. It restores each Workload component's replica count to the pre-pause value.
-3. The App re-enters the normal `deploying` → `running` flow.
+3. The App re-enters the normal `Deploying` → `Running` flow.
 
 ```bash filename="pause and resume"
 # Pause

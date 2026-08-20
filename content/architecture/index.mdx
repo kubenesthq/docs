@@ -110,7 +110,7 @@ This is not just about audit trails (though it produces them). It means every de
 
 ### 3. Event-driven asynchrony for all cluster operations
 
-Cluster operations are long-running and unreliable — network partitions, slow image pulls, failing readiness probes. kubenest models all of them as asynchronous events rather than synchronous RPC. When you POST an App create request, the backend records the intent and immediately returns a `pending` response. The operator reconciles on its own schedule and emits status events as it makes progress. The UI reflects those events in real time through the SSE stream.
+Cluster operations are long-running and unreliable — network partitions, slow image pulls, failing readiness probes. kubenest models all of them as asynchronous events rather than synchronous RPC. When you POST an App create request, the backend records the intent and immediately returns a `Pending` response. The operator reconciles on its own schedule and emits status events as it makes progress. The UI reflects those events in real time through the SSE stream.
 
 This architecture eliminates HTTP timeouts from the critical path and makes the system resilient to transient connectivity failures between the backend and the hub, or between the hub and the operator.
 
