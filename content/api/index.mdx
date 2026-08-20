@@ -190,8 +190,8 @@ What exists is the configuration surface. A superuser can define per-tier, per-p
 | `GET` | `/clusters/{id}/install-command` | Retrieve the pre-filled Helm install command for the operator. Mints a fresh 365-day cluster JWT on every call and stores it as the cluster's current token — this is also how you rotate a token. |
 | `GET` | `/clusters/{id}/install-instructions` | Step-by-step install walkthrough for the operator, including the Helm command. Reuses the existing token if one is already stored. |
 | `POST` | `/clusters/{id}/scale` | Change node count (cloud-provisioned clusters only). |
-| `GET` | `/clusters/{id}/config` | Get the cluster's component configuration (ingress, storage, and related platform components). |
-| `PUT` | `/clusters/{id}/config` | Replace the cluster's component configuration. |
+| `GET` | `/clusters/{id}/bundle` | Get the cluster's bundle + profile record: bundle version, profile set, HA tier, volume-group ownership and install journal. All fields are `null` until a KubeNest Platform bundle install records them. |
+| `PUT` | `/clusters/{id}/bundle` | Write the bundle record (the installer's record stage). Validated against the bundle catalog: unknown bundle versions, unknown profile names and HA tiers the bundle does not offer are rejected with `422`. Replaces the removed `GET/PUT /clusters/{id}/config` component-toggle endpoints. |
 | `GET` | `/clusters/{id}/provisioning-jobs` | List provisioning jobs for a cloud-provisioned cluster, with status and timestamps. |
 | `POST` | `/clusters/{id}/register-argocd` | Register the cluster as an ArgoCD target so the GitOps controller can sync to it. |
 | `GET` | `/clusters/{id}/rbac` | List cluster-scoped role assignments. |
@@ -200,6 +200,18 @@ What exists is the configuration surface. A superuser can define per-tier, per-p
 | `DELETE` | `/clusters/{id}/rbac` | Revoke a cluster-scoped role assignment. |
 | `GET` | `/clusters/{id}/registry-secrets` | List image pull secrets attached at the cluster level. |
 | `POST` | `/clusters/{id}/registry-secrets` | Attach an image pull secret at the cluster level. |
+
+---
+
+### Bundles
+
+The bundle catalog: the KubeNest Platform release manifests this control plane knows about. Manifests are authored in `kubenest-contracts/bundles/` and validated against `bundle-manifest.schema.json`; the backend serves them read-only.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/bundles` | List available bundle versions with their HA tiers and profile names, oldest first. |
+| `GET` | `/bundles/{version}` | One bundle manifest, exactly as authored: component pins, OS support matrix, HA tiers, limits, upgrade tooling, backup defaults and profiles. |
+| `GET` | `/bundles/{version}/diff/{other}` | Diff two bundle versions: per-component from/to for core and each shared profile, added/removed profiles, OS and HA-tier changes, and changed limit/upgrade/backup settings as dotted paths. |
 
 ---
 
