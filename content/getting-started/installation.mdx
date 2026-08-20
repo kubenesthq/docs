@@ -11,33 +11,34 @@ This guide walks through installing the kubenest operator on a Kubernetes cluste
 
 ## What gets installed
 
-The `kubenesthq/kubenest-helm` chart installs three components into the `kubenest-system` namespace:
+The operator ships as the `kubenest-operator-2` Helm chart, published at `oci://ghcr.io/kubenesthq/charts/kubenest-operator-2`. Installing it gives you the **operator** (Go controller-runtime) — the cluster-side controller. It watches `StackDeploy` and `StackTemplate` CRDs, reconciles application state via ArgoCD, and streams status events back to the hub.
 
-- **Backend** (FastAPI) — the multi-tenant control plane API. Manages organizations, clusters, projects, apps, and templates. Talks to PostgreSQL and Redis, and maintains a WebSocket connection to the hub.
-- **Hub** (Go WebSocket broker) — the real-time message bus between the backend and every operator instance. Authenticates operators using cluster JWTs and routes events bidirectionally.
-- **Operator** (Go controller-runtime) — the cluster-side controller. Watches `StackDeploy` and `StackTemplate` CRDs, reconciles application state via ArgoCD, and streams status events back to the hub.
+The chart also bundles five dependencies, controlled by `bootstrap.*` toggles. **Four of them install by default:**
+
+| Component | Installed by default | Toggle |
+|---|---|---|
+| ArgoCD | yes | `bootstrap.argocd.enabled` |
+| cert-manager | yes | `bootstrap.certManager.enabled` |
+| ingress-nginx | yes | `bootstrap.ingressNginx.enabled` |
+| Gitea — internal Git server for GitOps manifests, with its own PostgreSQL and Redis | yes | `bootstrap.gitea.enabled` |
+| Vault | no | `bootstrap.vault.enabled` |
+
+A default install therefore brings up well over a hundred Kubernetes resources beyond the operator itself. If the cluster already runs any of these components, set the matching toggle to `false` — a second ArgoCD or ingress controller on the same cluster conflicts with the one you have.
 
 <Callout type="info">
-In a typical production setup, the **backend and hub live on a dedicated control-plane cluster** (or a VM), while the **operator is installed on each workload cluster**. This guide covers the operator installation; refer to the backend README for deploying the control plane.
+The **backend and hub are not installed by this chart.** In a typical production setup they run on a dedicated control-plane cluster or VM, and the operator is installed on each workload cluster. Refer to the backend README for deploying the control plane.
 </Callout>
 
 ## Prerequisites
 
-- Helm 3.x and kubectl configured for the target cluster
-- ArgoCD running on the cluster (or `argocd.enabled=true` in your values)
+- Helm 3.8+ (for OCI registry support) and kubectl configured for the target cluster
+- ArgoCD on the cluster: either the chart's bundled copy (the default) or an existing install, with `bootstrap.argocd.enabled=false`
 - Outbound HTTPS/WSS access from the cluster to the hub URL
 - A cluster record already created in the kubenest backend (see [First Deployment](/getting-started/first-deployment) for how to create one via the API)
 
-## Step 1: Add the Helm repo
+## Step 1: Retrieve the install command from the backend
 
-```bash filename="terminal"
-helm repo add kubenesthq https://charts.kubenestapp.com
-helm repo update
-```
-
-## Step 2: Retrieve the install command from the backend
-
-When you register a cluster in the backend, it generates a pre-filled `helm install` command containing the cluster's JWT and the hub URL. You can retrieve it from the UI under **Clusters → [your cluster] → Install Instructions**, or via the API:
+When you register a cluster in the backend, it generates a pre-filled `helm install` command containing the cluster's JWT. You can retrieve it from the UI under **Clusters → [your cluster] → Install Instructions**, or via the API:
 
 ```bash filename="terminal"
 curl -H "Authorization: Bearer $TOKEN" \
@@ -48,86 +49,140 @@ The response looks like:
 
 ```json filename="install-command response"
 {
-  "command": "helm install kubenest-operator kubenesthq/kubenest-operator ...",
+  "command": "helm install kubenest-operator oci://registry.kubenest.io/kubenest-operator --namespace kubenest-system --create-namespace --set kubenest.hubURL=wss://hub.your-domain.com/ws/operator --set kubenest.jwtSecret=eyJhbGc... --set kubenest.clusterID=a1b2c3d4-...",
   "cluster_id": "a1b2c3d4-...",
-  "hub_url": "wss://hub.your-domain.com",
+  "hub_url": "wss://hub.your-domain.com/ws/operator",
   "token": "eyJhbGc...",
   "gitops_repo_url": "https://github.com/your-org/gitops",
   "gitops_branch": "main"
 }
 ```
 
-You can run the `command` field directly, or use it as the basis for a `values.yaml`.
+<Callout type="warning">
+**The generated command does not work as-is.** Two defects, both in the backend's command generation:
 
-## Step 3: Install with a values file
+- It sets `kubenest.hubURL`, a key the chart does not read. The chart reads `kubenest.backendURL`, so the unmodified command leaves the operator pointed at the chart's default endpoint instead of your hub.
+- It pulls the chart from `oci://registry.kubenest.io/kubenest-operator`, a registry that does not currently exist. The published chart lives at `oci://ghcr.io/kubenesthq/charts/kubenest-operator-2`.
 
-For production installs, prefer a `values.yaml` over a long `--set` chain. Here is a minimal configuration:
+Use the `token` and `cluster_id` fields from the response with the values file in step 2 instead of running the `command` field.
+
+Note also that every call to this endpoint mints a new 365-day cluster JWT and stores it as the cluster's current token.
+</Callout>
+
+## Step 2: Install with a values file
+
+For production installs, prefer a `values.yaml` over a long `--set` chain. This configuration renders cleanly against chart version 2.1.0 (verified with `helm template`):
 
 ```yaml filename="kubenest-operator-values.yaml"
-global:
-  domain: your-domain.com      # base domain for ingress resources
+kubenest:
+  # The hub's operator WebSocket endpoint, including the /ws/operator path.
+  # The key is named backendURL, but the value is the hub URL.
+  backendURL: wss://hub.your-domain.com/ws/operator
 
-operator:
-  hub:
-    url: wss://hub.your-domain.com
-    token: eyJhbGc...           # cluster JWT from the backend
-  cluster:
-    id: a1b2c3d4-...            # UUID from the backend
+  # Cluster JWT from the cluster record. Required.
+  jwtSecret: eyJhbGc...
 
-gitops:
-  repoUrl: https://github.com/your-org/gitops
-  branch: main
-  # If the repo is private, provide a token:
-  # token: ghp_...
+  # UUID of the cluster record in the backend. Required.
+  clusterID: a1b2c3d4-...
 
-argocd:
-  enabled: false     # set true if ArgoCD is not already installed
-  namespace: argocd  # namespace where ArgoCD is running
+  # GitOps repository the operator writes manifests to.
+  # Leave gitRepoURL empty to use the chart's bundled Gitea instead.
+  bootstrapController:
+    gitRepoURL: https://github.com/your-org/gitops
+    gitRepoBranch: main
+    gitToken: ghp_...   # only needed for private repos
+
+# Bundled dependencies. Everything except vault installs by default —
+# disable whatever the cluster already runs.
+bootstrap:
+  argocd:
+    enabled: false      # this cluster already runs ArgoCD
+  certManager:
+    enabled: false
+  ingressNginx:
+    enabled: false
+  gitea:
+    enabled: false      # using the external Git repo above
+  vault:
+    enabled: false
 ```
 
 Then install:
 
 ```bash filename="terminal"
-helm install kubenest-operator kubenesthq/kubenest-operator \
+helm install kubenest-operator oci://ghcr.io/kubenesthq/charts/kubenest-operator-2 \
+  --version 2.1.0 \
   --namespace kubenest-system \
   --create-namespace \
   --values kubenest-operator-values.yaml
 ```
 
-## Step 4: Verify the installation
+<Callout type="warning">
+**Two things the chart does not do.**
+
+It does not validate these values. An install with missing or misspelled keys renders and deploys without complaint, and the operator then dials the chart's default URL (`wss://api.kubenest.io/v2/operator/events`) with an empty token — the pod runs, but the cluster never reaches `connected`. If registration stalls, inspect the rendered environment first: `kubectl get deploy -n kubenest-system -o yaml | grep -A1 'KUBENEST_'`.
+
+It does not put the JWT in a Kubernetes Secret. `kubenest.jwtSecret` is rendered into the operator Deployment as a plain environment variable, readable by anyone who can read Deployments in the namespace. The chart does read an optional Secret named `kubenest-operator-token` (keys `token` and `cluster-id`); if you create one, the operator prefers its token over the rendered value.
+</Callout>
+
+<Callout type="error">
+**`kubenest.clusterID` does nothing, and the Secret is not optional in practice.**
+
+The chart accepts `kubenest.clusterID` and the value is never used. It is not rendered into the
+Deployment and nothing validates it. The operator reads its cluster ID only from the
+`kubenest-operator-token` Secret's `cluster-id` key (`CLUSTER_ID` and `KUBENEST_CLUSTER_ID` both
+come from there, and both are marked optional).
+
+So a values-only install starts an operator with an **empty cluster ID**. It will look healthy.
+
+Create the Secret before installing:
+
+```bash filename="terminal"
+kubectl create namespace kubenest-system
+kubectl create secret generic kubenest-operator-token \
+  -n kubenest-system \
+  --from-literal=token="$CLUSTER_JWT" \
+  --from-literal=cluster-id="$CLUSTER_ID"
+```
+
+This is a chart defect, tracked as `kn-lx5t`. Until it is fixed, treat the Secret as required and
+`kubenest.clusterID` as decorative.
+</Callout>
+
+## Step 3: Verify the installation
 
 ```bash filename="terminal"
 kubectl get pods -n kubenest-system
 ```
 
-You should see output similar to:
+You should see output similar to (the resource names include the chart name, `kubenest-operator-2`):
 
 ```
-NAME                                        READY   STATUS    RESTARTS   AGE
-kubenest-operator-controller-manager-...   1/1     Running   0          45s
+NAME                                                             READY   STATUS    RESTARTS   AGE
+kubenest-operator-kubenest-operator-2-controller-manager-...    1/1     Running   0          45s
 ```
 
 Check that the operator has connected to the hub by looking at its logs:
 
 ```bash filename="terminal"
 kubectl logs -n kubenest-system \
-  -l app.kubernetes.io/name=kubenest-operator \
+  -l app.kubernetes.io/instance=kubenest-operator \
   --tail=20
 ```
 
-Look for a line like:
+Look for:
 
 ```
-{"level":"info","msg":"connected to hub","cluster_id":"a1b2c3d4-...","hub":"wss://hub.your-domain.com"}
+WebSocket connection established
 ```
 
 If the backend also shows the cluster as `connected`, you are ready to deploy applications.
 
 ## What "cluster connected" means
 
-The connection handshake works in three stages:
+The connection handshake works in four stages:
 
-1. **Operator starts** and reads its cluster JWT from the Kubernetes Secret created by Helm.
+1. **Operator starts** and reads its cluster JWT from its environment — `KUBENEST_JWT_TOKEN` from the optional `kubenest-operator-token` Secret if you created one, otherwise the `KUBENEST_JWT_SECRET` value rendered by Helm.
 2. **Operator dials the hub** over WebSocket and presents the JWT in the `Authorization` header.
 3. **Hub validates the JWT**, establishes a persistent session for the cluster ID, and notifies the backend.
 4. **Backend transitions** the cluster record to `connected` and records the first heartbeat timestamp. A manually registered cluster makes this move from `pending`; a cloud-provisioned one from `awaiting_operator`.
@@ -136,25 +191,30 @@ From this point, the backend can dispatch `StackDeploy` create/patch/delete even
 
 ## Key Helm values reference
 
-| Value | Required | Description |
-|-------|----------|-------------|
-| `operator.hub.url` | Yes | WebSocket URL of the hub (e.g. `wss://hub.example.com`) |
-| `operator.hub.token` | Yes | Cluster JWT issued by the backend at cluster creation |
-| `operator.cluster.id` | Yes | UUID of the cluster record in the backend |
-| `gitops.repoUrl` | Yes | Git repo URL where the operator writes Helm values |
-| `gitops.branch` | No | Branch to commit to (default: `main`) |
-| `gitops.token` | Conditional | Personal access token for private repos |
-| `argocd.enabled` | No | Install ArgoCD alongside the operator (default: `false`) |
-| `argocd.namespace` | No | Namespace of an existing ArgoCD install (default: `argocd`) |
-| `global.domain` | No | Base domain for ingress objects created by the operator |
+| Value | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `kubenest.backendURL` | Yes, for a self-hosted control plane | `wss://api.kubenest.io/v2/operator/events` | The hub's operator WebSocket endpoint, including the `/ws/operator` path |
+| `kubenest.jwtSecret` | Yes | `""` | Cluster JWT issued by the backend at cluster creation |
+| `kubenest.clusterID` | Ignored | `""` | Accepted but never used. The operator takes its cluster ID from the `kubenest-operator-token` Secret's `cluster-id` key — see the warning above (`kn-lx5t`) |
+| `kubenest.logLevel` | No | `info` | `debug`, `info`, `warn`, or `error` |
+| `kubenest.bootstrapController.gitRepoURL` | No | `""` | Git repo the operator writes GitOps manifests to. Empty means the bundled Gitea is used |
+| `kubenest.bootstrapController.gitRepoBranch` | No | `main` | Branch to commit to |
+| `kubenest.bootstrapController.gitToken` | Conditional | `""` | Access token for private repos. Stored in a chart-created Secret |
+| `bootstrap.argocd.enabled` | No | `true` | Install the bundled ArgoCD |
+| `bootstrap.certManager.enabled` | No | `true` | Install the bundled cert-manager |
+| `bootstrap.ingressNginx.enabled` | No | `true` | Install the bundled ingress-nginx |
+| `bootstrap.gitea.enabled` | No | `true` | Install the bundled Gitea, plus its PostgreSQL and Redis |
+| `bootstrap.vault.enabled` | No | `false` | Install the bundled Vault |
+
+The chart does not enforce the required values — an install without them deploys and fails at runtime, as described above.
 
 ## Troubleshooting
 
-**Operator pod is CrashLoopBackOff.** The most common cause is a malformed or expired cluster JWT. Regenerate the token via `GET /api/v1/clusters/{id}/install-command` and update the Kubernetes Secret, then restart the operator pod.
+**Operator pod is CrashLoopBackOff.** The most common cause is a malformed or expired cluster JWT. Fetch a fresh token via `GET /api/v1/clusters/{id}/install-command` (this mints and stores a new one), set it as `kubenest.jwtSecret` in your values file, and run `helm upgrade` with the same command as the install. If you created a `kubenest-operator-token` Secret, update its `token` key and restart the operator pod instead — the operator prefers the Secret.
 
-**Cluster stuck in `pending` (BYO) or `awaiting_operator` (cloud-provisioned).** The operator is not reaching the hub. Check outbound network connectivity from the cluster to the hub URL. Ensure the hub is running and the URL uses `wss://` (not `ws://`) in production.
+**Cluster stuck in `pending` (BYO) or `awaiting_operator` (cloud-provisioned).** The operator is not reaching the hub. Confirm `kubenest.backendURL` was actually rendered into the Deployment (see the note in step 2), check outbound network connectivity from the cluster to the hub URL, and ensure the URL uses `wss://` (not `ws://`) in production.
 
-**ArgoCD not found.** If you set `argocd.enabled=false` but ArgoCD is not installed, the operator will start but fail to create ArgoCD Application resources. Install ArgoCD first or set `argocd.enabled=true`.
+**ArgoCD Application resources are not created.** If you set `bootstrap.argocd.enabled=false` on a cluster that does not run ArgoCD, the operator starts but cannot create Application resources. Install ArgoCD or re-enable the bundled copy.
 
 ---
 

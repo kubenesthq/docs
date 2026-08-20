@@ -1,13 +1,15 @@
 ---
 title: Projects
-description: Projects are kubenest's isolation boundary — one Kubernetes namespace, one set of RBAC bindings, one resource quota.
+description: Projects group your Apps, Addons, and Secrets — one Kubernetes namespace per project.
 ---
 
 import { Callout } from 'nextra/components'
 
 # Projects
 
-A Project is the unit of isolation in kubenest. Every App, Addon, and Secret you deploy lives inside a project. From Kubernetes' perspective, a project is a namespace — all resources belonging to the project share that namespace and are subject to its quota. From kubenest's perspective, a project is also a permission boundary: RBAC role bindings control who can see, modify, or delete resources within it.
+A Project is the unit of grouping in kubenest. Every App, Addon, and Secret you deploy lives inside a project. From Kubernetes' perspective, a project is a namespace — all resources belonging to the project share that namespace.
+
+A project is not a capacity boundary or an enforced permission boundary today. kubenest does not manage `ResourceQuota` objects, and the role bindings the API stores are not consulted when requests are authorized. Both gaps are described plainly below — do not design an isolation or access policy around a project until they are closed.
 
 ## Projects and namespaces
 
@@ -23,8 +25,8 @@ flowchart TD
 
 One project, one namespace. You cannot split a project across namespaces, and you cannot put two projects into the same namespace.
 
-<Callout type="info">
-The namespace-per-project model deliberately limits the blast radius of a misconfigured resource quota or a rogue workload. If a project's namespace is exhausted, only that project's workloads are affected — others on the same cluster continue normally.
+<Callout type="warning">
+A namespace separates names, not capacity. kubenest does not create a `ResourceQuota` in the namespace, so nothing stops one project's workloads from consuming the whole cluster. See [Resource quotas](#resource-quotas) below.
 </Callout>
 
 ## Project lifecycle
@@ -40,52 +42,40 @@ The transition from `pending` to `ready` is fast — typically under a second wh
 
 ## Resource quotas
 
-Projects support Kubernetes `ResourceQuota` objects, configurable at project creation time or patched later. Quotas limit the total CPU, memory, and object counts that can be consumed by workloads within the namespace.
+kubenest does not manage ResourceQuota today: a project is a namespace boundary, not a capacity boundary. The operator's project reconcile creates the namespace and syncs the registry pull secret into it — it writes no quota object, and nothing enforces one.
 
-```bash filename="create project with quota"
-curl -X POST \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "my-api-team",
-    "cluster_id": "a1b2c3d4-...",
-    "description": "API team production environment",
-    "resource_quota": {
-      "requests.cpu": "4",
-      "requests.memory": "8Gi",
-      "limits.cpu": "8",
-      "limits.memory": "16Gi"
-    }
-  }' \
-  https://api.your-domain.com/api/v1/projects
-```
+The API does not accept one either. Project creation rejects unknown fields, so a request body carrying `resource_quota` returns 422.
 
-The operator translates these fields into a `ResourceQuota` object in the namespace. If a workload deployment would exceed the quota, Kubernetes rejects the pod scheduling and kubenest surfaces the error in the App's status.
+If you need a quota, create the `ResourceQuota` in the project's namespace with `kubectl` and manage it yourself.
 
 ## RBAC and role bindings
 
-Projects support three built-in roles:
+The API stores role bindings with three roles — `admin`, `member`, and `viewer` — at three scopes: organization, cluster, and project. Today these are membership records, not an enforced permission model. Authorization on cluster and project routes checks organization membership only: any member of the organization passes, whatever their role.
 
-| Role | Capabilities |
+That includes destructive operations. A `viewer` credential can delete a project, and can delete a cluster — which, for a cluster kubenest provisioned, starts the destruction of its infrastructure. Do not design an access policy around these roles, and do not hand out credentials on the assumption that `viewer` is read-only.
+
+The role checks that exist today:
+
+| Operation | Required |
 |------|-------------|
-| `admin` | Full control: create, modify, delete apps, addons, and project settings |
-| `member` | Deploy and manage apps and addons; cannot change project settings or delete the project |
-| `viewer` | Read-only: view apps, addons, logs, and status |
+| Organization settings and organization member management | The org `admin` role |
+| Everything else, including project and cluster deletion | Organization membership, any role |
 
-Role bindings are managed via the backend API:
+Project- and cluster-scoped bindings are managed through the RBAC endpoints:
 
-```bash filename="add a member"
+```bash filename="add a project role binding"
 curl -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "user_id": "e5f6g7h8-...",
+    "subject_type": "user",
+    "subject_id": "42",
     "role": "member"
   }' \
-  https://api.your-domain.com/api/v1/projects/b2c3d4e5-.../members
+  https://api.your-domain.com/api/v1/projects/b2c3d4e5-.../rbac
 ```
 
-The backend enforces these roles at the API layer — every request is checked against the caller's role in the target project. The Kubernetes-side `RoleBinding` objects in the namespace mirror the same permissions, so direct API server access (e.g., via `kubectl` with a project-scoped kubeconfig) respects the same boundaries.
+The binding is stored and can be listed, updated, and deleted — and no endpoint consults it when authorizing a request. The operator also creates no Kubernetes `RoleBinding` objects in the namespace, so direct access to the cluster's API server is outside this role model entirely.
 
 ## Secrets at the project level
 
@@ -114,14 +104,28 @@ curl -H "Authorization: Bearer $TOKEN" \
 curl -H "Authorization: Bearer $TOKEN" \
   https://api.your-domain.com/api/v1/projects/$PROJECT_ID | jq .
 
-# Delete a project (also deletes all apps and addons within it)
+# Delete a project (removes the control-plane record only — see below)
 curl -X DELETE -H "Authorization: Bearer $TOKEN" \
   https://api.your-domain.com/api/v1/projects/$PROJECT_ID
 ```
 
 <Callout type="warning">
-Deleting a project is irreversible and cascades to all Apps, Addons, and Secrets within it. The operator will delete the Kubernetes namespace, which removes all workloads and persistent volumes (unless the storage class uses a retain policy). Always back up critical data before deleting a project.
+Deleting a project removes the record from the control plane and nothing else. No event is sent to the cluster: the namespace and everything in it — apps, addons, secrets, volumes — keeps running, and so does the Project resource the operator created. The record deletion itself is irreversible.
 </Callout>
+
+The cluster-side cleanup is manual. Delete the Project resource first — while it exists, the operator re-creates the namespace on its next reconcile — then delete the namespace:
+
+```bash filename="manual cleanup on the cluster"
+# The Project resource lives in kubenest-system; the namespace it manages
+# carries the label kubenest.io/project.
+kubectl get projects -n kubenest-system
+kubectl get namespaces -l kubenest.io/project
+
+kubectl delete project <project-name> -n kubenest-system
+kubectl delete namespace <project-namespace>
+```
+
+Deleting the namespace removes the workloads and PersistentVolumeClaims in it. Whether the underlying PersistentVolumes and their data survive depends on the StorageClass reclaim policy. Back up anything you need before deleting.
 
 ---
 

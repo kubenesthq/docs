@@ -49,9 +49,16 @@ should never be described as one.
 Read this before choosing the tier, because the failure mode is unusual and it is easy to
 misjudge.
 
-**Your applications keep running.** The kubelet on each node does not need the API server to keep
-existing containers alive. Traffic keeps flowing. Ingress keeps serving its last known
+**Your applications on other nodes keep running.** The kubelet does not need the API server to
+keep existing containers alive. Traffic keeps flowing. Ingress keeps serving its last known
 configuration. From outside, for a while, nothing looks wrong.
+
+**Workloads on the control-plane node itself stop.** They died with the node, and with no API
+server nothing reschedules them elsewhere. So this is a placement condition, not a property of
+the tier: only replicas already on surviving agent nodes keep serving. The platform does not
+restrict workloads to agent nodes — unless you have constrained scheduling yourself, some
+replicas may be on the control-plane node. If the control-plane node is the only node, everything
+stops.
 
 **Nothing else works:**
 
@@ -78,8 +85,8 @@ and exactly what to do.
 
 ### What to do when it happens
 
-1. **Confirm the diagnosis.** `kubectl` is unresponsive but your applications are still serving.
-   The console will show the cluster's telemetry has stopped.
+1. **Confirm the diagnosis.** `kubectl` is unresponsive but your applications on other nodes are
+   still serving. The console will show the cluster's telemetry has stopped.
 2. **Do not restart workloads or nodes.** Everything still running is running fine, and a node
    that restarts now will not come back into a cluster with no API server.
 3. **Rebuild and restore**, following

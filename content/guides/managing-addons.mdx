@@ -148,17 +148,26 @@ Example output for a PostgreSQL instance:
 
 ```json
 {
-  "connection_string": "postgresql://myapp:mysecretpassword@my-postgres.my-project.svc.cluster.local:5432/myapp",
-  "host": "my-postgres.my-project.svc.cluster.local",
-  "port": "5432",
-  "database": "myapp",
-  "username": "myapp",
-  "password": "mysecretpassword"
+  "dsn": "[stored in K8s Secret]",
+  "host": "[stored in K8s Secret]",
+  "port": "[stored in K8s Secret]",
+  "user": "[stored in K8s Secret]",
+  "database": "[stored in K8s Secret]"
 }
 ```
 
-<Callout type="info">
-For addons backed by Kubernetes Secrets (which is the case for all definitions in the catalog), the API response shows export values in plaintext if you have at least project-member access. The values are fetched from the cluster Secret at request time — they are not stored in plaintext in the backend database. If the cluster is `disconnected` when you request exports, the API returns the last-cached values with a `stale: true` flag.
+For a secret-backed addon the API returns the export **keys**, not the values. Every value reads
+`[stored in K8s Secret]`. The full response also carries `exports_mode: "secret"` and a
+`secret_ref` naming the Kubernetes Secret and namespace the values actually live in.
+
+<Callout type="warning">
+The API never returns export values. To read them you go to the cluster — `kubectl get secret` in
+the addon's namespace, using the name in `secret_ref`. Nothing in the control plane will hand you
+a password.
+
+This also means the API response is not a way to check what a value *is*. Components inside an App
+do not need it: `exportRef` wiring is resolved by the operator inside the cluster, so a workload
+receives the real value in its environment without the value ever passing through the backend.
 </Callout>
 
 ---
@@ -293,30 +302,40 @@ You can wire the same addon instance into multiple Apps simultaneously. The addo
 
 ## Deleting an addon instance
 
-Deleting an addon instance uninstalls the Helm release, removes all Kubernetes resources it created (including Persistent Volume Claims by default), and removes the instance record from the backend.
-
 ```bash filename="delete addon instance"
 curl -X DELETE https://api.your-domain.com/api/v1/addon-instances/$INSTANCE_ID \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-To preserve the Persistent Volume Claims (and therefore the data), pass `preserve_pvcs=true`:
+Be clear about what this does before running it. The delete sends an `addon_uninstall` event toward the cluster and then removes the instance record from the control plane. The record is removed even if the event could not be delivered — a disconnected cluster still loses its control-plane record.
 
-```bash filename="delete but keep PVCs"
-curl -X DELETE \
-  "https://api.your-domain.com/api/v1/addon-instances/$INSTANCE_ID?preserve_pvcs=true" \
-  -H "Authorization: Bearer $TOKEN"
+On the cluster, the event deletes the Addon resource and nothing else. The ArgoCD Application that actually deploys the chart is linked to the Addon by label, not ownership, and is not removed — so the Helm release, its workloads, and its PersistentVolumeClaims keep running after the delete.
+
+There is no flag that changes this. The delete accepts no parameters — in particular, there is no `preserve_pvcs` option, because the delete does not remove data in the first place.
+
+Cleaning up the cluster is manual:
+
+```bash filename="manual cleanup on the cluster"
+# The ArgoCD Application is named <project-namespace>-addon-<instance-name>,
+# lives in kubenest-system, and is labelled with the addon's name. It carries
+# ArgoCD's resources finalizer, so deleting it removes the chart's resources.
+kubectl get applications -n kubenest-system -l kubenest.io/addon-name=my-postgres
+kubectl delete application my-project-addon-my-postgres -n kubenest-system
+
+# PVCs created by a StatefulSet's volumeClaimTemplates are not part of the
+# rendered chart and survive the Application delete. List them and delete
+# explicitly if the data should go:
+kubectl get pvc -n my-project
+```
+
+If the uninstall event never reached the cluster — it was disconnected at delete time — the Addon resource is still there too:
+
+```bash filename="if the cluster was disconnected"
+kubectl delete addon my-postgres -n my-project
 ```
 
 <Callout type="warning">
-**Check dependent workloads before deleting.** If any App workload component has an `exportRef` pointing to this addon instance, deleting the instance will cause those environment variables to resolve to empty strings on the next reconcile. The workloads will not immediately crash, but the next pod restart will start without the expected configuration.
-
-Always audit dependencies before deleting a shared addon:
-
-```bash
-curl -H "Authorization: Bearer $TOKEN" \
-  "https://api.your-domain.com/api/v1/addon-instances/$INSTANCE_ID/dependents" | jq .
-```
+**Check dependent workloads before deleting.** There is no API that lists an addon's dependents. Before deleting a shared addon, check each App in the project for workload environment variables whose `export_ref` points at this instance — once the instance record is gone, that wiring has nothing to resolve against.
 </Callout>
 
 ---

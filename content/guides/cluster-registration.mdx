@@ -48,9 +48,13 @@ Response (`201 Created`):
   "name": "prod-cluster",
   "status": "pending",
   "connection_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "install_command": "helm install kubenest-operator kubenesthq/kubenest-operator -n kubenest-system --create-namespace --set operator.hub.url=wss://hub.your-domain.com --set operator.hub.token=eyJhbGc... --set operator.cluster.id=a1b2c3d4-..."
+  "install_command": "helm install kubenest-operator oci://registry.kubenest.io/kubenest-operator --namespace kubenest-system --create-namespace --set kubenest.hubURL=wss://hub.your-domain.com/ws/operator --set kubenest.jwtSecret=eyJhbGc... --set kubenest.clusterID=a1b2c3d4-..."
 }
 ```
+
+<Callout type="warning">
+**Do not run `install_command` as-is.** The generated command sets `kubenest.hubURL`, a key the operator chart does not read — the chart reads `kubenest.backendURL` — and it pulls from a chart registry that does not currently exist. Run unmodified, the install either fails at the pull or brings up an operator pointed at the chart's default endpoint instead of your hub. Use the `connection_token` and cluster ID with the values file below instead. The [Installation](/getting-started/installation) page has the full explanation.
+</Callout>
 
 A manually registered cluster starts in `pending` and moves to `connected` once the operator's WebSocket handshake reaches the hub. Cloud-provisioned clusters start in `provisioning` instead.
 
@@ -74,24 +78,42 @@ Note that this endpoint mints a **new** 365-day cluster JWT on every call and st
 For production installs, use a values file rather than a `--set` chain. This makes the configuration auditable and easier to update:
 
 ```yaml filename="kubenest-operator-values.yaml"
-operator:
-  hub:
-    url: wss://hub.your-domain.com
-    token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...   # from cluster record
-  cluster:
-    id: a1b2c3d4-0001-0000-0000-000000000000
+kubenest:
+  # The hub's operator WebSocket endpoint, including the /ws/operator path.
+  # The key is named backendURL, but the value is the hub URL.
+  backendURL: wss://hub.your-domain.com/ws/operator
 
-gitops:
-  repoUrl: https://github.com/your-org/gitops-repo
-  branch: main
-  token: ghp_...     # personal access token with repo:write scope
+  # connection_token from the cluster record. Required.
+  jwtSecret: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
-argocd:
-  enabled: false     # assumes ArgoCD is already installed
-  namespace: argocd
+  # UUID of the cluster record. Required.
+  clusterID: a1b2c3d4-0001-0000-0000-000000000000
+
+  # GitOps repository the operator writes manifests to.
+  # Leave gitRepoURL empty to use the chart's bundled Gitea instead.
+  bootstrapController:
+    gitRepoURL: https://github.com/your-org/gitops-repo
+    gitRepoBranch: main
+    gitToken: ghp_...   # personal access token with repo:write scope
+
+# Bundled dependencies — ArgoCD, cert-manager, ingress-nginx and Gitea all
+# install by default. Disable whatever the cluster already runs.
+bootstrap:
+  argocd:
+    enabled: false      # this cluster already runs ArgoCD
+  certManager:
+    enabled: false
+  ingressNginx:
+    enabled: false
+  gitea:
+    enabled: false      # using the external Git repo above
+  vault:
+    enabled: false
 ```
 
-The `gitops.repoUrl` must be a repository that:
+The chart does not validate these values: an install with missing or misspelled keys deploys without complaint and the operator silently dials the chart's default endpoint with an empty token. The [Installation](/getting-started/installation) page covers the failure mode and the full values reference.
+
+The `kubenest.bootstrapController.gitRepoURL` must be a repository that:
 - The operator has read/write access to via the provided token.
 - Is **not** shared with other clusters unless you understand that they will write to different subtrees (see [GitOps and Drift Detection](/architecture/gitops)).
 
@@ -100,10 +122,8 @@ The `gitops.repoUrl` must be a repository that:
 Make sure `kubectl` is pointing at the target cluster, then install:
 
 ```bash filename="install operator"
-helm repo add kubenesthq https://charts.kubenestapp.com
-helm repo update
-
-helm install kubenest-operator kubenesthq/kubenest-operator \
+helm install kubenest-operator oci://ghcr.io/kubenesthq/charts/kubenest-operator-2 \
+  --version 2.1.0 \
   --namespace kubenest-system \
   --create-namespace \
   --values kubenest-operator-values.yaml
@@ -115,25 +135,25 @@ Watch the pod start:
 kubectl get pods -n kubenest-system -w
 ```
 
-Expected output once healthy:
+Expected output once healthy (the resource names include the chart name, `kubenest-operator-2`):
 
 ```
-NAME                                        READY   STATUS    RESTARTS   AGE
-kubenest-operator-controller-manager-xyz   1/1     Running   0          30s
+NAME                                                            READY   STATUS    RESTARTS   AGE
+kubenest-operator-kubenest-operator-2-controller-manager-xyz   1/1     Running   0          30s
 ```
 
 Check the operator log for the hub connection message:
 
 ```bash filename="check operator logs"
 kubectl logs -n kubenest-system \
-  -l app.kubernetes.io/name=kubenest-operator \
+  -l app.kubernetes.io/instance=kubenest-operator \
   --tail=30
 ```
 
 Look for:
 
 ```
-{"level":"info","msg":"connected to hub","cluster_id":"a1b2c3d4-...","hub":"wss://hub.your-domain.com"}
+WebSocket connection established
 ```
 
 ### Confirm the cluster is connected
@@ -151,11 +171,13 @@ The cluster is now ready to receive deployments. Create a project and deploy you
 </Steps>
 
 <Callout type="warning">
-**Secure the cluster JWT.** The connection token is a long-lived credential with the ability to execute any operation the operator supports on that cluster. The Helm chart stores it in a Kubernetes Secret (`kubenest-operator-token` in the `kubenest-system` namespace). Restrict access to that Secret using Kubernetes RBAC.
+**Secure the cluster JWT.** The connection token is a long-lived credential with the ability to execute any operation the operator supports on that cluster. The Helm chart does **not** put it in a Kubernetes Secret: `kubenest.jwtSecret` is rendered into the operator Deployment as a plain environment variable, readable by anyone who can read Deployments in the namespace. The chart does read an optional Secret named `kubenest-operator-token` (keys `token` and `cluster-id`) — if you create one, the operator prefers its token over the rendered value, and you can then keep the token out of your values file entirely.
+
+Create that Secret regardless of how you handle the token, because `kubenest.clusterID` is accepted by the chart and never used — it is not rendered into the Deployment, and `CLUSTER_ID` comes only from the Secret's `cluster-id` key. Without the Secret the operator runs with an empty cluster ID while looking healthy. Chart defect, tracked as `kn-lx5t`; see [Installing the operator](/getting-started/installation) for the exact command.
 
 Issuing a new token does **not** revoke the old one. The hub accepts any correctly signed, unexpired cluster JWT — it does not check the token against the one currently stored for the cluster. A leaked token therefore stays usable for the remainder of its 365-day lifetime. If a token is compromised, treat rotating the hub's `JWT_SECRET` (which invalidates every cluster token at once and requires re-issuing all of them) or deleting and re-registering the cluster as the only reliable containment.
 
-To issue a fresh cluster JWT, call `GET /api/v1/clusters/{id}/install-command`. Every call mints a new 365-day token and stores it as the cluster's current token; the response contains both the token and a ready-to-run Helm command. Update the `kubenest-operator-token` Secret with the new value and restart the operator pod.
+To issue a fresh cluster JWT, call `GET /api/v1/clusters/{id}/install-command`. Every call mints a new 365-day token and stores it as the cluster's current token. To roll the operator onto it, set the new token as `kubenest.jwtSecret` in your values file and run `helm upgrade` — or, if you created a `kubenest-operator-token` Secret, update its `token` key and restart the operator pod.
 </Callout>
 
 ---
@@ -242,16 +264,26 @@ Provisioning typically takes 5–10 minutes depending on the region and instance
 
 ### SSH access
 
-The provisioner generates an SSH key pair during provisioning. The private key is stored in the backend database (encrypted), tied to the cluster record. Retrieve it if needed for troubleshooting:
+The provisioner generates an SSH key pair for the nodes during provisioning. **The private key is not retrievable through the API** — no endpoint serves it. It exists in one place: the Terraform state for the cluster, which the control plane stores in its own PostgreSQL database (schema `terraform_state`, table `states`, one row per cluster, named by the cluster ID).
 
-```bash filename="retrieve SSH key"
-curl -H "Authorization: Bearer $TOKEN" \
-  "https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID/ssh-key" | jq -r .private_key > cluster.pem
+Retrieving it therefore requires access to the control-plane database, not an API token:
+
+```bash filename="extract the node SSH key (control-plane database)"
+psql "$DATABASE_URL" -At \
+  -c "SELECT data FROM terraform_state.states WHERE name = '$CLUSTER_ID'" \
+  | jq -r '.outputs.ssh_private_key.value' > cluster.pem
 chmod 600 cluster.pem
-ssh -i cluster.pem ec2-user@<node-ip>
 ```
 
-The private key is only available to organization admins. Treat it with the same care as the cluster JWT.
+Connect as **`ubuntu`** — the same user the provisioner itself uses:
+
+```bash filename="ssh to a node"
+ssh -i cluster.pem ubuntu@<node-ip>
+```
+
+`kubectl` on the nodes requires sudo: `sudo k3s kubectl get nodes`.
+
+The key is deleted together with the Terraform state when the cluster is destroyed, so extract it while the cluster still exists. Treat it with the same care as the cluster JWT — it is root-equivalent access to every node.
 
 ### Scaling a cloud-provisioned cluster
 
@@ -283,40 +315,42 @@ The operator implements exponential backoff reconnection. Most `disconnected` st
 
 ## Deleting a cluster
 
-Deleting a cluster record from the backend does not automatically uninstall the operator or delete the Kubernetes cluster.
+<Callout type="warning">
+**Cluster deletion is not guarded.** `DELETE /clusters/{id}` does not check for projects, apps, or addons before acting — it proceeds even when the cluster has active projects, and the project records are deleted along with the cluster record (they cascade at the database level). There is no confirmation step beyond the API call itself. Check what is running on a cluster before deleting it, because the backend will not.
+</Callout>
 
-**For BYOC clusters**, clean up in this order:
+What deletion does depends on how the cluster was created:
+
+- **BYOC:** the cluster record is deleted immediately. Nothing on the cluster itself is touched — the operator keeps running, workloads keep serving, namespaces stay. Only the control-plane record, and every project record under it, disappears.
+- **Cloud-provisioned:** the backend launches a `terraform destroy` that tears down the EC2 instances, VPC, and associated resources, regardless of what is deployed on them. The cluster status moves to `destroying`; when the destroy succeeds, the cluster record and its project records are removed, and the Terraform state — including the node SSH key — is deleted with it.
+
+**For BYOC clusters**, clean up in this order. The ordering is advisory — the API does not enforce any of it:
 
 ```bash filename="BYOC cleanup"
-# 1. Delete all projects on the cluster first
-#    (the API will reject cluster delete if projects exist)
-
-# 2. Uninstall the operator from the cluster
+# 1. Uninstall the operator from the cluster
 helm uninstall kubenest-operator -n kubenest-system
 
-# 3. Optionally remove the namespace
+# 2. Optionally remove the namespace
 kubectl delete ns kubenest-system
 
-# 4. Delete the cluster record from the backend
+# 3. Delete the cluster record from the backend
 curl -X DELETE https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID \
   -H "Authorization: Bearer $TOKEN"
 ```
-
-**For cloud-provisioned clusters**, the backend runs a `terraform destroy` when you delete the cluster record, which tears down the EC2 instances, VPC, and associated resources. Make sure you have deleted all projects and apps first.
 
 ---
 
 ## Troubleshooting
 
-**Operator pod is in CrashLoopBackOff.** The most common cause is a malformed or expired cluster JWT. Check the pod logs for `"invalid token"` or `"token expired"`. Issue a new token via `GET /api/v1/clusters/{id}/install-command`, update the `kubenest-operator-token` Secret, and restart the pod.
+**Operator pod is in CrashLoopBackOff.** The most common cause is a malformed or expired cluster JWT. Check the pod logs for `"invalid token"` or `"token expired"`. Issue a new token via `GET /api/v1/clusters/{id}/install-command`, set it as `kubenest.jwtSecret` in your values file, and run `helm upgrade` — or update the `kubenest-operator-token` Secret and restart the pod, if you created one.
 
 **Cluster stuck in `awaiting_operator` after operator install.** The operator is not reaching the hub. Verify:
 - The pod is `Running` (not `CrashLoopBackOff`).
-- The `operator.hub.url` value starts with `wss://` (not `ws://`).
+- The `kubenest.backendURL` value starts with `wss://` (not `ws://`) and includes the `/ws/operator` path.
 - Outbound HTTPS/WSS traffic from the cluster to the hub URL is permitted by your network policy.
 - DNS resolves the hub URL from inside the cluster: `kubectl exec -n kubenest-system <operator-pod> -- curl -I https://hub.your-domain.com`.
 
-**`connected` then immediately `disconnected`.** This is usually a heartbeat timeout. The hub expects a heartbeat from the operator every 30 seconds. Check for high CPU or memory pressure on the operator pod that might delay heartbeats. Adjust `operator.heartbeat.intervalSeconds` in the Helm values if your cluster is resource-constrained.
+**`connected` then immediately `disconnected`.** This is usually a heartbeat timeout. The operator sends a heartbeat every 30 seconds; the interval is fixed in the operator and is not configurable through Helm values. Check for high CPU or memory pressure on the operator pod that might delay heartbeats.
 
 **Provisioning stuck in `provisioning` for more than 20 minutes.** Check the provisioner job logs on the backend pod:
 

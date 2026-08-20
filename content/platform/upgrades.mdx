@@ -185,21 +185,28 @@ transition around it, the gates in front of it, and the rollback behind it.
 
 ## What your workloads experience
 
-Honest expectations, by tier and by workload shape:
+Honest expectations, by tier and by workload shape. On the `single-server` tier the answer
+depends on where your replicas are placed, so it gets two rows:
 
 | | Multi-replica workload | Single-replica workload |
 |---|---|---|
 | **`ha` tier** | No downtime. Replicas reschedule ahead of each drain | Restarts once, when its node drains |
-| **`single-server` tier** | No downtime for the workload itself | Restarts once, when its node drains |
+| **`single-server`, replicas only on agent nodes** | No downtime for the workload itself | Restarts once, when its node drains |
+| **`single-server`, replicas on the control-plane node** | Replicas there restart when that node drains, and can only move to an agent node with capacity. If every replica is on the control-plane node — always the case on a one-node cluster — the workload is down while the node upgrades | Restarts; on a one-node cluster it is down while the node upgrades |
+
+The platform does not restrict workloads to agent nodes, so unless you have constrained
+scheduling yourself, assume the last row applies to you.
 
 Two things are true regardless of tier:
 
 - **Draining a node restarts the pods on it.** A single-replica workload will restart. There is no
   way around that, and no upgrade tool can avoid it.
 - **On the `single-server` tier, the Kubernetes API is unavailable while the control-plane node
-  upgrades.** Running pods keep running — the kubelet does not need the API server — but during
-  that window nothing schedules, nothing self-heals, no deploy succeeds, and a pod that dies is
-  not replaced. Your applications keep serving. The cluster is frozen, briefly and deliberately.
+  upgrades.** Running pods on other nodes keep running — the kubelet does not need the API
+  server — but during that window nothing schedules, nothing self-heals, no deploy succeeds, and a
+  pod that dies is not replaced. Workloads that were on the control-plane node were already
+  evicted by its drain; any that found no agent node to land on are down until the node returns.
+  The cluster is frozen, briefly and deliberately.
 
 On the `ha` tier the API stays available throughout, because servers upgrade one at a time and
 quorum is maintained.

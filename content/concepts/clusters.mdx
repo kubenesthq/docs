@@ -131,13 +131,15 @@ BYOC (bring-your-own-cluster) registrations are not affected by the scale endpoi
 
 ## Deleting a cluster
 
-Deleting a cluster record from the backend does not automatically uninstall the operator or clean up the Kubernetes cluster. You must separately:
+`DELETE /api/v1/clusters/{id}` is not guarded. It does not check for active projects: deletion proceeds with projects still on the cluster, and their project records are deleted along with the cluster record. Check what is running on a cluster before you delete it, because the API will not check for you.
 
-1. Uninstall the operator: `helm uninstall kubenest-operator -n kubenest-system`
-2. Optionally delete the namespace: `kubectl delete ns kubenest-system`
-3. Delete the cluster record: `DELETE /api/v1/clusters/{id}`
+What happens to the cluster itself depends on how it was created:
 
-Deleting a cluster that has active projects will fail unless you delete those projects first.
+- **Cloud-provisioned clusters** get a destroy job: the backend runs Terraform destroy and the VMs are terminated. This deletes the infrastructure, not just the record.
+- **BYOC registrations** have only their record deleted. Nothing on the cluster is touched — the operator keeps running and must be removed by hand:
+
+  1. Uninstall the operator: `helm uninstall kubenest-operator -n kubenest-system`
+  2. Optionally delete the namespace: `kubectl delete ns kubenest-system`
 
 ---
 

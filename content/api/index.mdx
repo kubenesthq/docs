@@ -151,26 +151,17 @@ The `loc` array is a path through the request body to the invalid field. The fir
 
 ## Rate limits
 
-API rate limits are applied per user. Check current usage:
+The API is not rate limited, with one exception. Limits can be configured per tier and per path, but enforcement is attached to a single endpoint (`POST /tasks/task`); every other endpoint is unthrottled. There is no endpoint for reading current usage, and responses carry no `X-RateLimit-*` headers — do not build a client that waits for them.
 
-```bash filename="check rate limits"
-curl -H "Authorization: Bearer $TOKEN" \
-  "https://api.your-domain.com/api/v1/rate-limits" | jq .
-```
+What exists is the configuration surface. A superuser can define per-tier, per-path limits:
 
-Response:
-
-```json
-{
-  "limits": {
-    "requests_per_minute": 300,
-    "remaining": 287,
-    "reset_at": "2026-06-11T14:23:00Z"
-  }
-}
-```
-
-Rate limit headers are also included on every response: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`.
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/tier/{tier_name}/rate_limit` | Define a limit for a tier. Superuser only. Body: `name`, `path`, `limit` (requests), `period` (seconds). |
+| `GET` | `/tier/{tier_name}/rate_limits` | List a tier's configured limits. |
+| `GET` | `/tier/{tier_name}/rate_limit/{id}` | Get one configured limit. |
+| `PATCH` | `/tier/{tier_name}/rate_limit/{id}` | Update a configured limit. Superuser only. |
+| `DELETE` | `/tier/{tier_name}/rate_limit/{id}` | Remove a configured limit. Superuser only. |
 
 ---
 
@@ -194,7 +185,7 @@ Rate limit headers are also included on every response: `X-RateLimit-Limit`, `X-
 | `POST` | `/orgs/{org_id}/clusters` | Register a new cluster or initiate cloud provisioning. |
 | `GET` | `/clusters/{id}` | Get cluster details, status, and metrics. |
 | `PATCH` | `/clusters/{id}` | Update cluster metadata (name, description). |
-| `DELETE` | `/clusters/{id}` | Delete the cluster record. Fails if active projects exist. |
+| `DELETE` | `/clusters/{id}` | Delete the cluster. Not guarded: deletion proceeds even when active projects exist, and their project records are deleted with the cluster record. Cloud-provisioned clusters get a Terraform destroy of their infrastructure; BYOC records are deleted immediately. |
 | `GET` | `/clusters/{id}/metrics` | CPU, memory, and node count metrics aggregated from the last operator heartbeat. |
 | `GET` | `/clusters/{id}/install-command` | Retrieve the pre-filled Helm install command for the operator. Mints a fresh 365-day cluster JWT on every call and stores it as the cluster's current token — this is also how you rotate a token. |
 | `GET` | `/clusters/{id}/install-instructions` | Step-by-step install walkthrough for the operator, including the Helm command. Reuses the existing token if one is already stored. |
@@ -218,8 +209,8 @@ Rate limit headers are also included on every response: `X-RateLimit-Limit`, `X-
 |--------|------|-------------|
 | `GET` | `/projects` | List all projects the user can access. |
 | `POST` | `/projects` | Create a project (Kubernetes namespace) on a cluster. |
-| `GET` | `/projects/{id}` | Get project details, status, and resource quota usage. |
-| `DELETE` | `/projects/{id}` | Delete project and all its apps and addons. Requires the project to be empty unless `force=true`. |
+| `GET` | `/projects/{id}` | Get project details and status. |
+| `DELETE` | `/projects/{id}` | Delete the project record. Not guarded, and control-plane-only: it does not check whether apps or addons exist, and it removes nothing from the cluster — the namespace and everything running in it stay live. |
 | `GET` | `/projects/{id}/apps` | List every app in the project. |
 | `GET` | `/projects/{id}/available-exports` | List export values published by apps and addons in the project, for wiring `exportRef` entries. |
 | `GET` | `/projects/{id}/rbac` | List project-scoped role assignments. |
@@ -232,7 +223,9 @@ Rate limit headers are also included on every response: `X-RateLimit-Limit`, `X-
 | `GET` | `/projects/{id}/effective-registry-secrets` | Resolve the image pull secrets that actually apply, merging cluster-level and project-level attachments. |
 
 <Callout type="info">
-Projects have no update endpoint. Name, cluster, and resource quotas are fixed at creation time — there is no `PATCH /projects/{id}`. Changing any of them means deleting the project and creating a new one.
+Projects have no update endpoint — there is no `PATCH /projects/{id}`. Name and cluster are fixed at creation; changing them means deleting the project and creating a new one.
+
+kubenest does not manage ResourceQuota. A project is a namespace boundary, not a capacity boundary: no quota field is accepted at creation, and nothing is applied to the namespace that caps what its workloads can consume.
 </Callout>
 
 ---
