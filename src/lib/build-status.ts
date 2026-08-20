@@ -33,16 +33,18 @@ export const SPEC_PAGES: Record<string, BuildStatusEntry> = {
       'Clusters are created by a backend-driven Terraform job that runs k3sup and Helm, and it installs none of the bundle described here.',
   },
   '/platform/bundle': {
-    beads: ['kn-boj', 'kn-twe'],
+    beads: ['kn-7k8', 'kn-twe'],
     missing:
-      'No bundle has been released, pinned or tested. The manifest on this page contains literal `<pinned>` placeholders, nothing anywhere pins a k3s version, and the compatibility matrix has never run.',
+      'Nothing installs a bundle. The manifest is a real artifact now, but no installer reads it and no cluster has ever been built from one, so the version number does not yet mean "this is what you are running". The compatibility matrix has never run.',
     today:
-      'The cluster record holds a free-form `components` blob of booleans — the model D11 explicitly rejects — with no bundle version, profile set or HA tier.',
+      'The manifest schema, the Platform 1.0 pins and the per-cluster bundle record are real as of kn-boj — see kubenest-contracts/bundles/platform-1.0.yaml and GET /bundles.',
   },
   '/platform/profiles': {
-    beads: ['kn-boj', 'kn-ynaq', 'kn-sev5', 'kn-54ni'],
+    beads: ['kn-ynaq', 'kn-sev5', 'kn-54ni'],
     missing:
-      'No profile is implemented. There is no per-cluster profile record, and none of the components a profile would install are present in the tree.',
+      'No profile is implemented. Selecting one records an intention and installs nothing — none of the components a profile would deploy are present in the tree.',
+    today:
+      'The per-cluster profile set is recorded and validated as of kn-boj; an unknown profile is rejected with 422 rather than ignored.',
   },
   '/platform/upgrades': {
     beads: ['kn-fuo'],
@@ -63,7 +65,9 @@ export const SPEC_PAGES: Record<string, BuildStatusEntry> = {
   '/platform/ha': {
     beads: ['kn-kp3'],
     missing:
-      'HA is not an install-time tier. There is no tier field on the cluster record and no etcd anywhere — single-server k3s runs on SQLite today, unpinned.',
+      'HA is not an install-time tier. Nothing acts on the recorded tier, and there is no etcd anywhere — single-server k3s runs on SQLite.',
+    today:
+      'The cluster record carries an ha_tier as of kn-boj, and the k3s version is pinned by the Platform 1.0 manifest. Both describe intent; no installer honours either yet.',
   },
   '/platform/deploying-an-app': {
     beads: ['kn-pgu'],
