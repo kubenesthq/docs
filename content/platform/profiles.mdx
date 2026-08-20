@@ -89,9 +89,9 @@ genuinely cannot tolerate node-local storage — not by default.
 
 Three control-plane nodes with embedded etcd, instead of one.
 
-This is the only profile that is also an install-time tier, and the only one that can never be
-changed afterwards. What each tier does and does not promise is on the
-[install page](/platform/install#ha-tier).
+This is the only profile that is also an install-time tier. There is no supported path to it on a
+running cluster today — see [changing a profile later](#changing-a-profile-later). What each tier
+does and does not promise is on the [install page](/platform/install#ha-tier).
 
 ## Changing a profile later
 
@@ -102,7 +102,7 @@ Not all profiles are equal here, and the differences are not cosmetic — two of
 | `observability` | Yes | Yes — you lose collected history, nothing else |
 | `secrets` | Yes | **No.** Removing it leaves every sealed secret undecryptable |
 | `replicated-storage` | Yes, but only new volumes use it | Only when no volume is using it |
-| `ha` | **No.** Install-time only | **No** |
+| `ha` | **No** — not supported today | **No** |
 
 **`observability`** is genuinely reversible. Add it, remove it, add it again. Removing deletes the
 metrics and logs it collected; nothing else in the cluster notices.
@@ -118,9 +118,15 @@ migrate them, and there is no supported in-place migration. Moving an existing w
 replicated storage means a new volume and a data copy, at a time you choose. Removing the profile
 requires that nothing is using its StorageClass.
 
-**`ha`** cannot change in either direction. Migrating a single-server cluster to embedded etcd
-after the fact is disruptive and there is no supported path. This is why the tier is chosen at
-install and priced separately.
+**`ha`** is chosen at install and cannot be changed afterwards today.
+
+Not because the datastore is in the way. Every tier runs embedded etcd — `single-server` runs a
+single-node etcd, not SQLite — so moving to `ha` is joining two more servers to an existing etcd
+cluster rather than converting a datastore. What is missing is the supported path: the join is not
+implemented, not tested, and not something to attempt by hand on a cluster you care about.
+
+So: choose the tier you want at install. Growing into `ha` later is not something the platform
+offers today.
 
 ## What gets recorded
 

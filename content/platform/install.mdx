@@ -136,7 +136,7 @@ Between cluster nodes:
 | 6443 | TCP | agents → server | Kubernetes API |
 | 8472 | UDP | all ↔ all | Flannel VXLAN overlay |
 | 10250 | TCP | all ↔ all | Kubelet metrics |
-| 2379–2380 | TCP | server ↔ server | Embedded etcd — **3-node HA tier only** |
+| 2379–2380 | TCP | server ↔ server | etcd peer replication — **3-node `ha` tier only** |
 
 Outbound from the cluster and from the machine running the installer:
 
@@ -179,11 +179,14 @@ Two choices are made at install time and recorded permanently against the cluste
 ### HA tier
 
 <Callout type="warning">
-Migrating a single-server cluster to embedded etcd afterwards is disruptive and there is no
-supported migration path. This is not a day-2 item. Choose deliberately.
+There is no supported path from `single-server` to `ha` after install. Both tiers run embedded
+etcd, so the obstacle is not the datastore — growing to `ha` is joining two more servers to an
+existing etcd cluster. That join is simply not built or tested yet. Treat the tier as an
+install-time choice and pick deliberately.
 </Callout>
 
-**`single-server`** — one control-plane node, plus verified snapshots. Simpler, cheaper, fewer
+**`single-server`** — one control-plane node running single-node embedded etcd, plus verified
+snapshots. Simpler, cheaper, fewer
 moving parts. The honest promise is *"we restore, and the restore is drilled"*, never *"highly
 available"*. Restore duration depends on your data volume, so the drill reports your own measured
 figure rather than quoting one.
@@ -194,7 +197,8 @@ no deploy or scale succeeds, and any pod or node that dies is never replaced. In
 serving its last known configuration. The cluster is **frozen, not down** — until the second
 failure, which cascades with no recovery path.
 
-**`ha`** — three control-plane nodes with embedded etcd. Survives the loss of one node. Triples
+**`ha`** — three control-plane nodes with etcd replicated across them. Survives the loss of one
+node. Triples
 control-plane cost and introduces etcd quorum operations.
 
 ### Profiles
@@ -214,8 +218,8 @@ Profiles, what changing one later does, and what it does not do, are covered on 
 
 ## The install command
 
-The installer is the `kubenest` CLI, run from your own workstation or bastion. Your SSH keys and
-your cloud credentials stay on your machine.
+The installer is the `kubenest` CLI, run from your own workstation or bastion. Your SSH keys stay
+on your machine.
 
 Authenticate to your control plane once:
 
@@ -265,27 +269,13 @@ installs above.
 
 `kubenest platform install` expects hosts to exist. It does not create them.
 
-If you supply your own hosts — the path the rest of this page documents — that is all you need. If you want KubeNest to create the machines first, the CLI does that too,
-as a separate command:
+**You bring the machines.** Provision them however you already provision servers — your cloud
+console, your Terraform, your hardware. The installer takes it from there.
 
-```bash filename="terminal"
-kubenest cluster provision \
-  --provider aws \
-  --region ap-south-1 \
-  --name prod-1 \
-  --instance-type t3.large \
-  --agents 2 \
-  --disk-size 100
-```
-
-It prints the resulting node addresses, which you then pass to `kubenest platform install`.
-
-Provisioning and installing stay two commands rather than one. They fail in different ways and
-are re-run under different circumstances, and a failed install must never re-run
-`terraform apply`.
-
-AWS is the supported provider today. SSH-based hosts are on the roadmap. GCP and Azure are not
-planned.
+Machine provisioning through kubenest is not part of this release. If it arrives, it will be a
+separate command rather than a flag on `install`: provisioning and installing fail in different
+ways and are re-run under different circumstances, and a failed install must never re-run
+`terraform apply`. GCP and Azure are not planned.
 
 ### Do customers manage clusters through the console?
 

@@ -1,6 +1,6 @@
 ---
 title: HA tiers
-description: single-server plus verified restore, or three-node embedded etcd — what each tier does and does not promise, stated plainly.
+description: one control-plane node plus verified restore, or three with etcd replicated across them — what each tier does and does not promise, stated plainly.
 ---
 
 import { Callout } from 'nextra/components'
@@ -21,7 +21,7 @@ sentence they needed was one we chose not to write.
 | | `single-server` | `ha` |
 |---|---|---|
 | Control-plane nodes | 1 | 3 |
-| Datastore | Local database on that node | Embedded etcd, replicated |
+| Datastore | Embedded etcd, single node | Embedded etcd, replicated across three |
 | Survives losing a control-plane node | **No** | Yes, one of three |
 | API available during a control-plane reboot | No | Yes |
 | Control-plane node reboots for OS patching | Needs a human | Automatic, one at a time |
@@ -119,8 +119,8 @@ reboot for OS patching one at a time without a human deciding.
 Because moving between the tiers afterwards is not something we currently support, and getting
 that wrong is expensive.
 
-A cluster installed as `single-server` stays `single-server` for its life, unless it is rebuilt
-from scratch. So the choice is made deliberately, recorded against the cluster, priced
+Today a cluster installed as `single-server` stays `single-server` unless it is rebuilt from
+scratch. So the choice is made deliberately, recorded against the cluster, priced
 accordingly, and reported in every telemetry heartbeat — a cluster with no control-plane
 redundancy is flagged as such, so nobody has to remember which tier a customer bought.
 

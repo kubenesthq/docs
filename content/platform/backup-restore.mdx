@@ -23,7 +23,7 @@ them is how people discover they only had half a backup.
 | | **Workload backup** | **Datastore snapshot** |
 |---|---|---|
 | What it holds | Kubernetes objects and persistent volume data | The cluster's own state — every workload definition, secret, and config |
-| Tool | Velero | k3s datastore snapshot |
+| Tool | Velero | k3s etcd snapshot |
 | Answers | "The `payments` namespace was deleted" | "The control-plane node's disk died" |
 | Schedule | Configurable, default daily | Configurable, default more frequent |
 | Target | Your S3-compatible bucket | Your S3-compatible bucket |
@@ -54,8 +54,8 @@ The dotted edges are the half-backup people discover during the disaster: each t
 the other's failure, and neither is a superset of the other.
 
 <Callout type="warning">
-**The single-server datastore is the one people forget.** A single-server k3s cluster keeps its
-entire state in a local database on the control-plane node. If that disk dies and there is no
+**The single-server datastore is the one people forget.** A single-server cluster keeps its entire
+state in a single-node embedded etcd on the control-plane node. If that disk dies and there is no
 snapshot, **every workload definition in the cluster is gone** — not the running containers'
 data, the definitions themselves. There is nothing to restore from and nothing to rebuild from
 except your Git repository and your memory.

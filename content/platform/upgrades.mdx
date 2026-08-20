@@ -229,8 +229,9 @@ reverts to the previous revision in seconds. Nothing is lost.
 and the datastore has written data in the new schema, going back means restoring the datastore
 snapshot taken at stage 2.
 
-The mechanism differs by tier: embedded etcd on the `ha` tier, the local database on
-`single-server`. Both are covered by the same stage-2 snapshot and the same command — see
+The mechanism is the same on both tiers: an etcd snapshot. `single-server` runs a single-node
+embedded etcd and `ha` runs it replicated across three, but the snapshot, the restore and the
+command do not differ. Both are covered by the same stage-2 snapshot — see
 [backup and restore](/platform/backup-restore) — but note that on `single-server` the restore is
 also a control-plane outage, because there is only one control plane.
 

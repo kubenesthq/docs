@@ -7,7 +7,7 @@ This file lives at the repo root, **outside `content/`**, so Nextra cannot route
 never be published to docs.kubenest.io. Keep it that way — it names unmade decisions and
 unmeasured numbers.
 
-**43 questions. 13 decided, 30 open.**
+**43 questions. 15 decided, 28 open.** Last reconciled 2026-08-20 against decision A.
 
 Each question is written up in full on its page, inline where it arises, with the reasoning and a
 recommendation where there is one. This file is the index, not the content.
@@ -38,15 +38,22 @@ Not release blockers, but each is a one-way door for any cluster installed befor
 
 | ID | Question | Page |
 |---|---|---|
-| OQ-HA-1 | Single-node etcd instead of SQLite for `single-server` | ha |
+| ~~OQ-HA-1~~ | **DECIDED 2026-08-20 — embedded etcd on every tier.** See below | ha |
 | OQ-BUNDLE-5 | Agent ↔ control plane compatibility window | bundle |
 
-**OQ-HA-1 is the largest open question in the set.** If the `single-server` tier ran single-node
-embedded etcd rather than SQLite, `single-server → ha` becomes "add two servers" instead of
-"rebuild the cluster". That would remove the one-way door between tiers, collapse the two snapshot
-mechanisms into one (resolving OQ-BACKUP-4), and dissolve most of the reasoning behind the
-OQ-INSTALL-9 decision. Every cluster installed on SQLite before it is decided is on the wrong side
-if the answer is etcd.
+**OQ-HA-1 was the largest open question in the set, and it is now answered: single-node embedded
+etcd (`k3s --cluster-init`) on every tier, including `single-server`.** Decision A of the build
+plan, pinned in `kubenest-contracts/bundles/platform-1.0.yaml` — `k3s: v1.35.7+k3s1`.
+
+Three consequences, and it is worth being precise about which are real today:
+
+- **OQ-BACKUP-4 is resolved.** One snapshot mechanism, not two. Every tier takes an etcd snapshot.
+- **The one-way door between tiers is no longer a datastore problem.** `single-server → ha` is
+  joining two servers to an existing etcd cluster. But the join is **not implemented and not
+  tested** (`kn-kp3`), so the tier is still an install-time choice in practice. The pages say
+  exactly this, and must not be "corrected" into promising a migration.
+- **OQ-INSTALL-9's reasoning is weakened** — it leaned on the one-way door — though the decision
+  it reached still stands.
 
 **OQ-BUNDLE-5** is a compatibility axis that is not in the six tested configurations at all. The
 bundle pins the agent; the control plane upgrades separately. Without a stated support window, the
@@ -118,14 +125,14 @@ Release blockers above, plus:
 | OQ-UPGRADE-6 | Upgrade duration (measurement, above) |
 | OQ-UPGRADE-7 | Operator-initiated only, or opt-in automatic? |
 
-### `backup-restore.mdx` — 4 open
+### `backup-restore.mdx` — 3 open
 
 | ID | Question |
 |---|---|
 | OQ-BACKUP-1 | Does the drill restore every volume or a sample? Whatever is chosen, the result must state what it verified |
 | OQ-BACKUP-2 | Full cluster restore duration (measurement, above) |
 | OQ-BACKUP-3 | Default schedules and retention |
-| OQ-BACKUP-4 | SQLite versus etcd snapshot paths. May be resolved by OQ-HA-1 |
+| ~~OQ-BACKUP-4~~ | **RESOLVED by OQ-HA-1 (decision A).** Every tier runs etcd, so there is one snapshot path, not two |
 
 ### `os-patching.mdx` — 3 open
 
@@ -146,9 +153,9 @@ Both above. `deploying-an-app.mdx` has none.
 Answer these in order; several unlock others.
 
 ```
-OQ-HA-1  (single-node etcd?)
-   ├─→ OQ-BACKUP-4   two snapshot mechanisms, or one
-   └─→ weakens the reasoning behind the OQ-INSTALL-9 decision
+OQ-HA-1  DECIDED 2026-08-20: embedded etcd on every tier
+   ├─→ OQ-BACKUP-4   RESOLVED — one snapshot mechanism
+   └─→ weakened the reasoning behind OQ-INSTALL-9; that decision still stands
 
 OQ-BUNDLE-4  (can upgrades skip versions?)
    └─→ OQ-UPGRADE-5

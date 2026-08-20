@@ -65,9 +65,9 @@ export const SPEC_PAGES: Record<string, BuildStatusEntry> = {
   '/platform/ha': {
     beads: ['kn-kp3'],
     missing:
-      'HA is not an install-time tier. Nothing acts on the recorded tier, and there is no etcd anywhere — single-server k3s runs on SQLite.',
+      'Nothing acts on the recorded tier. No installer reads it, and the join that would grow a single-server cluster into `ha` is neither implemented nor tested — which is why the page says the tier cannot be changed after install.',
     today:
-      'The cluster record carries an ha_tier as of kn-boj, and the k3s version is pinned by the Platform 1.0 manifest. Both describe intent; no installer honours either yet.',
+      'The cluster record carries an ha_tier as of kn-boj, and decision A pins embedded etcd on every tier in the Platform 1.0 manifest. Both describe intent: the provisioner still installs unpinned k3s with its default datastore.',
   },
   '/platform/deploying-an-app': {
     beads: ['kn-pgu'],
