@@ -56,6 +56,34 @@ Within a section, page order also comes from `_meta.global.tsx`. Pages not liste
 
 This means it can drift from the backend. When you change routes in `kubenest-backend/app/api/v1/`, update the endpoint tables here in the same change. The canonical machine-readable reference is the live Swagger UI at `https://api.{your-domain}/docs`.
 
+## The publication boundary — read this before writing a platform page
+
+Some pages here describe software that **does not exist yet**. They were written as build
+specifications, in the present tense, because that is what the implementation is built against.
+That is fine, and it is also how a reader ends up believing we ship something we do not.
+
+The rule: **a page whose subject is not built carries a `<BuildStatus />` marker, directly under
+the H1.**
+
+- The registry is [`src/lib/build-status.ts`](src/lib/build-status.ts). It maps the page to the
+  beads that make it true, and to a plain statement of what is missing and what is true today.
+- `<BuildStatus />` is registered globally in `src/mdx-components.tsx`, so there is no import to
+  forget. It reads its text from the registry — never write the warning inline, or the page and
+  the tracker will drift.
+- `bun run check:status` enforces it in both directions: a registered page without a marker fails,
+  and a marker on an unregistered page fails. It runs in CI on every branch and again before every
+  deploy to `main`.
+
+**When the work lands, delete the entry and the marker in the same change.** The registry is meant
+to shrink to `{}` and then be deleted. If you find yourself editing a `missing:` line to make it
+sound better rather than to make it accurate, stop.
+
+Do not add an entry from a bead title. Check the code. Every current entry was verified against the
+repositories on 2026-08-20 and is cited in `PLAN-BUILD-2026-08-20.md` §1 in the workspace root.
+
+Separately, and not covered by this mechanism: the platform pages do not merge to `main` until
+`kn-ze1` has verified them against a real cluster. The marker is for honesty, not for permission.
+
 ## Deployment
 
 Pushing to `main` triggers `.github/workflows/deploy.yml`, which builds the static export and publishes it to GitHub Pages at `docs.kubenest.io`. The custom domain is configured in the workflow via `public/CNAME`.
