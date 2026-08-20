@@ -84,6 +84,25 @@ repositories on 2026-08-20 and is cited in `PLAN-BUILD-2026-08-20.md` §1 in the
 Separately, and not covered by this mechanism: the platform pages do not merge to `main` until
 `kn-ze1` has verified them against a real cluster. The marker is for honesty, not for permission.
 
+## Commit guard
+
+This repo has an Agent Mail pre-commit and pre-push guard installed (`am guard status .`). It
+blocks a commit that touches files another agent currently holds a reservation on — which is the
+failure it exists to prevent: on 2026-08-20 four agents edited the same four platform pages at
+once, and nothing noticed until the edits started failing against each other.
+
+**If your commit is refused with "AGENT_NAME is unset and no current-pane identity could be
+resolved":** you are committing from a plain shell rather than a registered agent pane. Either
+
+```bash
+AGENT_NAME=YourAgentName git commit ...   # if you hold an Agent Mail identity
+AGENT_MAIL_BYPASS=1 git commit ...        # human commit, skip the guard
+```
+
+Agents running in registered tmux panes resolve their identity automatically and need neither.
+
+To see who holds what: `am file_reservations list /data/projects/kubenest/kubenest-docs`.
+
 ## Deployment
 
 Pushing to `main` triggers `.github/workflows/deploy.yml`, which builds the static export and publishes it to GitHub Pages at `docs.kubenest.io`. The custom domain is configured in the workflow via `public/CNAME`.
