@@ -3,10 +3,10 @@ import type { MetaRecord } from 'nextra'
 const meta: MetaRecord = {
   index: 'KubeNest',
   'getting-started': 'Getting Started',
-  // kn-nlaf: day-2 platform docs, written as the build spec. Every page here is a DRAFT and
-  // must not reach main until kn-ze1 has verified it against a real cluster.
+  // kn-nlaf: day-2 platform docs. Merge gate: this branch does not merge to main until
+  // kn-ze1 has verified these pages against a real cluster (PLAN-DAY2-HAPPY-PATH.md).
   platform: {
-    title: 'Platform (draft)',
+    title: 'Platform',
     items: {
       install: 'Install the platform',
       bundle: 'What is in the bundle',

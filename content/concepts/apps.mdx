@@ -96,22 +96,17 @@ An `exportRef` that uses `component` must refer to a name that exists within the
 
 An App moves through a defined set of phases. The current phase is always available on `GET /api/v1/apps/{namespace}/{name}` and is broadcast as an SSE event whenever it changes.
 
-```
-pending
-  │
-  ▼
-deploying ──────────────────────────────────────────┐
-  │                                                  │
-  ▼                                                  │
-running ◄──────── (re-deploy / patch)               │
-  │                                                  │
-  ├──► degraded (some components unhealthy)          │
-  │       │                                          │
-  │       ▼                                          │
-  │    (operator retries)                            │
-  │       │                                          │
-  ▼       ▼                                          ▼
-failed ◄──────────────────────────────────── (timeout exceeded)
+```mermaid
+stateDiagram-v2
+    [*] --> pending
+    pending --> deploying
+    deploying --> running
+    deploying --> failed: timeout exceeded
+    running --> degraded: some components unhealthy
+    running --> failed
+    degraded --> running: operator retries
+    degraded --> failed
+    failed --> running: re-deploy / patch
 ```
 
 | Phase | Meaning |

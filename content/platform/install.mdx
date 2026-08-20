@@ -39,17 +39,12 @@ What that does **not** mean:
 
 ### Supported hosts
 
-**Ubuntu LTS only.** The installer refuses to run on a non-LTS Ubuntu release or on any other
-distribution, rather than half-installing one.
+**Ubuntu 24.04 LTS only.** That is the release the bundle is tested on. The installer refuses
+to run on any other release or any other distribution, rather than half-installing one.
 
 Locking the operating system is what makes the bundle testable: a known kernel and a
 deterministic LVM layout are preconditions for the storage and OS-patching components, and for
 replicated storage later.
-
-The specific LTS releases tested for a given bundle are recorded in that bundle's manifest, not
-here, so that the supported set moves with the bundle rather than with this page. Pinning that
-list, and setting the policy for what happens when a release reaches end of standard support
-mid-bundle, is part of the bundle definition.
 
 ### Host sizing
 
@@ -93,8 +88,8 @@ host persistent data. There are two supported ways to get one, and you pick per 
 on each data-bearing node before running the installer. Preflight verifies it exists and has free
 extents. The installer never touches your block devices.
 
-This asks nothing extra of you in packaging terms: `lvm2` ships on the stock Ubuntu cloud image,
-so `pvcreate` and `vgcreate` are already present on a fresh host.
+This asks nothing extra of you in packaging terms: `lvm2` ships on the stock Ubuntu 24.04 cloud
+image, so `pvcreate` and `vgcreate` are already present on a fresh host.
 
 **Option 2 — the installer creates it.** Name a blank device explicitly:
 
@@ -287,7 +282,8 @@ Provisioning and installing stay two commands rather than one. They fail in diff
 are re-run under different circumstances, and a failed install must never re-run
 `terraform apply`.
 
-AWS is the only supported provider. GCP and Azure are out of scope.
+AWS is the supported provider today. SSH-based hosts are on the roadmap. GCP and Azure are not
+planned.
 
 ### Do customers manage clusters through the console?
 
@@ -397,7 +393,7 @@ before the first byte is written anywhere, and any failure aborts before a machi
 |---|---|
 | Control plane | The control plane is unreachable, or the CLI is not logged in |
 | SSH reachability | A node cannot be reached, or the key is rejected |
-| Operating system | The node is not a supported Ubuntu LTS release |
+| Operating system | The node is not running Ubuntu 24.04 LTS |
 | Privilege | `sudo -n true` fails |
 | Existing Kubernetes | k3s, RKE2, kubelet or containerd is already present |
 | Volume group | `kubenest-vg` is missing, or `--storage-device` names a device that is not blank — the check is that `blkid` on the device returns nothing. A device carrying a partition table, a filesystem or an existing LVM PV reports a `TYPE`, and that is a refusal |

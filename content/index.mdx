@@ -84,7 +84,7 @@ together, and own whether they still work after the next upgrade.
 
 ## How it works
 
-kubenest spans five cooperating repositories, each with a distinct responsibility. The boundary
+kubenest spans five cooperating components, each with a distinct responsibility. The boundary
 between them explains why the system behaves the way it does.
 
 ```mermaid
@@ -93,7 +93,7 @@ flowchart TD
     BE["kubenest-backend<br/>FastAPI multi-tenant control plane<br/>users, orgs, clusters, projects, apps"]
     DB[("PostgreSQL")]
     HUB["kubenest-hub<br/>Go message broker<br/>multiplexes operator sessions"]
-    OP["op3 operator<br/>Go controller-runtime<br/>runs inside your cluster"]
+    OP["kubenest operator<br/>Go controller-runtime<br/>runs inside your cluster"]
     GIT["GitOps layer<br/>Helm values → Git → ArgoCD → Kubernetes"]
     CON["kubenest-contracts<br/>JSON Schema and event definitions"]
 
@@ -125,16 +125,26 @@ rule is required.
 
 ## Deploying onto it
 
-Once the platform is installed, the cluster is an ordinary conformant Kubernetes cluster with a
-tested set of components on it. Deploy to it however you already deploy to Kubernetes — or use the
-app layer.
+Once [the platform is installed](/platform/install), the cluster is an ordinary conformant
+Kubernetes cluster with a tested set of components on it. Deploy to it however you already deploy
+to Kubernetes — or use the app layer.
+
+### Two ways in
+
+| Path | What happens | Who it is for |
+|---|---|---|
+| **Platform install** | [`kubenest platform install`](/platform/install) runs preflight, installs k3s and the bundle, registers the cluster and installs the agent — one command | The product. Servers you own |
+| **BYO existing cluster** | [Create the cluster record](/concepts/clusters), then [install the kubenest Helm chart](/getting-started/installation) onto a cluster you already run | The app layer only. No bundle, no day-2 |
+
+Both paths end in the same place: a [cluster record](/concepts/clusters) in the control plane, with
+an agent connected to the hub. That record is what upgrades, restore drills and scoped access all
+read from. The platform installer creates it and installs the agent as part of the install — if you
+ran it, both steps are already done. On the BYO path you create the record first, because creating
+it issues the JWT the operator connects with.
+
+With a registered cluster, deploying is two steps:
 
 <Steps>
-### Register a cluster
-
-Install the kubenest Helm chart. The operator connects outbound to the hub over WebSocket using a
-cluster-scoped JWT, and the backend marks the cluster `connected` when the first heartbeat arrives.
-
 ### Create a project
 
 A project is a Kubernetes namespace — the isolation boundary for the apps and addons belonging to a
