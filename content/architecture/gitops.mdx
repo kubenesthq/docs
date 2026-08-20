@@ -1,87 +1,80 @@
 ---
 title: GitOps and Drift Detection
-description: How every kubenest workload ends up in Kubernetes — the Git commit path, ArgoCD Application lifecycle, drift detection classes, and rollback mechanics.
+description: How kubenest Apps, workload Applications, addon Git commits, drift detection, and rollback fit together.
 ---
 
 import { Callout, Steps } from 'nextra/components'
 
 # GitOps and Drift Detection
 
-kubenest uses GitOps as the exclusive mechanism for applying Kubernetes resources. The operator never runs `kubectl apply` directly. Instead, it writes rendered Helm values to a Git repository and relies on ArgoCD to reconcile the cluster state from those files. This page explains the full path from an API call to running pods, how drift is detected when someone bypasses that path, and how rollbacks work at the Git level.
+kubenest uses ArgoCD for both workload and addon reconciliation, but the two paths are different.
+Workloads do not produce Git commits: the backend stores the App as a `StackDeploy` and creates an
+`Application` in the control-plane ArgoCD for each workload component, with Helm values inline.
+Addons use Git: the addon controller commits their chart and values files, then creates an
+`Application` in the tenant cluster that points at that directory.
 
-## Why GitOps?
+## Where Git is used
 
-The decision to route all state changes through Git has several practical consequences that are worth understanding before diving into mechanics.
+ArgoCD is the common reconciliation layer. Git is the source for addons, but not for workloads.
 
-**Auditability without instrumentation.** Every state change — deploy, patch, rollback, redeploy — produces a Git commit with a timestamp and a structured commit message. You can `git log` a cluster's GitOps repository and see a complete history of what was deployed, when, and in what order. No additional audit logging infrastructure is needed.
+**Workload history is outside Git.** App operations are recorded as `Deployment` rows in
+PostgreSQL. Mutations that support rollback store a prior `StackDeploy` snapshot there. A Git log
+is not a complete audit trail for workload deploys, patches, redeploys, or rollbacks.
 
-**ArgoCD as an independent enforcement layer.** If someone modifies a Kubernetes resource directly (bypassing kubenest entirely), ArgoCD notices the divergence between Git and live state on its next sync cycle and emits a drift event. kubenest surfaces this to the user before the divergence causes a deployment to behave unexpectedly.
+**Addon history is in Git.** Each addon reconciliation writes `Chart.yaml` and `values.yaml` under
+the cluster's addon directory and commits the change. These commits do not include workload state.
 
-**Operator-independent recovery.** If the kubenest operator goes offline, the cluster continues serving applications as-is. When the operator comes back, it resumes reconciling from the CRD queue. Nothing is lost. ArgoCD continued enforcing the last-known-good state from Git throughout the outage.
+**ArgoCD still detects live drift.** Workload Applications use inline Helm values; addon
+Applications use files in Git. Both enable automated sync, pruning, and self-healing against their
+respective desired state.
 
-**Human-readable state.** The GitOps repository contains plain Helm values files. A team member who has never used kubenest can read the repository and understand what is deployed. This matters during incidents when you need to move fast.
+**The object model is the workload record.** For workloads, inspect the `StackDeploy`, its child
+`Workload` objects, and the ArgoCD `Application` specs. The Git repository alone cannot reconstruct
+the workload configuration.
 
 ---
 
 ## How a workload reaches Kubernetes
 
-The path from `POST /api/v1/apps` to running pods involves five distinct stages. Each stage is a discrete unit of work; a failure in any stage stops the process and surfaces an error message that explains which stage failed and why.
+The path from `POST /api/v1/apps` to running pods uses the following objects.
 
 <Steps>
 
-### Command event dispatch
+### App and StackDeploy creation
 
-When you POST an App create (or PATCH an existing App), the backend:
-1. Validates the request body and resolves any `exportRef` references that can be checked statically.
-2. Records a `Deployment` row in PostgreSQL with `status: pending`.
-3. Sends a `workload_deploy` (or `workload_update`) command event to the hub, addressed to the target cluster's operator session.
-4. Returns the new App record immediately with `phase: pending`.
+The App API is a wrapper around a `StackDeploy` custom resource. On create, the backend writes that
+resource to the project's cluster and records a `Deployment` row. The `StackDeploy` spec contains
+the component list, dependency information, and timeout.
 
-The backend does not wait for the operator to acknowledge the command. It will learn about success or failure through subsequent status events.
+### Component expansion
 
-### Operator reconcile
+The operator's StackDeploy controller expands local components into child custom resources in
+dependency order:
 
-The operator's StackDeploy controller picks up the event and begins reconciling. For a new App, the reconcile loop proceeds component by component in `depends_on` order. For each component:
+- A workload component becomes a `Workload`.
+- An addon component becomes an `Addon`.
 
-- **Workload components**: the Workload controller renders the component's Helm values from the workload spec (image, replicas, port, env, ingress settings).
-- **Addon components**: the Addon controller renders values from the addon spec plus any user-supplied values overrides.
-- **BuildRequest components**: if the build mode is `dockerfile` or `buildpack`, the BuildRequest controller first submits a build job and waits for the image digest before continuing.
+The controller resolves `exportRef` values between those child objects and aggregates their status
+back onto the `StackDeploy`.
 
-`exportRef` resolution happens here. If a component's env var references another component's export, the operator waits until that component has published its exports before rendering the dependent component's values. This is why `depends_on` matters: without it, the operator might attempt to render an env var that does not yet have a value.
+### Workload Application upsert
 
-### Git commit
-
-For each component, the operator writes the rendered values to the GitOps repository at a deterministic path:
-
-```
-clusters/{cluster-id}/namespaces/{namespace}/apps/{app-name}/{component-name}/values.yaml
-```
-
-Each write is a separate Git commit with a structured message:
-
-```
-kubenest: deploy app={app-name} component={component-name} ns={namespace}
-```
-
-The operator uses a dedicated Git identity (`kubenest-operator@<cluster-id>`) so commits from the operator are visually distinct from any human commits in the same repository.
-
-If two components are being updated concurrently (no `depends_on` relationship), the operator serializes the commits to avoid merge conflicts — it holds a cluster-scoped mutex during the write phase.
-
-### ArgoCD Application upsert
-
-After committing, the operator creates or updates an ArgoCD `Application` resource in the `argocd` namespace. The Application points to the path in the GitOps repo that was just committed:
+The backend creates or updates one ArgoCD `Application` for each workload component. For a
+KubeNest primitive it uses the KubeNest workload chart; for chart mode it uses the supplied chart.
+In both cases, the Helm values are stored inline in the `Application` spec rather than committed to
+Git. The Application targets the component's cluster and namespace.
 
 ```yaml
 spec:
   source:
-    repoURL: https://github.com/your-org/gitops
-    targetRevision: main
-    path: clusters/{cluster-id}/namespaces/{namespace}/apps/{app-name}/{component-name}
+    repoURL: https://kubenesthq.github.io/charts
+    chart: kubenest-workload
+    targetRevision: <chart-version>
     helm:
-      valueFiles:
-        - values.yaml
+      releaseName: {component-name}
+      values: <inline Helm values>
   destination:
-    server: https://kubernetes.default.svc
+    name: {cluster-name}
     namespace: {namespace}
   syncPolicy:
     automated:
@@ -89,79 +82,72 @@ spec:
       selfHeal: true
 ```
 
-`selfHeal: true` is what makes ArgoCD the enforcement layer for drift recovery — if live state diverges from Git, ArgoCD re-applies the Git state automatically.
+This workload path creates no Git commit.
+
+### Addon Git commit
+
+For an addon component, the Addon controller writes `Chart.yaml` and `values.yaml` under
+`clusters/{cluster-id}/addons/{namespace}-{addon-name}`, commits them, and creates or updates an
+ArgoCD `Application` that points at that path. This is a separate flow from workload rendering.
 
 ### ArgoCD sync and status emission
 
-ArgoCD detects the new commit (or Application update), syncs the cluster state, and updates the Application's `sync.status` and `health.status` fields. The operator watches these fields via a `informer` on ArgoCD Application resources and emits a status event through the hub whenever they change:
-
-```json
-{
-  "type": "app.status",
-  "cluster_id": "a1b2c3d4-...",
-  "namespace": "my-project",
-  "name": "my-app",
-  "phase": "running",
-  "component_statuses": [
-    { "name": "web", "phase": "running", "argocd_health": "Healthy", "argocd_sync": "Synced" }
-  ]
-}
-```
-
-The hub routes this to the backend, which updates the Deployment row and fans the event out as SSE to any connected UI clients.
+ArgoCD syncs each Application and updates its health and sync status. For workloads, the backend
+watches the control-plane ArgoCD Applications and relays their status through the hub to the tenant
+operator. The Workload controller combines that status with locally observed resources, and the
+StackDeploy controller aggregates the child states. The API reads the resulting StackDeploy status.
 
 </Steps>
 
 ---
 
-## The GitOps repository layout
+## The addon GitOps repository layout
 
-A GitOps repository managed by kubenest has this structure:
+The addon controller writes this structure:
 
 ```
 gitops-repo/
 └── clusters/
     └── {cluster-id}/
-        └── namespaces/
-            └── {project-namespace}/
-                └── apps/
-                    └── {app-name}/
-                        ├── {component-1}/
-                        │   └── values.yaml
-                        └── {component-2}/
-                            └── values.yaml
+        └── addons/
+            └── {namespace}-{addon-name}/
+                ├── Chart.yaml
+                └── values.yaml
 ```
 
-Each `values.yaml` is a self-contained Helm values file for that component's chart. An App with a `web` workload and a `postgres` addon will have two files, each corresponding to a separate ArgoCD Application resource and a separate Helm release in the cluster.
-
-This layout means you can understand the state of an entire cluster by reading the filesystem tree. It also means `git diff` between two revisions shows exactly what changed between two deployments.
+The directory contains the addon's chart dependency and Helm values. Workload components do not
+appear in this tree. A `git diff` shows addon changes only; use the App API or inspect the
+`StackDeploy` and workload ArgoCD Applications for workload state.
 
 ---
 
 ## Drift detection
 
-Drift occurs when the live Kubernetes state diverges from what the GitOps repository (and therefore the StackDeploy spec) says it should be. The most common causes are manual `kubectl` edits, direct Helm releases targeting the same resources, or cluster-level autoscalers modifying replica counts.
+Drift occurs when live Kubernetes resources diverge from their desired state. For workloads, that
+state comes from the Workload and the ArgoCD Application's inline Helm values. For addons, it comes
+from the addon directory in Git.
 
 ### How drift is detected
 
-ArgoCD detects drift continuously. When it finds a live resource that differs from the Git-committed manifest, it sets the Application's `sync.status` to `OutOfSync` and records the diff. The operator's ArgoCD Application informer picks this up and emits a `drift.detected` status event.
+ArgoCD reports Application sync and health. The Workload controller also compares the desired image
+and replica count with the observed Deployment. It records those details on the Workload status,
+and the StackDeploy controller aggregates child sync state.
 
-The backend stores drift state on the Deployment row and makes it available on `GET /api/v1/apps/{ns}/{name}`:
+The API exposes this as the `sync` block on the App response:
 
 ```json
 {
   "name": "my-app",
-  "phase": "running",
-  "drift": {
-    "detected": true,
-    "drift_class": "recoverable",
-    "drift_details": [
+  "phase": "Running",
+  "sync": {
+    "driftDetected": true,
+    "driftClass": "recoverable",
+    "driftDetails": [
       {
         "resource": "Deployment/my-app-web",
         "field": "spec.replicas",
         "desired": 2,
-        "observed": 1,
-        "reason": "Manual kubectl scale"
+        "observed": 1
       }
     ]
   }
@@ -172,22 +158,25 @@ The backend stores drift state on the Deployment row and makes it available on `
 
 kubenest categorizes drift into two classes based on the impact on subsequent operations.
 
-**`recoverable`** — ArgoCD will self-heal this drift on the next sync cycle (because `selfHeal: true` is set on the Application). The live resource will be returned to the desired state without any user action. This is the normal class for manual replica count changes or label mutations. The App continues operating normally; the drift is informational.
+**`recoverable`** — the recorded differences do not contain a blocked item. ArgoCD Applications
+have self-healing enabled, so ArgoCD can re-apply their desired resources.
 
-**`blocked_sync`** — The drift conflicts with a pending or in-progress API write. For example, if you are in the middle of a `PATCH` that changes a component's image, and someone has simultaneously edited the ArgoCD Application directly to point to a different chart path, the operator cannot safely reconcile both changes. In `blocked_sync` state:
-- The API returns `409 Conflict` on any write attempt to this App.
-- The UI shows a drift warning banner with details.
-- Resolution requires manually reconciling the Git state and then calling `POST /api/v1/apps/{ns}/{name}/redeploy` to re-assert the desired spec.
+**`blocked_sync`** — at least one detail is blocked. The operator marks ArgoCD `Unknown` or `Error`
+sync state, or `Degraded` health, as blocked. App mutation routes that apply the drift guard return
+`409 Conflict` until the Application or cluster condition is resolved.
 
 <Callout type="warning">
-`blocked_sync` is uncommon in practice. It occurs when someone modifies the ArgoCD Application or the GitOps repository contents directly, bypassing kubenest entirely. The safest policy is to treat the GitOps repo as operator-owned and never edit it by hand. If you need to make a one-off change, use the kubenest API instead.
+Treat workload ArgoCD Applications and addon Git directories as KubeNest-managed desired state.
+Direct edits can be overwritten by the next API operation or controller reconciliation.
 </Callout>
 
 ---
 
 ## Triggering a redeploy
 
-A redeploy forces ArgoCD to hard-refresh and re-sync a component without changing the spec. It is useful when a pod is stuck in a crash loop due to a transient condition, or when you need to force a rolling restart after rotating a secret.
+A redeploy asks ArgoCD to hard-refresh each workload Application without changing the spec. This
+makes ArgoCD re-read the chart and live resources. It does not guarantee a pod restart when the
+desired state is unchanged.
 
 ```bash
 curl -X POST \
@@ -195,7 +184,8 @@ curl -X POST \
   https://api.your-domain.com/api/v1/apps/my-project/my-app/redeploy
 ```
 
-Under the hood, the backend increments the `kubenest.io/redeploy-at` annotation on the StackDeploy CR. The operator detects the annotation change, triggers an ArgoCD hard-refresh (bypassing the cache), and then forces a re-sync. The result is equivalent to a rolling restart of all workload pods with no spec change.
+Under the hood, the backend requests a hard refresh on each workload component's ArgoCD
+Application. It does not change the StackDeploy spec and does not create a Git commit.
 
 The redeploy is recorded as a new Deployment row in the history, so you can distinguish a forced redeploy from a natural pod restart.
 
@@ -203,7 +193,8 @@ The redeploy is recorded as a new Deployment row in the history, so you can dist
 
 ## Rollback mechanics
 
-Every state-changing operation — create, patch, redeploy, rollback — records a `Deployment` row that includes a `prior_state` field: a JSON snapshot of the StackDeploy spec as it was immediately before the operation. This snapshot is self-contained: it includes all component specs, `depends_on` relationships, and resolved parameter values.
+KubeNest records app operations in PostgreSQL `Deployment` rows. Mutations that support rollback
+store a `prior_state` snapshot of the StackDeploy. A rollback target must contain that snapshot.
 
 Rolling back to a prior deployment replays that snapshot through the same reconcile path:
 
@@ -230,19 +221,23 @@ curl -X POST \
 
 ### What happens
 
-The backend restores the `prior_state` spec from the target Deployment row. It then dispatches a `workload_update` event to the operator with the restored spec. The operator:
+The backend restores the `prior_state` spec from the target Deployment row. It then:
 
-1. Re-renders Helm values from the prior spec.
-2. Commits the prior values to the GitOps repository — producing a **new commit** (not a `git revert`) with the old values.
-3. Updates the ArgoCD Applications to point to the new commit.
-4. ArgoCD syncs the cluster state to match the prior values.
-5. For any components that are no longer present in the prior spec (because they were added after the rollback point), the operator deletes the corresponding ArgoCD Applications and removes the Helm releases.
+1. Patches the StackDeploy with the restored component list and timeout.
+2. Rebuilds and upserts the inline-value ArgoCD Applications for restored workload components.
+3. Deletes workload Applications for components absent from the restored snapshot.
+4. Records the rollback as another Deployment row.
+
+The operator reconciles the changed StackDeploy and its child objects. If the restored spec changes
+an addon, that addon's normal controller flow can produce an addon Git commit.
 
 </Steps>
 
-The critical point is that a rollback is **a new forward deployment to a prior configuration**, not a Git revert and not a Helm rollback. The GitOps history remains linear and intact: you can see exactly when the rollback was triggered and what spec it restored. Running `git log` on the GitOps repo shows the rollback commit in sequence with all other changes.
+The rollback is a forward application of an older StackDeploy configuration, not a Git revert or a
+Helm rollback. Workload rollback history is in the Deployment records, not the Git repository.
 
-This approach also means rollbacks are subject to the same validation as any other deployment — if the prior spec references an image tag that no longer exists in your registry, the rollback will fail with a meaningful error rather than silently deploying a broken configuration.
+ArgoCD then reconciles the restored chart and values. A restored image or chart reference must
+still be available for that reconciliation to succeed.
 
 <Callout type="info">
 Addon components within an App are **included** in the rollback snapshot. If the prior spec had a different chart version for a PostgreSQL addon, rolling back will trigger a Helm downgrade of that chart. Consider the data implications before rolling back an App that contains stateful addons — Helm addon downgrades can be schema-incompatible.

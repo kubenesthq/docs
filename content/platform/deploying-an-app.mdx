@@ -38,13 +38,17 @@ useful part, and it applies regardless of how the workload got there.
 
 ## Through KubeNest
 
-If you would rather not build the pipeline, KubeNest includes an app layer. Both routes go through
-ArgoCD, so what lands in the cluster is GitOps-managed either way.
+If you would rather not build the pipeline, KubeNest includes an app layer. Both routes use ArgoCD,
+but workload values are not committed to Git. The backend stores the App as a `StackDeploy` and
+creates Applications in the control-plane ArgoCD with inline Helm values.
 
-**A Helm chart** — point at a chart, supply values. The operator writes the values to Git and
-ArgoCD syncs.
+**A Helm chart** — point at a chart and supply values. The backend puts the chart source and values
+in an ArgoCD Application, and ArgoCD syncs it.
 
 **Primitives** — describe a workload as components and let KubeNest generate the manifests.
+
+Addon components use a separate path: the operator commits their chart and values files to Git,
+then creates an ArgoCD Application that points at that directory.
 
 Both are covered in the existing documentation:
 

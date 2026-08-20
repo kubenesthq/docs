@@ -9,7 +9,9 @@ import { Callout, Tabs } from 'nextra/components'
 
 An Addon is a backing service: PostgreSQL, Redis, Kafka, Elasticsearch, RabbitMQ — anything that your application components depend on but that is not itself an application. In kubenest, addons are packaged as Helm charts and deployed into the project's namespace by the operator via ArgoCD, alongside your application workloads.
 
-The key difference between an Addon and a Workload is what it produces. A Workload exposes a service to users (an API, a web UI, a background processor). An Addon produces **exports** — key-value outputs like connection strings, hostnames, and passwords — that downstream Workloads consume.
+The key difference between an Addon and a Workload is what it produces. A Workload exposes a service to users (an API, a web UI, a background processor). An Addon produces **exports** — key-value outputs like connection URLs, hostnames, and references to generated credentials — that downstream Workloads consume.
+
+That difference is why the concept exists. Without it, deploying a database is only half the work: someone still reads the generated password out of a Secret and pastes it into the consuming service's configuration, and does it again after every reinstall. In kubenest the addon publishes its connection details as exports, workloads declare which keys they consume, and the operator wires the values in at deploy time — nothing is copied by hand and nothing is hardcoded.
 
 ## Two entry points for addons
 
@@ -24,7 +26,7 @@ The most common pattern is to include an addon as a component in the same App as
   "name": "postgres",
   "type": "addon",
   "addon_spec": {
-    "type": "postgresql",
+    "type": "postgres",
     "chart": {
       "repo": "https://charts.bitnami.com/bitnami",
       "name": "postgresql",
@@ -70,7 +72,7 @@ After the addon is running, any workload in the same project can reference its e
   "name": "DATABASE_URL",
   "export_ref": {
     "addon_instance_id": "c3d4e5f6-...",
-    "export_key": "connection_string"
+    "export_key": "dsn"
   }
 }
 ```
@@ -84,10 +86,7 @@ An `AddonDefinition` is a catalog entry: it declares the chart reference, the de
 ```bash filename="list addon definitions"
 curl -H "Authorization: Bearer $TOKEN" \
   https://api.your-domain.com/api/v1/addon-definitions | jq .data[].name
-# "postgresql"
-# "redis"
-# "kafka"
-# "elasticsearch"
+# "PostgreSQL"
 ```
 
 Using a definition rather than specifying a chart directly has two benefits. First, the definition enforces a known-good chart version and default configuration — no one accidentally deploys a misconfigured chart. Second, the definition's export schema tells kubenest which keys to look for when the addon completes its first-run setup, enabling automatic export discovery.
@@ -100,16 +99,19 @@ You do not need to use a definition. If `definition_id` is omitted from the `Add
 
 After a Helm chart deploys successfully, the addon publishes its outputs as **exports** — a key-value map stored on the `AddonInstance` record and available to workloads that reference it.
 
-Common exports from a PostgreSQL addon:
+What the `postgres` addon type publishes:
 
 | Key | Example value |
 |-----|---------------|
-| `connection_string` | `postgresql://myapp:s3cret@postgres.my-project.svc:5432/myapp` |
-| `host` | `postgres.my-project.svc.cluster.local` |
+| `dsn` | `postgresql://myapp:${postgres-password}@shared-postgres-postgresql.my-project.svc.cluster.local:5432/myapp?sslmode=require` |
+| `host` | `shared-postgres-postgresql.my-project.svc.cluster.local` |
 | `port` | `5432` |
+| `user` | `myapp` |
 | `database` | `myapp` |
-| `username` | `myapp` |
-| `password` | `s3cret` |
+| `passwordRef.name` | `shared-postgres-postgresql` |
+| `passwordRef.key` | `postgres-password` |
+
+The password itself is not an export. The `dsn` carries a `${...}` placeholder resolved from the Kubernetes Secret named by `passwordRef.name` when the value is wired into a consuming workload, so the plaintext password is not stored in the export map.
 
 Exports are read from the addon's Kubernetes Secret after the chart completes. When exports are backed by a Kubernetes Secret (as opposed to being stored in plaintext in the backend database), the API response redacts the values and shows only the keys — the values are fetched directly from the cluster at runtime.
 
@@ -175,7 +177,7 @@ Standalone addon instances move through the same phase vocabulary as Apps:
 
 **Chart version mismatches.** If you specify a chart version in an `AddonDefinition` and then try to deploy with a different version in the `values` override, the definition version takes precedence. Use `chart_version` in the PATCH request to explicitly upgrade.
 
-**Export key names vary by chart.** The `connection_string` key is a kubenest convention for addons that have an `AddonDefinition` with an export schema. Custom addons (no definition) may use different key names. Check the addon's definition or inspect the Kubernetes Secret the chart creates to discover available keys.
+**Export key names vary by addon type.** The keys above are what the `postgres` type publishes. Each recognized type (`postgres`, `redis`, `kafka`) has its own extractor and its own key set; any other type falls back to generic `service.url` and `service.port` exports. Check the addon definition's export schema to discover the available keys.
 
 ---
 

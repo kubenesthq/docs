@@ -21,15 +21,12 @@ The UI performs exactly these same API calls under the hood. Following this tuto
 
 ### Authenticate
 
-Every subsequent request needs a Bearer token. Obtain one by posting your credentials to the login endpoint.
+Every subsequent request needs a Bearer token. Obtain one by posting your credentials to the login endpoint. Note that the login endpoint uses `application/x-www-form-urlencoded` (not JSON) to comply with the OAuth2 password flow convention:
 
 ```bash filename="terminal"
 curl -s -X POST https://api.your-domain.com/api/v1/login \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "admin@example.com",
-    "password": "your-password"
-  }' | jq .
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=admin@example.com&password=your-password" | jq .
 ```
 
 Response:
@@ -76,7 +73,7 @@ Response (abbreviated):
   "name": "my-first-cluster",
   "status": "pending",
   "connection_token": "eyJhbGc...",
-  "install_command": "helm install kubenest-operator kubenesthq/kubenest-operator --set operator.hub.url=wss://hub.your-domain.com --set operator.hub.token=eyJhbGc... --set operator.cluster.id=a1b2c3d4-... --namespace kubenest-system --create-namespace"
+  "install_command": "helm install kubenest-operator oci://registry.kubenest.io/kubenest-operator --namespace kubenest-system --create-namespace --set kubenest.hubURL=wss://hub.your-domain.com/ws/operator --set kubenest.jwtSecret=eyJhbGc... --set kubenest.clusterID=a1b2c3d4-..."
 }
 ```
 
@@ -86,7 +83,7 @@ Save the cluster ID:
 CLUSTER_ID="a1b2c3d4-0001-0000-0000-000000000000"
 ```
 
-Now run the `install_command` on your cluster (or follow the [installation guide](/getting-started/installation) for a values-file approach). Once the operator connects, the cluster status will transition to `connected`. Verify:
+Now install the operator on your cluster following the [installation guide](/getting-started/installation). Do not run the `install_command` string as-is — it currently sets a Helm key the chart does not read and pulls from a chart registry that does not exist; the guide's values-file path works. Once the operator connects, the cluster status will transition to `connected`. Verify:
 
 ```bash filename="terminal"
 curl -s -H "Authorization: Bearer $TOKEN" \
@@ -116,7 +113,7 @@ Response:
   "id": "b2c3d4e5-0002-0000-0000-000000000000",
   "name": "hello-world",
   "namespace": "hello-world",
-  "status": "ready",
+  "status": "Pending",
   "cluster_id": "a1b2c3d4-0001-0000-0000-000000000000"
 }
 ```
@@ -159,14 +156,15 @@ curl -s -X POST https://api.your-domain.com/api/v1/apps \
   }' | jq .
 ```
 
-The backend validates the spec and forwards a `StackDeploy` create event to the operator via the hub. The response reflects the initial state:
+The backend validates the spec, writes the `StackDeploy` to the cluster, and registers an ArgoCD Application for each workload component. The response reflects the initial state:
 
-```json filename="app create response"
+```json filename="app create response (abbreviated)"
 {
   "name": "nginx-demo",
   "namespace": "hello-world",
-  "phase": "pending",
+  "phase": "Pending",
   "component_count": 1,
+  "project_id": "b2c3d4e5-0002-0000-0000-000000000000",
   "components": [
     {
       "name": "web",
@@ -183,41 +181,41 @@ The backend validates the spec and forwards a `StackDeploy` create event to the 
 
 ### Watch status in real time
 
-kubenest publishes live status updates as a Server-Sent Events (SSE) stream. Open a second terminal and subscribe:
+kubenest publishes live status updates as a Server-Sent Events (SSE) stream at `/events/stream`. It filters by `cluster_id`, `project_id`, `workload_id` and `resource_type` — there are no name or namespace filters. App status events carry the cluster ID, so filter on that. Open a second terminal and subscribe:
 
 ```bash filename="terminal (second window)"
 curl -N -H "Authorization: Bearer $TOKEN" \
-  "https://api.your-domain.com/api/v1/events?namespace=hello-world&name=nginx-demo"
+  "https://api.your-domain.com/api/v1/events/stream?cluster_id=$CLUSTER_ID&resource_type=app"
 ```
 
-You will see a stream of events like:
+You will see a `connected` event, then app status events as the deployment progresses (plus a `heartbeat` every 30 seconds):
 
 ```
-data: {"type":"app.status","name":"nginx-demo","namespace":"hello-world","phase":"deploying","message":"Waiting for ArgoCD sync"}
+event: app_status_update
+data: {"event_type":"app_status_update","resource_type":"app","app_id":"<stackdeploy-uid>","cluster_id":"a1b2c3d4-...","phase":"Deploying"}
 
-data: {"type":"app.status","name":"nginx-demo","namespace":"hello-world","phase":"deploying","message":"ArgoCD syncing"}
-
-data: {"type":"app.status","name":"nginx-demo","namespace":"hello-world","phase":"running","message":""}
+event: app_status_update
+data: {"event_type":"app_status_update","resource_type":"app","app_id":"<stackdeploy-uid>","cluster_id":"a1b2c3d4-...","phase":"Running"}
 ```
 
-If you prefer polling, use the status endpoint directly:
+If you prefer polling, use the status endpoint directly. It requires the `project_id` query parameter:
 
 ```bash filename="terminal"
 curl -s -H "Authorization: Bearer $TOKEN" \
-  "https://api.your-domain.com/api/v1/apps/hello-world/nginx-demo" | jq .phase
+  "https://api.your-domain.com/api/v1/apps/hello-world/nginx-demo?project_id=$PROJECT_ID" | jq .phase
 ```
 
 The phase progression for a healthy deployment is:
 
 ```
-pending → deploying → running
+Pending → Deploying → Running
 ```
 
-If something goes wrong you will see `degraded` or `failed`, with an explanatory `message` field. See [Apps](/concepts/apps) for the full lifecycle state machine.
+If something goes wrong you will see `Degraded` or `Failed`, with an explanatory `message` field. See [Apps](/concepts/apps) for the full lifecycle state machine.
 
 ### Access the app
 
-Once the phase reaches `running`, your ingress is live. Visit the URL you set in the `ingress.host` field:
+Once the phase reaches `Running`, your ingress is live. Visit the URL you set in the `ingress.host` field:
 
 ```bash filename="terminal"
 curl -I https://nginx-demo.hello-world.your-domain.com
@@ -233,7 +231,7 @@ kubenest provisions TLS automatically via cert-manager. The certificate is issue
 
 ## Deploying a two-component app
 
-A more realistic example: a web API backed by PostgreSQL. The `export_ref` field wires the database connection string into the web service automatically.
+A more realistic example: a web API backed by PostgreSQL. The `export_ref` field wires the database's `dsn` export into the web service automatically.
 
 ```bash filename="terminal"
 curl -s -X POST https://api.your-domain.com/api/v1/apps \
@@ -247,11 +245,11 @@ curl -s -X POST https://api.your-domain.com/api/v1/apps \
         "name": "postgres",
         "type": "addon",
         "addon_spec": {
-          "type": "postgresql",
+          "type": "postgres",
           "chart": {
             "repo": "https://charts.bitnami.com/bitnami",
             "name": "postgresql",
-            "version": "13.4.4"
+            "version": "16.2.1"
           },
           "values": {
             "auth": {
@@ -274,7 +272,7 @@ curl -s -X POST https://api.your-domain.com/api/v1/apps \
               "name": "DATABASE_URL",
               "export_ref": {
                 "component": "postgres",
-                "export_key": "connection_string"
+                "export_key": "dsn"
               }
             }
           ],
@@ -288,7 +286,7 @@ curl -s -X POST https://api.your-domain.com/api/v1/apps \
   }'
 ```
 
-The operator resolves `depends_on` ordering — postgres deploys first, publishes its `connection_string` export, and then the api component starts with `DATABASE_URL` already populated. You never touch a connection string manually.
+The operator resolves `depends_on` ordering — postgres deploys first and publishes its exports (`dsn`, `host`, `port`, `user`, `database`, plus a `passwordRef.name` / `passwordRef.key` pair naming the credentials Secret), then the api component starts with `DATABASE_URL` set from the `dsn` export. The password segment of the DSN is a `${...}` placeholder resolved from that credentials Secret, so the password itself never appears in the app spec or the API.
 
 ---
 

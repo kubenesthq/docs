@@ -32,15 +32,28 @@ curl -H "Authorization: Bearer $TOKEN" \
 
 Commonly available types:
 
-| Definition name | Chart | Default export keys |
-|----------------|-------|---------------------|
-| `postgresql` | `bitnami/postgresql` | `connection_string`, `host`, `port`, `database`, `username`, `password` |
-| `redis` | `bitnami/redis` | `connection_string`, `host`, `port`, `password` |
-| `kafka` | `bitnami/kafka` | `bootstrap_servers`, `host`, `port` |
-| `elasticsearch` | `bitnami/elasticsearch` | `endpoint`, `host`, `port`, `username`, `password` |
-| `generic` | (any chart) | (no standard exports; configure manually) |
+| Addon type | Chart | Export keys |
+|---|---|---|
+| `postgres` | `bitnami/postgresql` | `dsn`, `host`, `port`, `user`, `database`, `sslMode`, `passwordRef.name`, `passwordRef.key` — plus the aliases `DATABASE_URL`, `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE` |
+| `redis` | `bitnami/redis` | `host`, `port`, `database`, `passwordRef.name`, `passwordRef.key` |
+| `kafka` | `bitnami/kafka` | `bootstrapServers`, `saslSecretRef.name`, `saslSecretRef.usernameKey`, `saslSecretRef.passwordKey` |
+| `mongodb`, `mysql`, `rabbitmq` | (any chart) | No type-specific extractor. They fall through to the generic one below |
+| `custom` | (any chart) | `service.url`, `service.port`, and `ingress.url` where an Ingress exists |
 
-The `generic` type lets you deploy any Helm chart as an addon instance without a corresponding `AddonDefinition`. Use it for custom charts or charts not yet in the catalog.
+The type is the addon's `type` field, not its chart name — `postgres` deploys the chart named
+`postgresql`, which is where most of the confusion comes from. A type outside this list, or a
+misspelling like `postgresql`, is rejected by the API rather than silently deployed.
+
+**A password is never an export value.** For the types that have one, the addon publishes a
+`passwordRef` naming the Kubernetes Secret and key it lives in, and you read it from the cluster.
+Nothing in the control plane will hand you the password itself.
+
+<Callout type="warning">
+The `postgres` `dsn` export currently contains a literal `${postgres-password}` where the password
+belongs, and nothing substitutes it — so a workload wiring its connection string from `dsn` gets a
+credential it cannot use. Tracked as `kn-kgu5`. Until that lands, read the password from the Secret
+named by `passwordRef` and assemble the connection string yourself.
+</Callout>
 
 ---
 

@@ -53,9 +53,11 @@ export const SPEC_PAGES: Record<string, BuildStatusEntry> = {
     today: 'The provisioner accepts exactly three operations: create, scale, destroy.',
   },
   '/platform/backup-restore': {
-    beads: ['kn-mzn'],
+    beads: ['kn-f9lm', 'kn-7k8'],
     missing:
-      'Nothing on this page is implemented. There is no Velero, no schedule, no restore drill, no drill result record, no alerting and no upgrade gate.',
+      'The restore drill does not exist — no schedule, no drill result record, no alerting, and no upgrade gate reading it. That is the half of this page that matters: a backup nobody has restored is what every competitor already ships. The `kubenest backup` commands do not exist either.',
+    today:
+      'Velero installs and is pinned at chart 12.1.0 as of kn-mzn, unconfigured by default, and it proves the target when one is set. Decision A also collapsed the two documented snapshot mechanisms into one — every tier runs etcd.',
   },
   '/platform/os-patching': {
     beads: ['kn-nqj'],
@@ -70,11 +72,11 @@ export const SPEC_PAGES: Record<string, BuildStatusEntry> = {
       'The cluster record carries an ha_tier as of kn-boj, and decision A pins embedded etcd on every tier in the Platform 1.0 manifest. Both describe intent: the provisioner still installs unpinned k3s with its default datastore.',
   },
   '/platform/deploying-an-app': {
-    beads: ['kn-pgu'],
+    beads: ['kn-7k8'],
     missing:
-      'There is no Gateway API controller. The installer disables Traefik and installs ingress-nginx — the EOL component we sell against — so the `HTTPRoute` this page describes has nothing to serve it.',
+      'Nothing installs the bundle end to end yet, so the cluster this page deploys onto cannot be built by the documented command.',
     today:
-      'The app layer hardcodes `className: "nginx"` when it renders ingress, so it also cannot deploy onto a cluster built to this spec.',
+      'The Gateway API gap this entry was opened for is closed. Traefik 41.2.0 and Gateway API v1.6.1 install as stage 5 of the installer (kn-mzn/kn-pgu), and kn-e7qy switched workload rendering from nginx Ingress to HTTPRoute — the two halves of the same fix. ingress-nginx never enters the bundle.',
   },
 }
 

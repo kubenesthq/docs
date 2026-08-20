@@ -92,7 +92,7 @@ curl -X POST https://api.your-domain.com/api/v1/apps \
         "name": "postgres",
         "type": "addon",
         "addon_spec": {
-          "type": "postgresql",
+          "type": "postgres",
           "chart": {
             "repo": "https://charts.bitnami.com/bitnami",
             "name": "postgresql",
@@ -120,7 +120,7 @@ curl -X POST https://api.your-domain.com/api/v1/apps \
               "name": "DATABASE_URL",
               "export_ref": {
                 "component": "postgres",
-                "export_key": "connection_string"
+                "export_key": "dsn"
               }
             },
             {
@@ -141,7 +141,7 @@ curl -X POST https://api.your-domain.com/api/v1/apps \
 
 The `depends_on: ["postgres"]` field tells the operator to deploy the postgres addon first, wait for its exports to be published, and only then render and deploy the api workload. Without `depends_on`, both components start concurrently — which works if your application handles a missing database gracefully at startup, but often causes unnecessary restarts on the first deploy.
 
-The `export_ref.export_key` value `connection_string` is a kubenest convention for addons that have an `AddonDefinition` entry. The available keys for each addon type are listed under [Addons](/concepts/addons).
+The `export_ref.export_key` value `dsn` is the connection-URL key the `postgres` addon type publishes. The available keys for each addon type are listed under [Addons](/concepts/addons).
 
 <Callout type="info">
 You can also wire an environment variable from an existing **standalone** addon instance that is not part of this App — a shared database, for example. Use `addon_instance_id` instead of `component`:
@@ -151,7 +151,7 @@ You can also wire an environment variable from an existing **standalone** addon 
   "name": "DATABASE_URL",
   "export_ref": {
     "addon_instance_id": "c3d4e5f6-...",
-    "export_key": "connection_string"
+    "export_key": "dsn"
   }
 }
 ```

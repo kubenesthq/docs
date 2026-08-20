@@ -13,24 +13,27 @@ An App is the central concept in kubenest. Almost everything you do — deploy, 
 
 From a user's perspective, an App is a named, deployable bundle: a web service and its database, a worker and its queue, a set of microservices. You define the App by listing its components in a JSON body and posting it to `/api/v1/apps`. kubenest takes care of everything else.
 
-Under the hood, an App maps to a **StackDeploy** — a Kubernetes Custom Resource Definition (CRD) managed by the kubenest operator. The operator watches for `StackDeploy` objects and reconciles them by writing Helm values to Git and letting ArgoCD sync the cluster state. This means that the source of truth for what is deployed is always Git, and every state change has an audit trail.
+Under the hood, an App maps to a **StackDeploy** — a Kubernetes custom resource on the project's cluster. The backend creates that resource directly, and creates an ArgoCD Application for each workload component carrying its rendered Helm values. The operator's StackDeploy controller then expands the components into `Workload` and `Addon` resources, resolves `exportRef` wiring between them in dependency order, and aggregates their status back onto the StackDeploy.
 
 ```mermaid
 flowchart TD
     A["POST /api/v1/apps"] --> B["Backend validates the spec"]
-    B --> C["Hub routes a CREATE event to the operator"]
-    C --> D["Operator writes the StackDeploy CR"]
-    D --> E["Operator reconciles:<br/>Helm values → Git → ArgoCD → Kubernetes"]
-    E -- "StackDeploy.status.phase" --> F["Hub → Backend → SSE"]
+    B --> C["Backend creates the StackDeploy CR<br/>on the project's cluster"]
+    B --> D["Backend creates one ArgoCD Application<br/>per workload component"]
+    C --> E["Operator expands components into<br/>Workload and Addon resources"]
+    E --> F["Operator resolves exportRefs<br/>and aggregates status"]
+    F -- "StackDeploy.status.phase" --> G["Hub → Backend → SSE"]
 ```
 
-### App vs Workload vs StackDeploy
+### Five terms, one object model
 
-These three terms refer to related but distinct things:
+- **App** — the user-facing unit: what you create, patch, scale, and roll back through `/api/v1/apps`.
+- **StackDeploy** — the custom resource an App becomes. The operator only understands StackDeploys; the backend translates API calls into operations on this resource. A StackDeploy carries either inline components (an App) or a `stackRef` pointing at a deployed Stack Template.
+- **Workload component** — one containerized service inside an App: an image, a replica count, a port, environment variables, optionally ingress. A workload component cannot exist outside an App.
+- **Addon component** — a backing service inside an App (Postgres, Redis), installed from a Helm chart. After install it publishes **exports** — values like `dsn`, `host` and `port` — that workload components in the same App consume via `exportRef`.
+- **Standalone addon** — an addon instance that belongs to no App, created through `/api/v1/addon-instances` and shared by several Apps. Wire it with `export_ref.addon_instance_id` instead of `export_ref.component`.
 
-- **Workload** — a single containerized component: one image, one set of replicas, one ingress. The basic building block. A Workload is always part of an App; it cannot exist independently in the app-first model.
-- **App** — the user-facing concept. An App owns one or more components (Workloads and Addons). It is what you create, pause, roll back, and share as a template.
-- **StackDeploy** — the Kubernetes CRD that represents either an App (when components are defined inline) or a deployed Stack Template (when a `stackRef` points to a `StackTemplate` CRD). The operator only understands StackDeploys; the backend translates API calls into CRD operations.
+The [worked example below](#a-worked-example-web-worker-and-postgres) shows the first four in a single spec; [Addons](/concepts/addons) covers the standalone form.
 
 <Callout type="info">
 The `/api/v1/workloads` endpoint was removed in favor of `/api/v1/apps`. If you have older automation that uses the workloads endpoint, migrate it to the apps endpoint. The operator now requires that every deployable unit belongs to an App.
@@ -67,12 +70,12 @@ The most powerful feature of multi-component Apps is the `exportRef` mechanism. 
   "name": "DATABASE_URL",
   "export_ref": {
     "component": "postgres",
-    "export_key": "connection_string"
+    "export_key": "dsn"
   }
 }
 ```
 
-The `component` field refers to another component in the **same App** by name. The `export_key` identifies which output to use. The operator resolves this reference at reconcile time: it waits for the `postgres` addon to publish its exports, then injects the `connection_string` value into the `api` workload's environment.
+The `component` field refers to another component in the **same App** by name. The `export_key` identifies which output to use. The operator resolves this reference at reconcile time: it waits for the `postgres` addon to publish its exports, then injects the `dsn` value into the referring workload's environment.
 
 This is the mechanism that lets you define a complete multi-tier application in a single API call without knowing the database password or connection string in advance — the addon generates them on first deploy.
 
@@ -83,7 +86,7 @@ If you need to wire an environment variable from an **existing** addon instance 
   "name": "DATABASE_URL",
   "export_ref": {
     "addon_instance_id": "c3d4e5f6-...",
-    "export_key": "connection_string"
+    "export_key": "dsn"
   }
 }
 ```
@@ -117,60 +120,63 @@ stateDiagram-v2
 | `degraded` | One or more components are unhealthy but the App is still partially operational |
 | `failed` | Deployment failed; `message` field contains the error |
 
-## A complete two-component example
+## A worked example: web, worker, and Postgres
 
-The following creates an App with a PostgreSQL addon and an API workload. The workload's `DATABASE_URL` is wired from the addon's export.
+One App: a `web` tier serving HTTP, a `worker` consuming the same database, and a `postgres`
+addon component that both of them wire to. This is the whole object model in one spec.
+
+### The App you post
 
 ```json filename="POST /api/v1/apps"
 {
-  "name": "my-api",
+  "name": "shop",
   "project_id": "b2c3d4e5-0002-0000-0000-000000000000",
   "components": [
     {
       "name": "postgres",
       "type": "addon",
       "addon_spec": {
-        "type": "postgresql",
+        "type": "postgres",
         "chart": {
           "repo": "https://charts.bitnami.com/bitnami",
           "name": "postgresql",
           "version": "13.4.4"
         },
         "values": {
-          "auth": {
-            "database": "myapp",
-            "username": "myapp"
-          }
+          "auth": { "database": "shop", "username": "shop" }
         }
       }
     },
     {
-      "name": "api",
+      "name": "web",
       "type": "workload",
       "depends_on": ["postgres"],
       "workload_spec": {
-        "build_mode": "image",
-        "image": "myorg/my-api:v1.2.0",
+        "image": "myorg/shop-web:v1.4.0",
         "replicas": 2,
         "port": 8000,
         "env": [
           {
             "name": "DATABASE_URL",
-            "export_ref": {
-              "component": "postgres",
-              "export_key": "connection_string"
-            }
-          },
-          {
-            "name": "APP_ENV",
-            "value": "production"
+            "export_ref": { "component": "postgres", "export_key": "dsn" }
           }
         ],
-        "ingress": {
-          "enabled": true,
-          "host": "api.my-project.example.com",
-          "path": "/"
-        }
+        "ingress": { "enabled": true, "host": "shop.example.com", "path": "/" }
+      }
+    },
+    {
+      "name": "worker",
+      "type": "workload",
+      "depends_on": ["postgres"],
+      "workload_spec": {
+        "image": "myorg/shop-worker:v1.4.0",
+        "replicas": 1,
+        "env": [
+          {
+            "name": "DATABASE_URL",
+            "export_ref": { "component": "postgres", "export_key": "dsn" }
+          }
+        ]
       }
     }
   ],
@@ -178,7 +184,62 @@ The following creates an App with a PostgreSQL addon and an API workload. The wo
 }
 ```
 
-The `depends_on` field ensures the operator deploys `postgres` before `api`. Without it, both components would reconcile concurrently — which works if your application handles a missing database gracefully, but can cause flapping on first deploy.
+The addon's `type` is `postgres` — that exact string is what selects the operator's PostgreSQL
+export extractor. `depends_on` makes the operator provision `postgres` before either workload;
+without it all three components reconcile concurrently.
+
+### The StackDeploy it becomes
+
+The backend converts that body into a `StackDeploy` on the project's cluster. Field names go
+camelCase, and each `export_ref` becomes a `valueFrom.exportRef`:
+
+```yaml filename="what lands on the cluster (abridged)"
+apiVersion: apps.kubenest.io/v1
+kind: StackDeploy
+metadata:
+  name: shop
+  namespace: my-project
+spec:
+  stackRef:              # synthesized for inline apps; a template deploy points at a real template
+    name: inline-shop
+    version: inline
+  timeout: 15m
+  components:
+    - name: postgres
+      type: addon
+      addonSpec:
+        type: postgres
+        chart: { repo: "https://charts.bitnami.com/bitnami", name: postgresql, version: 13.4.4 }
+        values: { auth: { database: shop, username: shop } }
+    - name: web
+      type: workload
+      dependsOn: [postgres]
+      workloadSpec:
+        image: myorg/shop-web:v1.4.0
+        replicas: 2
+        port: 8000
+        env:
+          - name: DATABASE_URL
+            valueFrom:
+              exportRef: { component: postgres, key: dsn }
+        # ingress elided
+    # worker elided — same shape as web, without the ingress
+```
+
+### How DATABASE_URL gets its value
+
+1. The operator expands the components: `postgres` becomes an `Addon` resource, `web` and
+   `worker` become `Workload` resources in the same namespace.
+2. The addon's chart installs, and the operator extracts its exports. For type `postgres` these
+   are `dsn`, `host`, `port`, `user` and `database`, plus `passwordRef.name` and
+   `passwordRef.key` naming the Kubernetes Secret that holds the password.
+3. The StackDeploy controller resolves each `valueFrom.exportRef` against those exports, in
+   dependency order, and writes the resolved value onto the Workload's env. A reference that
+   cannot resolve yet — the addon is still deploying — is kept pending and retried on the next
+   reconcile.
+
+The `dsn` is a full PostgreSQL URL whose password segment is a `${...}` placeholder resolved from
+the Secret named by `passwordRef`, so the password itself never sits in the addon's exports.
 
 ## Pause and resume
 
@@ -225,7 +286,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
   https://api.your-domain.com/api/v1/apps/my-project/my-api/rollback
 ```
 
-The backend replays the prior deployment's component spec through the same reconcile path — it is not a Helm rollback, but a kubenest re-deployment to the prior configuration. This means the GitOps audit trail captures the rollback as a new commit, not a revert.
+The backend replays the prior deployment's component spec through the same reconcile path — it is not a Helm rollback, but a kubenest re-deployment to the prior configuration.
 
 ## Scaling individual components
 
@@ -247,4 +308,4 @@ If someone modifies a resource directly (bypassing kubenest), the operator detec
 See also:
 - [Stack Templates](/concepts/stack-templates) — how to capture a running App as a reusable template
 - [Addons](/concepts/addons) — the addon catalog, exports, and standalone addon instances
-- [Projects](/concepts/projects) — the namespace and isolation context that Apps live in
+- [Projects](/concepts/projects) — the namespace that Apps live in
