@@ -78,6 +78,16 @@ the H1.**
 to shrink to `{}` and then be deleted. If you find yourself editing a `missing:` line to make it
 sound better rather than to make it accurate, stop.
 
+You are unlikely to have to remember this, because the check reads the tracker: **an entry citing a
+bead that has already closed fails.** Close `kn-mzn` and the docs branch goes red until someone
+revisits `/platform/backup-restore`. In practice a bead closing usually moves a line from `missing`
+to `today` rather than deleting the entry — that is what happened when `kn-boj` landed the bundle
+manifest — and you then drop the closed bead from the entry's `beads` array. When the array empties,
+the entry and the marker go together.
+
+That half needs `br`, so it is skipped in CI, where the beads database is not in reach. Run
+`./scripts/install-hooks.sh` once to get it on pre-commit locally, which is where beads close.
+
 Do not add an entry from a bead title. Check the code. Every current entry was verified against the
 repositories on 2026-08-20 and is cited in `PLAN-BUILD-2026-08-20.md` §1 in the workspace root.
 

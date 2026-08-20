@@ -10,6 +10,7 @@
  * Run by CI before any build. Exits non-zero with the specific file on failure.
  */
 import { readFileSync, existsSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { readdir } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -27,6 +28,16 @@ const specPaths = [...body.matchAll(/^ {2}'([^']+)':\s*\{/gm)].map((m) => m[1])
 if (specPaths.length === 0) {
   console.error('check:status — parsed zero entries from SPEC_PAGES. The regex and the file have drifted apart; fix this script rather than deleting the check.')
   process.exit(1)
+}
+
+// Beads per entry, in registry order, so we can tell which page owns a stale one.
+const entryBeads = new Map()
+for (const [i, path] of specPaths.entries()) {
+  const start = body.indexOf(`  '${path}':`)
+  const end = i + 1 < specPaths.length ? body.indexOf(`  '${specPaths[i + 1]}':`) : body.length
+  const block = body.slice(start, end)
+  const arr = block.match(/beads:\s*\[([^\]]*)\]/)
+  entryBeads.set(path, arr ? [...arr[1].matchAll(/'([^']+)'/g)].map((m) => m[1]) : [])
 }
 
 const pathToFile = (p) => join(contentDir, `${p.replace(/^\//, '')}.mdx`)
@@ -72,6 +83,67 @@ for (const file of await walk(contentDir)) {
     errors.push(
       `${relative(root, file)} carries a <BuildStatus /> marker but is not in SPEC_PAGES. If the software now exists, remove the marker; if it does not, add the entry.`,
     )
+  }
+}
+
+// 3. No entry cites a bead that has already closed.
+//
+// This is the failure the first two checks cannot see. A page stays marked, the
+// marker still renders, CI stays green — and the entry quietly describes a gap
+// that has since been filled. It happened twice on 2026-08-20 within six hours of
+// the registry being written: kn-boj closed, and /platform/ha went from stale to
+// flatly wrong ("no etcd anywhere") while every other check passed.
+//
+// A closed bead in `beads` is stale by definition: the array means "must close
+// before this page is true". So closing one is the moment to revisit the entry —
+// usually moving a line from `missing` to `today` — and then drop it from the
+// array. When the array empties, the entry and its marker go together.
+//
+// Skipped where `br` is unavailable, which includes CI: the beads database lives
+// in the parent workspace and is not part of this repo. Local runs and the
+// pre-commit hook are where this bites, which is where the closing happens.
+const allBeads = [...new Set([...entryBeads.values()].flat())]
+if (allBeads.length) {
+  // `br list -a` rather than `br show <ids>`: given an id it does not recognise,
+  // `br show` returns a single error object for the whole call instead of the
+  // rows it did find. That made one typo silently disable this entire check —
+  // the parse threw, the catch treated it as "br unavailable", and the run went
+  // green. Listing everything and looking ids up locally has no such cliff, and
+  // an unknown id simply fails to appear.
+  let statuses = null
+  try {
+    const out = execFileSync('br', ['list', '-a', '--json'], {
+      cwd: root,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+    const issues = JSON.parse(out).issues
+    if (!Array.isArray(issues)) throw new Error('unexpected br list payload')
+    statuses = new Map(issues.map((b) => [b.id, b.status]))
+  } catch {
+    console.log('check:status — bead freshness skipped (br unavailable or no beads database in reach).')
+  }
+
+  if (statuses) {
+    for (const [path, beads] of entryBeads) {
+      const closed = beads.filter((b) => statuses.get(b) === 'closed')
+      const unknown = beads.filter((b) => !statuses.has(b))
+
+      if (unknown.length) {
+        errors.push(
+          `${path} cites ${unknown.join(', ')}, which ${unknown.length > 1 ? 'do' : 'does'} not exist in the tracker. Fix the id, or drop it.`,
+        )
+      }
+      if (closed.length && closed.length === beads.length) {
+        errors.push(
+          `${path} — every bead it cites has closed (${closed.join(', ')}). The software this page describes now exists: remove the entry from SPEC_PAGES and the <BuildStatus /> marker from the page, in the same change.`,
+        )
+      } else if (closed.length) {
+        errors.push(
+          `${path} cites ${closed.join(', ')}, already closed. Re-read the entry against what landed — usually a line moves from "missing" to "today" — then drop the closed bead from its beads array.`,
+        )
+      }
+    }
   }
 }
 
