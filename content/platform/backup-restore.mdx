@@ -25,7 +25,7 @@ them is how people discover they only had half a backup.
 | What it holds | Kubernetes objects and persistent volume data | The cluster's own state — every workload definition, secret, and config |
 | Tool | Velero | k3s etcd snapshot |
 | Answers | "The `payments` namespace was deleted" | "The control-plane node's disk died" |
-| Schedule | Configurable, default daily | Configurable, default more frequent |
+| Schedule | Daily, 14 kept | Hourly, 24 kept |
 | Target | Your S3-compatible bucket | Your S3-compatible bucket |
 
 You need both. A workload backup does not rebuild a cluster. A datastore snapshot does not contain
@@ -83,30 +83,44 @@ kubenest backup set-target --cluster prod-1 \
   --bundle-manifest bundles/platform-1.0.yaml
 ```
 
+For the three-server tier, repeat `--server` for all three control-plane nodes. `set-target`
+restarts only servers whose k3s configuration changed, one at a time, waits for each to return
+Ready, and refuses success until an on-demand datastore snapshot has reached S3.
+
 Until the cluster record resolves a cluster name to an address, every `kubenest backup` command
 also takes `--server` and `--bundle-manifest`: schedules, retention and deadlines come from the
 bundle manifest, never from defaults inside the binary.
 
-**The target is proven, not assumed.** `set-target` waits until Velero has reached the bucket with
-those credentials and marked the storage location `Available`, and only then writes the default
-backup schedule. A target that does not work fails here, rather than the first time you need it.
+**The target is proven twice, not assumed.** `set-target` waits until Velero has reached the bucket
+with those credentials and marked the storage location `Available`, writes the daily workload
+schedule, configures hourly embedded-etcd snapshots with 24 retained, and uploads a proof datastore
+snapshot. A target that does not work fails here, rather than the first time you need it.
+
+k3s reads the rotating target credentials from a Kubernetes Secret for normal snapshots. Only the
+non-secret schedule and Secret reference are written to its config directory. This matters during
+a disaster restore: the API server is unavailable then, so the restore command supplies the same
+target through a temporary root-only file and removes it before k3s starts normally.
+
+One target does not mean one object-store directory. KubeNest treats `--prefix` as the cluster
+root and writes workload backups under `<prefix>/workload/` and datastore snapshots under
+`<prefix>/datastore/`. They share the bucket, endpoint and credentials, but Velero never sees k3s
+snapshot objects inside its repository root. Without that separation Velero correctly rejects the
+location as containing an unknown top-level directory.
 
 You can supply the same target during the install itself, with `kubenest platform install
 --backup-target s3://<bucket>/<prefix>?endpoint=<host>&region=<region>`.
 
 Configuring a target at install is optional. Until you do, Velero is installed but unconfigured.
 
-<Callout type="warning">
-**Nothing tells you about it yet.** The design is that the cluster reports `backup: unconfigured`
-in every telemetry heartbeat and the console shows a warning until it is resolved. The heartbeat
-carries no backup state today — it reports node and resource data only — so an unconfigured backup
-is currently silent, which is exactly the failure mode this page exists to prevent. Tracked as
-`kn-j5s`.
-</Callout>
+The cluster reports the newest terminal backup and the exact persisted restore-drill result in
+fleet telemetry. The console distinguishes a drill that has never run, one that failed, and a
+previous pass that has become stale; failure is an alert, while an unconfigured target remains a
+visible warning rather than blocking the rest of the install.
 
-The principle behind that design: a cluster that has never taken a backup is exactly the quiet
-failure this product exists to prevent, so it should be surfaced continuously rather than block the
-install. Until the heartbeat carries it, check the target yourself after installing.
+Daily workload backups include customer namespaces and the restore-proof namespace. They exclude
+the platform control namespaces (`velero`, `kubenest-system`, `kube-system`, `kube-public` and
+`kube-node-lease`): backing up a backup controller's own transient jobs does not protect customer
+data and can make an otherwise sound backup terminally partial.
 
 <Callout type="warning">
 **If you use the `secrets` profile, your sealing key is in the backup set.** It has to be: lose
@@ -121,18 +135,34 @@ accordingly.
 
 This is the centre of the page.
 
-On a schedule, and without anyone asking, the cluster:
+Weekly, and without anyone asking, the cluster:
 
-1. Takes the most recent backup
-2. Restores it into a scratch namespace
-3. Asserts the restored objects match what was backed up
-4. Asserts the restored **volume data** matches
-5. Tears the scratch namespace down
-6. Records pass or fail, with a timestamp
+1. Selects the most recent completed Velero backup
+2. Requires that backup to contain a completed file-system backup of the platform proof PVC
+3. Restores the fully labelled proof set into a uniquely named scratch namespace
+4. Compares all three proof objects and reads the restored PVC file byte-for-byte
+5. Requires every PodVolumeRestore for that set to be `Completed`
+6. Tears the Restore and scratch namespace down
+7. Records pass or fail, with the exact backup name, timestamp and end-to-end duration
+
+The proof set is a real long-running Pod, ConfigMap and dynamically provisioned PVC. It is kept in
+`kubenest-restore-drill-source` so every normal backup exercises the same node-agent/Kopia path as
+customer PVCs. The restored Pod cannot seed its scratch PVC: outside the source namespace it only
+reads, and its readiness probe fails unless the bytes already restored from object storage equal
+the independently restored ConfigMap value. This is deliberately a data assertion, not a check
+that PVC metadata exists.
 
 The result goes into fleet telemetry and is visible against the cluster. **A failed drill is an
 alert, not a log line.** It is also a gate: the [upgrade](/platform/upgrades) pre-flight refuses to
 run when the last drill did not pass, because rollback depends on restore working.
+
+<Callout type="info">
+**This path is exercised against real storage.** The Platform 1.0 release gate created a Velero
+file-system backup, restored the proof objects and PVC bytes in 33 seconds, then replaced the
+backup's load-bearing `.tar.gz` archive with corrupt bytes. The next drill failed in 39 seconds as
+`backup-unreadable` / `BACKUP_CONTENT_UNREADABLE`; it did not trust the still-`Completed` Backup
+object, wait out a generic timeout, or leave its scratch namespace behind.
+</Callout>
 
 The whole drill runs inside `limits.timeouts.restore-drill` (default 2h). Exceeding it is recorded
 as a **failure with reason `timeout`**, distinct from a restore that completed and mismatched —
@@ -140,12 +170,13 @@ the first says the pipeline is too slow or wedged, the second says the data came
 they need different responses.
 
 <Callout type="warning">
-**Step 5 runs even when steps 3 or 4 fail.** A drill that leaves its scratch namespace behind on
-failure will, on a nightly schedule, fill the cluster with the debris of every failed drill —
+**Step 6 runs even when steps 4 or 5 fail.** A drill that leaves its scratch namespace behind on
+failure will, on a weekly schedule, accumulate the debris of every failed drill —
 and the most likely reason a drill fails is that the cluster is already short of resources.
 
 The teardown is unconditional, and what the failure preserves is the *result record* naming the
-stage, the objects, and the mismatch. Evidence lives in the record, not in abandoned state.
+stage, reason code, verification counts and user-safe detail. Evidence lives in the record, not in
+abandoned state.
 </Callout>
 
 ### Reading a drill result
@@ -154,13 +185,13 @@ stage, the objects, and the mismatch. Evidence lives in the record, not in aband
 Restore drill — prod-1
   Status      PASSED
   Ran         2026-08-13 02:14 IST
-  Backup      daily-20260813-0200 (4.2 GiB)
-  Objects     318 restored, 318 matched
-  Volumes     3 restored, 3 matched
+  Backup      daily-20260813-0200
+  Objects     3 restored, 3 matched
+  PVC data    1 restored, 1 matched
   Duration    4m 11s
 ```
 
-The two lines to read are **Objects** and **Volumes**. Restored and matched should be equal. A
+The two lines to read are **Objects** and **PVC data**. Restored and matched should be equal. A
 restore that completes with fewer matched than restored is a *failure*, even though nothing
 errored — it means the data came back different, which is exactly the outcome a drill exists to
 catch.
@@ -181,22 +212,27 @@ warning to look at next week.
 The result names it: backup unreadable, restore errored, objects mismatched, or volume data
 mismatched. These have different causes and different fixes.
 
-**Backup unreadable** — usually the target. Credentials rotated, bucket policy changed, bucket
-deleted, or the endpoint is unreachable from the cluster.
+**Backup unreadable** — the selected backup cannot be read. Credentials may have rotated, the
+bucket policy or endpoint may have changed, or the archive itself may be missing or corrupt. A
+green Velero Backup object does not overrule this result: its status describes the earlier write,
+while the drill proves the bytes can still be read now.
 
 **Restore errored** — the backup exists but will not apply. Often a CRD present when the backup
 was taken and absent now, or the reverse.
 
-**Objects mismatched** — the restore completed but produced different objects. The report names
-which.
+**Objects mismatched** — the restore completed but one of the proof Pod, ConfigMap or PVC differed
+or did not return. The result records how many restored and matched; operator logs carry the
+underlying object for diagnosis.
 
 **Volume data mismatched** — the most serious. Object storage has the volume but its contents do
-not match. Suspect the volume snapshot path rather than Velero itself.
+not match. Suspect the node-agent/Kopia data path rather than PVC metadata or the API restore.
 
 ### Re-run it by hand
 
 ```bash filename="terminal"
-kubenest backup drill --cluster prod-1 --verbose
+kubenest backup drill --cluster prod-1 \
+  --server 10.0.1.10 --ssh-user ubuntu \
+  --bundle-manifest bundles/platform-1.0.yaml
 ```
 
 A drill that passes on a manual re-run points at something transient — a network blip to the
@@ -205,8 +241,12 @@ bucket, or contention with another operation. Still worth understanding; not an 
 ### Take a fresh backup and drill that
 
 ```bash filename="terminal"
-kubenest backup now --cluster prod-1
-kubenest backup drill --cluster prod-1 --latest
+kubenest backup now --cluster prod-1 \
+  --server 10.0.1.10 --ssh-user ubuntu \
+  --bundle-manifest bundles/platform-1.0.yaml
+kubenest backup drill --cluster prod-1 \
+  --server 10.0.1.10 --ssh-user ubuntu \
+  --bundle-manifest bundles/platform-1.0.yaml
 ```
 
 If a fresh backup drills clean, the problem was that specific backup. If it fails too, the problem
@@ -231,11 +271,24 @@ kubenest backup restore --cluster prod-1 \
 
 Restores into the live cluster. It reports what it will change before doing it.
 
+<Callout type="warning">
+The workload-restore command is still a guarded CLI stub. Use Velero directly for a live workload
+restore until that command lands; the scheduled drill and the datastore disaster restore below are
+implemented independently and do not pretend this surface is ready.
+</Callout>
+
 ### A whole cluster, from a datastore snapshot
 
 The disaster case: the control-plane node is gone. You are rebuilding the cluster itself.
 
 <Steps>
+
+### Identify the exact S3 snapshot
+
+Use the bucket inventory or, while a server is still available, `sudo k3s etcd-snapshot list`.
+The S3 target is already enabled in the k3s configuration written by `set-target`; repeating
+`--s3` here makes k3s reject the command as two forms of the same flag.
+Record the exact snapshot name, bundle version, profile set and HA tier before replacing anything.
 
 ### Install the platform on replacement hardware
 
@@ -245,11 +298,34 @@ are on the cluster record, so you do not have to remember them.
 ### Restore the datastore snapshot
 
 ```bash filename="terminal"
-kubenest platform restore --cluster prod-1 \
-  --snapshot datastore-20260813-0400
+KUBENEST_BACKUP_ACCESS_KEY_ID=… KUBENEST_BACKUP_SECRET_ACCESS_KEY=… \
+kubenest platform restore --cluster prod-1 --confirm \
+  --snapshot on-demand-prod-1-1787299200 \
+  --endpoint s3.ap-south-1.amazonaws.com \
+  --bucket kubenest-backups-prod-1 \
+  --region ap-south-1 \
+  --server 10.0.1.10 --ssh-user ubuntu \
+  --bundle-manifest bundles/platform-1.0.yaml
 ```
 
+Repeat `--server` for every control-plane server in the three-server tier, with the server to
+restore first. The command stops them all, runs k3s cluster-reset against the S3 snapshot on the
+first, removes the temporary credential file, and waits for it to become Ready. Each peer's stale
+database is moved to
+`/var/lib/rancher/k3s/server/db.kubenest-before-restore-<timestamp>` before that peer starts and
+rejoins; it is preserved for recovery until you finish the verification step.
+
+If cluster-reset fails, k3s stays stopped. Do not repeatedly start and reset it. Read the command's
+named failing step, correct the target or snapshot, and rerun the same command. Credentials never
+appear in flags or the remote process command: they travel on SSH stdin and live only in the
+root-readable temporary drop-in.
+
 The cluster comes back with every workload definition, secret and config it had at snapshot time.
+
+The Platform 1.0 release gate ran this exact flow against external S3: it saved a sentinel in
+embedded etcd, changed the live value, stopped k3s, restored the named S3 snapshot, and recovered
+the pre-change value in 18 seconds. That is the tested disaster path; checking that a snapshot
+object merely exists is not accepted as restore evidence.
 
 ### Restore volume data
 
@@ -258,7 +334,8 @@ backup on top.
 
 ### Verify
 
-Run the [install verification checks](/platform/install#verifying-the-install), then confirm your
-own applications.
+Run the [install verification checks](/platform/install#verifying-the-install), confirm all etcd
+members and your own applications, then remove the preserved peer database directories only after
+you are satisfied the restored quorum is durable.
 
 </Steps>
