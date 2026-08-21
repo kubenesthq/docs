@@ -295,7 +295,7 @@ kubenest does not manage ResourceQuota. A project is a namespace boundary, not a
 | `POST` | `/addon-instances` | Deploy a standalone addon instance. Returns `202 Accepted`. |
 | `GET` | `/addon-instances/{id}` | Get instance details, current phase, and resolved exports. |
 | `PATCH` | `/addon-instances/{id}` | Update values or chart version. Creates a new revision. Returns `202 Accepted`. |
-| `DELETE` | `/addon-instances/{id}` | Uninstall and delete the addon instance. Query param: `?preserve_pvcs=true`. |
+| `DELETE` | `/addon-instances/{id}` | Uninstall and delete the addon instance. No parameters. Returns `502` without deleting the record if the hub is unreachable. |
 | `POST` | `/addon-instances/{id}/rollback` | Restore a prior revision. Body: `{revision_number}` or `{revision_id}`. |
 | `GET` | `/addon-instances/{id}/revisions` | List all revisions with values snapshots and notes. |
 

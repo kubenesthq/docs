@@ -320,7 +320,7 @@ curl -X DELETE https://api.your-domain.com/api/v1/addon-instances/$INSTANCE_ID \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-Be clear about what this does before running it. The delete sends an `addon_uninstall` event toward the cluster and then removes the instance record from the control plane. The record is removed even if the event could not be delivered — a disconnected cluster still loses its control-plane record.
+Be clear about what this does before running it. The delete sends an `addon_uninstall` event toward the cluster and then removes the instance record from the control plane. If the hub is not reachable when you call it, the delete fails with `502` and the record is kept — the control plane will not drop its record while the cluster cannot be told to uninstall.
 
 On the cluster, the event deletes the Addon resource and nothing else. The ArgoCD Application that actually deploys the chart is linked to the Addon by label, not ownership, and is not removed — so the Helm release, its workloads, and its PersistentVolumeClaims keep running after the delete.
 
@@ -341,7 +341,7 @@ kubectl delete application my-project-addon-my-postgres -n kubenest-system
 kubectl get pvc -n my-project
 ```
 
-If the uninstall event never reached the cluster — it was disconnected at delete time — the Addon resource is still there too:
+If the uninstall event never reached the cluster — a narrow edge case where the connection dropped while the delete was in flight — the Addon resource is still there too:
 
 ```bash filename="if the cluster was disconnected"
 kubectl delete addon my-postgres -n my-project
