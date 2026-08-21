@@ -323,9 +323,10 @@ root-readable temporary drop-in.
 The cluster comes back with every workload definition, secret and config it had at snapshot time.
 
 The Platform 1.0 release gate ran this exact flow against external S3: it saved a sentinel in
-embedded etcd, changed the live value, stopped k3s, restored the named S3 snapshot, and recovered
-the pre-change value in 18 seconds. That is the tested disaster path; checking that a snapshot
-object merely exists is not accepted as restore evidence.
+embedded etcd, deleted the node-local copy, confirmed only the `s3://` inventory entry remained,
+changed the live value, stopped k3s, downloaded the named snapshot, and recovered the pre-change
+value in 17 seconds. That is the tested disaster path; checking that a snapshot object merely
+exists is not accepted as restore evidence.
 
 ### Restore volume data
 
