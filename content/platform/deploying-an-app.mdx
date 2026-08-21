@@ -6,21 +6,19 @@ description: Deploying workloads onto a KubeNest platform cluster, via Helm char
 import { Callout } from 'nextra/components'
 
 <Callout type="info">
-**The app layer already exists**, unlike the rest of this section — this page mostly points at
-the pages that document it.
+**The workload path already exists**, unlike much of the rest of this section — this page mostly
+points at the pages that document it.
 </Callout>
 
 # Deploying an app
 
-<BuildStatus path="/platform/deploying-an-app" />
-
-Once the platform is installed, the cluster is an ordinary, conformant Kubernetes cluster with a
+Once the platform is installed, the cluster is a standard Kubernetes cluster with a
 tested set of components on it. Deploy to it however you already deploy to Kubernetes.
 
 <Callout type="info">
 **This page is short on purpose.**
 
-The platform is the product: the tested bundle, the upgrades, the backups, the patching. Nothing
+The platform is the product: the pinned core bundle and the cluster lifecycle around it. Nothing
 here is a better way to deploy an application than the one you have, and it is not trying to be.
 If your team is happy with its current deployment pipeline, keep it — nothing on this page is
 required to use KubeNest, and pointing your existing CI at the cluster is a completely supported
@@ -32,9 +30,9 @@ way to work.
 The cluster is standard Kubernetes. `kubectl`, `helm`, your own CI, Flux, someone else's ArgoCD —
 all work, and none of them need KubeNest to be involved.
 
-The platform gives you a working ingress with Gateway API, automatic TLS through cert-manager, a
-default StorageClass that provisions, and backups that cover whatever you deploy. That is the
-useful part, and it applies regardless of how the workload got there.
+The platform gives you a working ingress with Gateway API, TLS through cert-manager, and a default
+StorageClass that provisions. Velero is installed too, but it protects workloads only after you
+configure a backup target. That applies regardless of how the workload got there.
 
 ## Through KubeNest
 
@@ -47,8 +45,10 @@ in an ArgoCD Application, and ArgoCD syncs it.
 
 **Primitives** — describe a workload as components and let KubeNest generate the manifests.
 
-Addon components use a separate path: the operator commits their chart and values files to Git,
-then creates an ArgoCD Application that points at that directory.
+Addon components have a separate operator path: the operator commits their chart and values files
+to Git, then creates an ArgoCD Application that points at that directory. A new platform install
+does not yet deliver the per-cluster repository credential to that path, so addon components are
+not ready there yet.
 
 Both are covered in the existing documentation:
 
@@ -64,10 +64,9 @@ Worth knowing, because it changes what you need to configure:
 | | What you get |
 |---|---|
 | **Ingress** | Traefik with Gateway API. Write `HTTPRoute`, not `Ingress` |
-| **TLS** | cert-manager issues and renews. Annotate and forget |
+| **TLS** | cert-manager issues and renews certificates. The install provides a cluster-local default; configure a public or enterprise issuer for customer hostnames |
 | **Storage** | A default StorageClass backed by OpenEBS Local PV LVM. PVCs bind without configuration |
-| **Backup** | Velero covers your namespaces on the cluster schedule, with drills proving it |
-| **Secrets** | If the `secrets` profile is enabled, encrypted secrets in Git — see [profiles](/platform/profiles#secrets) |
+| **Backup** | Velero is installed. Protection starts when you configure a target; verified restore drills are not available yet |
 
 Two things to know rather than discover:
 
@@ -76,6 +75,5 @@ resources can be converted with `ingress2gateway`; that is a separate migration.
 
 **Local storage is node-local.** A pod using a Local PV LVM volume is bound to the node holding
 it, and if that node is lost the volume is gone — restore it from backup. Workloads needing
-storage that survives node loss want the
-[`replicated-storage` profile](/platform/profiles#replicated-storage), and should take it
-deliberately.
+storage that survives node loss need a replicated or external storage system. The documented
+[`replicated-storage` profile](/platform/profiles#replicated-storage) is not installable yet.

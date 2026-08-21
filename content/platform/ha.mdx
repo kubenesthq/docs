@@ -16,6 +16,15 @@ This page states what each tier does **and does not** promise. That second half 
 customer who is surprised by their tier's behaviour during an incident was mis-sold, and the
 sentence they needed was one we chose not to write.
 
+<Callout type="warning">
+**No cluster has ever been installed on three machines.** The `ha` path is written: the installer
+starts embedded etcd on the first server and joins the second and third to it, preflight refuses
+`--ha ha` with fewer than three control-plane nodes, and it proves the etcd peer ports are open
+between them rather than assuming. But the real-host run that proved the rest of the install was
+`single-server` only, and nothing yet checks that etcd has quorum before the rest of the bundle
+goes on. Read the `ha` column below as what the tier is built to do, not as what has been observed.
+</Callout>
+
 ## The two tiers
 
 | | `single-server` | `ha` |
@@ -114,15 +123,24 @@ reboot for OS patching one at a time without a human deciding.
   on your behalf, but it is real, and it is why the tier is priced differently rather than offered
   as a free upgrade.
 
+Two things the first three-node install is expected to test, because a single-server one could not:
+whether etcd is actually healthy before the rest of the bundle is applied — the installer waits for
+three nodes to report Ready, which is not the same as a quorum that has formed — and whether
+requiring the `kubenest-vg` volume group on all three control-plane nodes is right for servers that
+will hold no workloads. Preflight checks every node for it today.
+
 ## Why this is chosen at install
 
 Because moving between the tiers afterwards is not something we currently support, and getting
 that wrong is expensive.
 
-Today a cluster installed as `single-server` stays `single-server` unless it is rebuilt from
-scratch. So the choice is made deliberately, recorded against the cluster, priced
-accordingly, and reported in every telemetry heartbeat — a cluster with no control-plane
-redundancy is flagged as such, so nobody has to remember which tier a customer bought.
+Today a cluster installed as `single-server` stays `single-server` unless it is rebuilt. The
+obstacle is not the datastore — both tiers run embedded etcd, so growing to `ha` is joining two
+more servers rather than converting anything, and the installer already performs exactly that join
+on a fresh `--ha ha` install. What does not exist is the day-2 path: nothing joins servers to a
+cluster that is already installed. So the choice is made deliberately, priced accordingly, and
+recorded against the cluster, so the control plane knows which tier every cluster bought rather
+than anyone having to remember.
 
 ## Choosing
 
@@ -132,6 +150,10 @@ Take `ha` when any of these is true:
 - The cluster runs something where a restore-shaped outage is not acceptable
 - You do not want a human involved in every control-plane reboot for OS patching
 - The applications on it cannot tolerate a frozen control plane for the restore duration
+
+**If you are choosing `ha` today, tell us before you run it.** The tier is built, and the install
+around it is proven on a single server. The first install on three real machines has not happened
+yet, and it should not be one nobody is watching.
 
 Take `single-server` when:
 

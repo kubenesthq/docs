@@ -9,6 +9,12 @@ import { Callout, Steps } from 'nextra/components'
 
 <BuildStatus path="/platform/upgrades" />
 
+<Callout type="info">
+The core install places the pinned `system-upgrade-controller` and waits for it to become Ready,
+but it creates no upgrade Plan and runs none of the workflow below. The installer's proven journal
+and resume path cover installation only; an upgrade needs its own transition journal.
+</Callout>
+
 Upgrading is one operation: **`Platform N → N+1`, for your cluster's exact recorded profile set.**
 
 Not eight component upgrades you sequence yourself and hope about. One transition, tested against

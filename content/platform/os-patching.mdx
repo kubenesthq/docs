@@ -40,9 +40,17 @@ So the two halves are separated:
 A node that has applied a patch requiring a reboot reports as **pending reboot** and keeps running
 normally until its turn.
 
+The hold is a file. Ubuntu marks a node that needs a reboot at `/var/run/reboot-required`, and
+`kured` is configured to ignore it and watch `/var/run/kubenest-reboot-approved` instead — a
+sentinel only the platform creates, and only once the checks below have passed. So a patch never
+reboots a node on the package manager's say-so. The decision is the platform's, and holding it is
+the default state rather than something the policy has to remember to do.
+
 ## How reboots are coordinated
 
-`kured` handles this — the standard tool for the job, adopted rather than rebuilt.
+`kured` handles this — the standard tool for the job, adopted rather than rebuilt. It is part of
+core, installed at the bundle's pin as stage 9 of the install, and the install fails its acceptance
+checks if it does not come up.
 
 For each node that needs one, in turn:
 

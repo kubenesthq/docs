@@ -113,14 +113,21 @@ Which option you used is recorded against the cluster, because it determines wha
 
 Velero is installed as part of core. Configuring a backup target at install time is **optional**.
 
-If you supply an S3-compatible target, Velero is configured and the first scheduled backup runs
-per the schedule on the backup and restore page. If you do not, Velero is installed unconfigured
-and the cluster reports `backup: unconfigured` in every fleet-telemetry heartbeat from the first
-one onward. The console shows that as a warning against the cluster until a target is set.
+If you supply an S3-compatible target with `--backup-target`, Velero is configured and the first
+scheduled backup runs per the schedule on the backup and restore page. If you do not, Velero is
+installed unconfigured and the installer says so as it passes stage 8.
 
-An unconfigured backup is visible, not silent. A cluster that has never taken a backup is exactly
-the quiet failure this product exists to prevent, so it is surfaced continuously rather than
-blocking the install.
+<Callout type="warning">
+**The reporting half of this is not built yet.** The cluster does not report
+`backup: unconfigured` in its heartbeat, and the console raises no warning for it: the heartbeat
+carries node, version and resource data, and the cluster record has no field for backup state at
+all. Until that lands, an unconfigured backup is visible once — in the install output — and not
+continuously.
+</Callout>
+
+A cluster that has never taken a backup is exactly the quiet failure this product exists to
+prevent. The intent is to surface that continuously rather than block the install on it; today
+only the second half of that holds.
 
 <Callout type="info">
 Velero itself is not optional and is not a profile. Core is a fixed set — variation comes from
@@ -181,8 +188,14 @@ Two choices are made at install time and recorded permanently against the cluste
 <Callout type="warning">
 There is no supported path from `single-server` to `ha` after install. Both tiers run embedded
 etcd, so the obstacle is not the datastore — growing to `ha` is joining two more servers to an
-existing etcd cluster. That join is simply not built or tested yet. Treat the tier as an
-install-time choice and pick deliberately.
+existing etcd cluster. The installer performs that join at install time; no command performs it
+against a cluster that already exists. Treat the tier as an install-time choice and pick
+deliberately.
+
+**`--ha ha` has never been run on real hardware.** Stage 3 joins the second and third servers,
+preflight checks the etcd peer ports and the node count, and both are unit-tested — but every
+install performed against real machines so far has been `single-server`. Treat the three-node
+tier as written and unproven.
 </Callout>
 
 **`single-server`** — one control-plane node running single-node embedded etcd, plus verified
@@ -214,6 +227,16 @@ instead of N+2.
 | `replicated-storage` | Mayastor or Longhorn |
 | `ha` | 3-node embedded etcd control plane |
 
+<Callout type="warning">
+**No component profile installs yet.** `observability`, `secrets` and `replicated-storage` are
+pinned in the manifest and marked provisional there, but none of them is built. Stage 11 refuses
+a profile it cannot install rather than installing core and reporting success — a cluster that
+does not match its own record is the thing the record exists to prevent. Install core now and add
+the profile when it ships.
+
+`ha` is the exception: it is a topology rather than a component set, and stage 3 performs it.
+</Callout>
+
 Profiles, what changing one later does, and what it does not do, are covered on the Profiles page.
 
 ## The install command
@@ -227,29 +250,40 @@ Authenticate to your control plane once:
 kubenest login --control-plane https://api.your-domain.com
 ```
 
+<Callout type="warning">
+**The console side of `login` does not exist yet.** By default the CLI starts a device
+authorization and prints a code to approve in the console — but the page that approves it has not
+been built, and neither has the CLI-token screen the `--token-stdin` fallback tells you to create
+a token on. The control plane issues and accepts the tokens; there is currently no screen in the
+console that produces one.
+</Callout>
+
 Then install:
 
 ```bash filename="terminal"
 kubenest platform install \
-  --bundle 1.4 \
+  --bundle 1.0 \
   --name prod-1 \
   --server 10.0.1.10 \
   --agent  10.0.1.11 \
   --agent  10.0.1.12 \
   --ha single-server \
-  --profile observability \
-  --profile secrets \
   --ssh-user ubuntu \
   --ssh-key ~/.ssh/id_ed25519
 ```
 
 `--bundle` selects the platform version. Every component version is pinned by that number — the
 bundle is the unit of test, of support and of upgrade, and a cluster is always at exactly one
-bundle version plus a recorded profile set. What each version contains is on the
-Bundle contents page.
+bundle version plus a recorded profile set. **Platform 1.0 is the only released bundle**; a
+version the control plane does not offer is refused by preflight. What each version contains is
+on the Bundle contents page.
 
 Re-running the same command against the same cluster is safe. The installer converges: it does
 not duplicate resources and it does not fail because something is already present.
+
+Re-running is a journal replay rather than a second install. `preflight`, `register` and `verify`
+always run; every stage the journal records as completed is skipped. A measured second run of an
+identical command took 14 seconds and skipped ten of the thirteen stages.
 
 ### A control plane is required
 
@@ -302,7 +336,7 @@ The order is not arbitrary — every stage depends on the ones above it.
 | 8 | `platform-backup` | Velero, configured if a target was supplied |
 | 9 | `platform-day2` | `system-upgrade-controller` and `kured` |
 | 10 | `kubenest-agent` | The KubeNest agent, the hub handshake, and the first telemetry heartbeat |
-| 11 | `profiles` | Each selected profile, in the order listed above |
+| 11 | `profiles` | Each selected profile, in the order listed above. No component profile is built yet, so this stage refuses one rather than installing core and calling it done |
 | 12 | `record` | The bundle version, profile set, HA tier and volume-group ownership are written against the cluster record |
 | 13 | `verify` | The acceptance checks below are run and reported |
 
@@ -351,8 +385,14 @@ ordering exists to give you: the expensive checks happen while abandoning the in
 nothing.
 
 **The whole sequence must complete in under fifteen minutes**, for both reference shapes: a
-single-server core install, and a three-node install with every profile enabled. The release tests
-assert this. If a measured install exceeds it, that is a defect to fix, not a number to revise upward.
+single-server core install, and a three-node install with every profile enabled. If a measured
+install exceeds it, that is a defect to fix, not a number to revise upward.
+
+One of those two shapes has been measured. A single-server core install on a 4 vCPU / 8 GB Ubuntu
+24.04 host completed all thirteen stages in **4m14s**, and the release test asserts the budget on
+that shape. The three-node-with-every-profile shape has never been run: no install has been
+performed on three machines, and no profile is installable. Its budget is a target that nothing
+yet measures.
 
 <Callout type="info">
 **The budget and the timeout are different numbers, deliberately.** Fifteen minutes is the
@@ -456,14 +496,18 @@ way a storage install looks successful and is not.
 
 ### The cluster reports in
 
-The cluster shows as connected in the console, and the first fleet-telemetry heartbeat has
-arrived carrying the bundle version, the profile set, the HA tier and the backup configuration
-state.
+The cluster shows as connected in the console and the first fleet-telemetry heartbeat has
+arrived. A cluster the control plane still records as `install_failed` does not pass.
+
+The heartbeat carries node count, Kubernetes version and node resource data. The bundle version,
+profile set, HA tier and volume-group ownership reach the control plane from stage 12, not from
+the heartbeat, and backup configuration state is not reported anywhere yet.
 
 ### The recorded manifest matches reality
 
-The bundle version and profile set recorded against the cluster match what is actually installed
-on it, component by component. Nothing else in the day-2 story is trustworthy if this drifts.
+Every core pin in the bundle is compared against what is actually on the cluster — the kubelet
+version on each node, and the chart version of each component k3s reconciles. Nothing else in the
+day-2 story is trustworthy if this drifts.
 
 </Steps>
 

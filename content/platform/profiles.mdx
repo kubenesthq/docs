@@ -15,6 +15,32 @@ A profile is a named, pinned set of components that is tested against core as a 
 profiles at install; the set is recorded against your cluster and travels with it through every
 upgrade.
 
+## What installs today
+
+Core installs. No component profile does.
+
+Ask for one — `--profile observability`, `--profile secrets`, `--profile replicated-storage` — and
+the installer refuses at stage 11 rather than installing core in its place. Core is on the machines
+by then: the cluster is marked `install-failed` in the control plane with `profiles` as the failing
+stage, and the failure prints the same two exits every other stage does.
+
+The refusal is deliberate, not a defect. Installing core while the record says
+`core + observability` leaves a cluster that does not match its own record, and that record is what
+every upgrade is planned against — so the installer stops rather than write something untrue.
+
+<Callout type="warning">
+**Re-running without the profile is not a resume.** The profile set is part of the install
+journal's identity, so dropping the flag makes it a different install and the journal refuses to
+resume into it. The way on is `kubenest platform uninstall --confirm` on those hosts, then a fresh
+install of core on its own.
+</Callout>
+
+The `ha` tier is not affected by any of this. It is chosen with `--ha`, built by stage 3, and never
+reaches stage 11 — what has and has not been run there is on [HA tiers](/platform/ha).
+
+So today: install core, and take the profile you want when it ships. The rest of this page is the
+design the three component profiles are being built to.
+
 ## Why profiles and not options
 
 Because *N* independent on/off switches means 2<sup>N</sup> configurations, and nobody has tested
@@ -31,9 +57,12 @@ Four switches would be sixteen combinations per release. Four profiles are **six
 | 5 | core + `ha` |
 | 6 | core + all profiles |
 
-N+2, not 2<sup>N</sup>. Every one of the six is tested on every bundle release,
+N+2, not 2<sup>N</sup>. The intent is that every one of the six is tested on every bundle release,
 and it is the recurring cost of this entire strategy. A "tested bundle" that is not actually tested
-in CI is a spreadsheet, not a product.
+in CI is a spreadsheet, not a product — which is why it is worth saying plainly that **the matrix
+has not run yet**. No configuration has been through install, workload, backup, restore drill and
+upgrade on a release. That is `kn-twe`, and until it runs, "tested together" is the design rather
+than a claim.
 
 The arrangement only holds because profiles are **largely orthogonal**: observability does not
 interact with secrets. Anything that genuinely interacts belongs inside core *together* — which is
@@ -90,8 +119,9 @@ genuinely cannot tolerate node-local storage — not by default.
 Three control-plane nodes with embedded etcd, instead of one.
 
 This is the only profile that is also an install-time tier. There is no supported path to it on a
-running cluster today — see [changing a profile later](#changing-a-profile-later). What each tier
-does and does not promise is on the [install page](/platform/install#ha-tier).
+running cluster today — see [changing a profile later](#changing-a-profile-later) — and the
+three-node path itself has not yet been installed on real hardware. What each tier does and does
+not promise, and what that gap means, is on [HA tiers](/platform/ha).
 
 ## Changing a profile later
 
@@ -122,8 +152,10 @@ requires that nothing is using its StorageClass.
 
 Not because the datastore is in the way. Every tier runs embedded etcd — `single-server` runs a
 single-node etcd, not SQLite — so moving to `ha` is joining two more servers to an existing etcd
-cluster rather than converting a datastore. What is missing is the supported path: the join is not
-implemented, not tested, and not something to attempt by hand on a cluster you care about.
+cluster rather than converting a datastore. The installer already performs that join on a fresh
+`--ha ha` install. What is missing is the day-2 path: nothing joins servers to a cluster that is
+already installed, an install whose tier has changed is refused as a different install rather than
+resumed, and it is not something to attempt by hand on a cluster you care about.
 
 So: choose the tier you want at install. Growing into `ha` later is not something the platform
 offers today.
@@ -144,6 +176,7 @@ know which set that is. A cluster whose profile record is wrong is a cluster we 
 upgrade — and an unknown profile name is rejected at install rather than quietly ignored, for the
 same reason.
 
-The record is also what makes the fleet view honest: every cluster reports its bundle version,
-profile set, HA tier and backup state on every heartbeat, so drift between what is recorded and
-what is installed is visible rather than discovered during an upgrade.
+The record is also what the fleet view is built on: the control plane holds every cluster's bundle
+version, profile set and HA tier, and the installer's last stage compares that record against what
+is actually on the cluster before it calls the install done. A cluster whose record and reality
+disagree is caught there rather than during an upgrade.

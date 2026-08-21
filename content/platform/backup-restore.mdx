@@ -69,17 +69,44 @@ honest rather than negligent.
 
 Both use S3-compatible object storage that you supply and control.
 
+Credentials come from the environment — `KUBENEST_BACKUP_ACCESS_KEY_ID` and
+`KUBENEST_BACKUP_SECRET_ACCESS_KEY`, falling back to the `AWS_` pair — and never from a flag, so
+they cannot land in shell history or in an install transcript pasted into a support ticket.
+
 ```bash filename="terminal"
+KUBENEST_BACKUP_ACCESS_KEY_ID=… KUBENEST_BACKUP_SECRET_ACCESS_KEY=… \
 kubenest backup set-target --cluster prod-1 \
   --endpoint s3.ap-south-1.amazonaws.com \
   --bucket kubenest-backups-prod-1 \
-  --region ap-south-1
+  --region ap-south-1 \
+  --server 10.0.1.10 --ssh-user ubuntu \
+  --bundle-manifest bundles/platform-1.0.yaml
 ```
 
-Configuring a target at install is optional. Until you do, Velero is installed but unconfigured,
-and the cluster reports `backup: unconfigured` in **every** telemetry heartbeat, showing as a
-warning against the cluster in the console until it is resolved. An unconfigured backup is loud,
-not silent.
+Until the cluster record resolves a cluster name to an address, every `kubenest backup` command
+also takes `--server` and `--bundle-manifest`: schedules, retention and deadlines come from the
+bundle manifest, never from defaults inside the binary.
+
+**The target is proven, not assumed.** `set-target` waits until Velero has reached the bucket with
+those credentials and marked the storage location `Available`, and only then writes the default
+backup schedule. A target that does not work fails here, rather than the first time you need it.
+
+You can supply the same target during the install itself, with `kubenest platform install
+--backup-target s3://<bucket>/<prefix>?endpoint=<host>&region=<region>`.
+
+Configuring a target at install is optional. Until you do, Velero is installed but unconfigured.
+
+<Callout type="warning">
+**Nothing tells you about it yet.** The design is that the cluster reports `backup: unconfigured`
+in every telemetry heartbeat and the console shows a warning until it is resolved. The heartbeat
+carries no backup state today — it reports node and resource data only — so an unconfigured backup
+is currently silent, which is exactly the failure mode this page exists to prevent. Tracked as
+`kn-j5s`.
+</Callout>
+
+The principle behind that design: a cluster that has never taken a backup is exactly the quiet
+failure this product exists to prevent, so it should be surfaced continuously rather than block the
+install. Until the heartbeat carries it, check the target yourself after installing.
 
 <Callout type="warning">
 **If you use the `secrets` profile, your sealing key is in the backup set.** It has to be: lose

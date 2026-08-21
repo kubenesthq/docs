@@ -15,7 +15,7 @@ support, and what we upgrade between.
 
 That last point is the whole reason the bundle exists. Without it, an upgrade is *N* independent
 component version bumps whose interactions nobody has tried. With it, an upgrade is
-`Platform 1.4 → 1.5`: one transition, tested before it reached you.
+`Platform 1.0 → 1.1`: one transition, tested before it reached you.
 
 ## Why a bundle at all
 
@@ -35,6 +35,14 @@ manager and backup, and you still own whether they survive the next upgrade toge
 
 **That assembly problem is what the bundle is.** It is a smaller claim than "manages your
 Kubernetes" and a much more testable one.
+
+<Callout type="warning">
+**"Tested together" is not yet a fact about every configuration.** Core has been installed and
+verified end to end on a real host, and every component pin is compared against the running
+cluster before an install reports success. The compatibility matrix — each supported
+configuration taken through install, workload, backup, restore drill and upgrade on every release
+— has never run, and no profile has been tested against core at all.
+</Callout>
 
 ## Core
 
@@ -95,9 +103,11 @@ That is a separate migration, not part of installing the bundle.
 
 Two different things that are easy to confuse.
 
-**Fleet health telemetry** ships in core and is not optional. It reports cluster health, bundle
-version, profile set, HA tier and backup configuration state to your control plane. Its job is to
-make a problem known before someone has to report it.
+**Fleet health telemetry** ships in core and is not optional. Its job is to make a problem known
+before someone has to report it. Today the agent's heartbeat carries connection status, node
+count, Kubernetes version and per-node resource figures. The bundle version, profile set, HA tier
+and volume-group ownership are recorded by the installer's `record` stage rather than by the
+heartbeat, and backup configuration state is not reported at all yet.
 
 **Your observability** — metrics, dashboards, logs for your own workloads — is the
 `observability` profile. Different audience, different data, different lifetime.
@@ -106,6 +116,12 @@ make a problem known before someone has to report it.
 
 The bundle is machine-readable and versioned. It is the record of what a release contains, and it
 is what the installer, the upgrade path and the compatibility tests all read.
+
+The installer reads it now. `kubenest platform install` fetches the manifest from the control
+plane, takes every component version and every deadline from it, and its last acceptance check
+compares the manifest's pins against what is actually on the cluster before reporting success.
+The other two readers do not exist yet: `kubenest platform upgrade` is a stub, and the
+compatibility matrix has never run.
 
 ```yaml filename="platform-1.0.yaml"
 bundle: "1.0"
@@ -128,6 +144,10 @@ os:
 ha-tiers: [single-server, ha]
 
 limits:
+  # Provisional numbers say so in the manifest, so nothing downstream has to guess
+  # which figures have been measured. See "Limits are part of the bundle" below.
+  provisional: true
+
   # Binary units throughout. 1 GiB = 1024³ bytes, which is what /proc/meminfo and
   # statfs actually report. See "Units" below — this is not pedantry, it decides
   # whether preflight passes a correctly-sized machine.
@@ -147,10 +167,12 @@ limits:
     restore-drill:     2h
 
 profiles:
-  observability: { ... }      # each profile pins its own components
-  secrets:       { ... }
-  replicated-storage: { ... }
-  ha:            { ... }
+  # Each profile pins its own components, and carries provisional: true until the
+  # compatibility matrix has run it against core.
+  observability:      { provisional: true, components: { ... } }
+  secrets:            { provisional: true, components: { ... } }
+  replicated-storage: { provisional: true, components: { ... } }
+  ha:                 { components: {} }   # a topology, not a component set
 ```
 
 ### Limits are part of the bundle, not constants in the code
@@ -163,6 +185,13 @@ installer is untestable, undocumented, and identical for a two-node lab and a lo
 cluster. Put it in the manifest and it becomes a property of a tested configuration: the release
 tests can assert against it, it can be measured, an upgrade can change it deliberately, and a
 support conversation can start with *"which bundle, and what were its limits"* rather than a guess.
+
+**Platform 1.0's limits are marked `provisional`.** The structure is settled and the installer
+reads every threshold and deadline from it, but the numbers themselves are judgement rather than
+measurement. The resource floors come closest: they are k3s's documented minimum plus headroom,
+written in the units a real host actually reports. A later bundle replaces the rest with measured
+figures and drops the flag. A provisional number that says so is worth more than one that waits
+to be perfect — the alternative was blocking everything downstream on a measurement campaign.
 
 ### Units
 
@@ -198,7 +227,7 @@ it fails with a clear error instead of silently installing single-server.
 The manifest says what a release contains. The cluster record says what *you* have:
 
 ```
-cluster-a: Platform 1.0 + [observability, secrets]
+cluster-a: Platform 1.0 + []          # core only — no profile installs yet
            ha-tier: single-server
            volume-group: customer-created
 ```
@@ -207,3 +236,20 @@ cluster-a: Platform 1.0 + [observability, secrets]
 installed, and a cluster you did not install last week is otherwise a guess.
 
 ## Version numbers
+
+A bundle version is `major.minor` — `1.0`, `1.1`, `2.0` — and nothing finer. The manifest carries
+it and the filename repeats it, and the control plane refuses to load a manifest where the two
+disagree or where either is not two numbers. A release nobody can name unambiguously is not a
+release.
+
+A new bundle is cut when k3s cuts a minor. The platform tracks upstream k3s stable minus one
+minor, pinned to that minor's current patch, so the cadence follows Kubernetes rather than our
+own calendar. Lagging deliberately by one minor is a policy that can be defended to a customer;
+drifting is not — falling behind on Kubernetes versions is a documented reason teams leave the
+alternatives.
+
+What separates a major bump from a minor one is not settled. Until it is, read the number as an
+identity — the thing you run, that we test, and that an upgrade moves you off — rather than as a
+promise about the size of the change.
+
+Platform 1.0 is the only released bundle.
