@@ -111,7 +111,15 @@ What the `postgres` addon type publishes:
 | `passwordRef.name` | `shared-postgres-postgresql` |
 | `passwordRef.key` | `postgres-password` |
 
-The password itself is not an export. The `dsn` carries a `${...}` placeholder resolved from the Kubernetes Secret named by `passwordRef.name` when the value is wired into a consuming workload, so the plaintext password is not stored in the export map.
+The operator also publishes conventional aliases for the same values, so a container that expects the standard PostgreSQL environment names can consume them without a mapping step: `DATABASE_URL` (an alias of `dsn`), `PGHOST`, `PGPORT`, `PGUSER` and `PGDATABASE`.
+
+The password itself is not an export, and there is no export key that yields it. `passwordRef.name` and `passwordRef.key` name the Kubernetes Secret and the key within it; reading that Secret is the consumer's job.
+
+<Callout type="warning">
+**`dsn` and its `DATABASE_URL` alias are not usable connection strings today.** The password segment is a literal `${postgres-password}` placeholder — the name of the Secret key, not the password — and nothing substitutes it. The operator resolves an `exportRef` by copying the export value into the consuming container's environment verbatim, so the app receives the placeholder text and fails to connect.
+
+This is a live defect, tracked as `kn-kgu5`. Until it is fixed, use `host`, `port`, `user` and `database`, which are plain values and resolve correctly, and read the password from the Secret yourself.
+</Callout>
 
 Exports are read from the addon's Kubernetes Secret after the chart completes. When exports are backed by a Kubernetes Secret (as opposed to being stored in plaintext in the backend database), the API response redacts the values and shows only the keys — the values are fetched directly from the cluster at runtime.
 

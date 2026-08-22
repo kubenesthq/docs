@@ -143,6 +143,10 @@ The `depends_on: ["postgres"]` field tells the operator to deploy the postgres a
 
 The `export_ref.export_key` value `dsn` is the connection-URL key the `postgres` addon type publishes. The available keys for each addon type are listed under [Addons](/concepts/addons).
 
+<Callout type="warning">
+**`dsn` does not currently resolve to a working connection string.** Its password segment is a literal `${postgres-password}` placeholder that nothing substitutes, so the example above delivers that text to the container verbatim. The defect is tracked as `kn-kgu5`; see [Addons](/concepts/addons#exports-how-addons-publish-their-outputs) for the exports that do resolve and what to do instead.
+</Callout>
+
 <Callout type="info">
 You can also wire an environment variable from an existing **standalone** addon instance that is not part of this App — a shared database, for example. Use `addon_instance_id` instead of `component`:
 

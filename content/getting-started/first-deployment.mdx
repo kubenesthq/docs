@@ -46,7 +46,7 @@ TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 
 ### Register a cluster
 
-A cluster record tells the backend that a Kubernetes cluster exists and should receive deployments. Creating the record generates the JWT that the operator uses to authenticate with the hub.
+A cluster record tells the backend that a Kubernetes cluster exists and should receive deployments. Creating the record does **not** issue any credential — the operator's JWT and its GitOps repository key are minted separately, by an authenticated `POST`, and returned exactly once.
 
 Clusters belong to an organization, so grab your organization ID first:
 
@@ -72,8 +72,7 @@ Response (abbreviated):
   "id": "a1b2c3d4-0001-0000-0000-000000000000",
   "name": "my-first-cluster",
   "status": "pending",
-  "connection_token": "eyJhbGc...",
-  "install_command": "helm install kubenest-operator oci://registry.kubenest.io/kubenest-operator --namespace kubenest-system --create-namespace --set kubenest.hubURL=wss://hub.your-domain.com/ws/operator --set kubenest.jwtSecret=eyJhbGc... --set kubenest.clusterID=a1b2c3d4-..."
+  "cli_command": "kubenest cluster connect --cluster a1b2c3d4-0001-0000-0000-000000000000"
 }
 ```
 
@@ -83,7 +82,13 @@ Save the cluster ID:
 CLUSTER_ID="a1b2c3d4-0001-0000-0000-000000000000"
 ```
 
-Now install the operator on your cluster following the [installation guide](/getting-started/installation). Do not run the `install_command` string as-is — it currently sets a Helm key the chart does not read and pulls from a chart registry that does not exist; the guide's values-file path works. Once the operator connects, the cluster status will transition to `connected`. Verify:
+<Callout type="info">
+The response carries no secret, by design. A cluster's agent JWT and its per-cluster GitOps deploy key are minted only by `POST /api/v1/clusters/{id}/agent-credentials`, which returns them once and never again — calling it a second time rotates both. Nothing a browser can render ever contains a credential, which is why there is no `install_command` field and why `GET /clusters/{id}/install-command` now answers `410`.
+
+For the secret-free values a UI may display — the CLI invocation, hub URL, namespace and chart reference — use `GET /api/v1/clusters/{id}/install-instructions`.
+</Callout>
+
+Now install the operator on your cluster following the [installation guide](/getting-started/installation). Once the operator connects, the cluster status will transition to `connected`. Verify:
 
 ```bash filename="terminal"
 curl -s -H "Authorization: Bearer $TOKEN" \
@@ -286,7 +291,19 @@ curl -s -X POST https://api.your-domain.com/api/v1/apps \
   }'
 ```
 
-The operator resolves `depends_on` ordering — postgres deploys first and publishes its exports (`dsn`, `host`, `port`, `user`, `database`, plus a `passwordRef.name` / `passwordRef.key` pair naming the credentials Secret), then the api component starts with `DATABASE_URL` set from the `dsn` export. The password segment of the DSN is a `${...}` placeholder resolved from that credentials Secret, so the password itself never appears in the app spec or the API.
+The operator resolves `depends_on` ordering — postgres deploys first and publishes its exports (`dsn`, `host`, `port`, `user`, `database`, plus a `passwordRef.name` / `passwordRef.key` pair naming the credentials Secret), then the api component starts with `DATABASE_URL` set from the `dsn` export.
+
+<Callout type="warning">
+**The `dsn` export is not usable as a connection string today.** Its password segment is a literal `${postgres-password}` placeholder naming a key in the credentials Secret, and nothing substitutes it: the operator copies the export value into the container's environment verbatim. Your app receives
+
+```
+postgresql://myapp:${postgres-password}@postgres.hello-world.svc.cluster.local:5432/myapp?sslmode=require
+```
+
+and connecting with it fails. This is a live defect, tracked as `kn-kgu5`, not a step you have missed.
+
+Until it is fixed, wire the discrete exports instead — `host`, `port`, `user` and `database` are plain values and resolve correctly — and read the password from the Secret named by `passwordRef.name` using your own deployment tooling. The password itself is genuinely not an export, so there is no `export_ref` that yields it.
+</Callout>
 
 ---
 
