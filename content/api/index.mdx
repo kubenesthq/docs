@@ -185,12 +185,12 @@ What exists is the configuration surface. A superuser can define per-tier, per-p
 | `POST` | `/orgs/{org_id}/clusters` | Register a new cluster or initiate cloud provisioning. |
 | `GET` | `/clusters/{id}` | Get cluster details, status, and metrics. |
 | `PATCH` | `/clusters/{id}` | Update cluster metadata (name, description). |
-| `DELETE` | `/clusters/{id}` | Delete the cluster. Not guarded: deletion proceeds even when active projects exist, and their project records are deleted with the cluster record. Cloud-provisioned clusters get a Terraform destroy of their infrastructure; BYOC records are deleted immediately. |
+| `DELETE` | `/clusters/{id}` | Delete the cluster. Requires the org `admin` role. Returns `409` while any project still exists on the cluster, naming the blocking projects; there is no force or cascade parameter. Once the cluster is empty, cloud-provisioned clusters get a Terraform destroy of their infrastructure and BYOC records are deleted immediately. |
 | `GET` | `/clusters/{id}/metrics` | CPU, memory, and node count metrics aggregated from the last operator heartbeat. |
 | `GET` | `/clusters/{id}/install-instructions` | Secret-free install instructions: the CLI connect command, hub URL, namespace, pinned operator chart reference and a docs link. Contains no token, key or other credential — this is everything the console may render. (`GET /clusters/{id}/install-command` is removed and returns `410 Gone`: it embedded the cluster JWT and the Git token in a browser-renderable response.) |
 | `POST` | `/clusters/{id}/agent-credentials` | Mint the cluster's install-time credentials — the versioned agent JWT and, when GitOps is configured, a write deploy key on this cluster's own Git repository. Secrets are returned exactly once, in this response, and are never retrievable again. Calling again rotates: the JWT's `token_version` increments and superseded deploy keys are deleted after a grace window. Requires the `clusters:register` scope with a CLI token; audit-logged. |
 | `POST` | `/clusters/{id}/install-events` | Report one live platform-install stage transition. Requires the CLI token's `install:report` scope. The body is the canonical install journal entry: one of the 13 documented stage names, `status` (`started`, `completed`, or `failed`), optional manifest component key, optional user-safe `detail`, and a machine-readable `reason_code` required on failure. The backend relays every transition over SSE, persists terminal transitions in the install journal, and drives `installing` / `install_failed`. Never put secrets or raw command output in this body. |
-| `POST` | `/clusters/{id}/scale` | Change node count (cloud-provisioned clusters only). |
+| `POST` | `/clusters/{id}/scale` | Change node count (cloud-provisioned clusters only). Requires the org `admin` role — it runs a Terraform apply that adds or removes real machines. |
 | `GET` | `/clusters/{id}/bundle` | Get the cluster's bundle + profile record: bundle version, profile set, HA tier, volume-group ownership and install journal. All fields are `null` until a KubeNest Platform bundle install records them. |
 | `PUT` | `/clusters/{id}/bundle` | Write the bundle record (the installer's record stage). Validated against the bundle catalog: unknown bundle versions, unknown profile names and HA tiers the bundle does not offer are rejected with `422`. Replaces the removed `GET/PUT /clusters/{id}/config` component-toggle endpoints. |
 | `GET` | `/clusters/{id}/provisioning-jobs` | List provisioning jobs for a cloud-provisioned cluster, with status and timestamps. |
@@ -223,7 +223,7 @@ The bundle catalog: the KubeNest Platform release manifests this control plane k
 | `GET` | `/projects` | List all projects the user can access. |
 | `POST` | `/projects` | Create a project (Kubernetes namespace) on a cluster. |
 | `GET` | `/projects/{id}` | Get project details and status. |
-| `DELETE` | `/projects/{id}` | Delete the project record. Not guarded, and control-plane-only: it does not check whether apps or addons exist, and it removes nothing from the cluster — the namespace and everything running in it stay live. |
+| `DELETE` | `/projects/{id}` | Delete the project record. Requires the org `admin` role. Still unguarded on contents and control-plane-only: it does not check whether apps or addons exist, and it removes nothing from the cluster — the namespace and everything running in it stay live. |
 | `GET` | `/projects/{id}/apps` | List every app in the project. |
 | `GET` | `/projects/{id}/available-exports` | List export values published by apps and addons in the project, for wiring `exportRef` entries. |
 | `GET` | `/projects/{id}/rbac` | List project-scoped role assignments. |

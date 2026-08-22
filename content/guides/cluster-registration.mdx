@@ -316,7 +316,9 @@ The operator implements exponential backoff reconnection. Most `disconnected` st
 ## Deleting a cluster
 
 <Callout type="warning">
-**Cluster deletion is not guarded.** `DELETE /clusters/{id}` does not check for projects, apps, or addons before acting — it proceeds even when the cluster has active projects, and the project records are deleted along with the cluster record (they cascade at the database level). There is no confirmation step beyond the API call itself. Check what is running on a cluster before deleting it, because the backend will not.
+**Deletion needs the org `admin` role, and projects block it.** `DELETE /clusters/{id}` returns `409` while any project still exists on the cluster, naming the projects that block it, on both the BYOC and the cloud-provisioned path. Delete the projects first — there is no force or cascade parameter.
+
+The guard covers projects, not apps or addons: those live inside a project, so removing the projects removes them. Beyond the project check there is no confirmation step, and for a cloud-provisioned cluster the call that succeeds destroys real infrastructure.
 </Callout>
 
 What deletion does depends on how the cluster was created:

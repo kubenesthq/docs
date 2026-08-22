@@ -50,16 +50,23 @@ If you need a quota, create the `ResourceQuota` in the project's namespace with 
 
 ## RBAC and role bindings
 
-The API stores role bindings with three roles — `admin`, `member`, and `viewer` — at three scopes: organization, cluster, and project. Today these are membership records, not an enforced permission model. Authorization on cluster and project routes checks organization membership only: any member of the organization passes, whatever their role.
+The API stores role bindings with three roles — `admin`, `member`, and `viewer` — at three scopes: organization, cluster, and project. The **organization** role is enforced. The cluster- and project-scoped bindings are membership records only: no endpoint consults them when authorizing a request.
 
-That includes destructive operations. A `viewer` credential can delete a project, and can delete a cluster — which, for a cluster kubenest provisioned, starts the destruction of its infrastructure. Do not design an access policy around these roles, and do not hand out credentials on the assumption that `viewer` is read-only.
+Destructive operations require the org `admin` role. Everything else checks organization membership and passes any role, so a `viewer` credential is not read-only in the way the word suggests — it can create projects, deploy apps, and write secrets. It cannot delete a project, delete a cluster, or change a cluster's node count.
 
 The role checks that exist today:
 
 | Operation | Required |
 |------|-------------|
 | Organization settings and organization member management | The org `admin` role |
-| Everything else, including project and cluster deletion | Organization membership, any role |
+| `DELETE /projects/{id}` | The org `admin` role |
+| `DELETE /clusters/{id}` | The org `admin` role |
+| `POST /clusters/{id}/scale` | The org `admin` role |
+| Everything else | Organization membership, any role |
+
+Two exemptions apply to the admin-gated routes. A superadmin passes regardless of org role. A cluster with no organization — a legacy record from before organizations existed — keeps the older any-authenticated-user access, because there is no org role to check.
+
+Scope this to what it is: three roles at one scope, not a permission model. Do not design an access policy that needs a `member` and a `viewer` to differ, because today they do not.
 
 Project- and cluster-scoped bindings are managed through the RBAC endpoints:
 

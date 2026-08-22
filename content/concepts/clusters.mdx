@@ -131,7 +131,9 @@ BYOC (bring-your-own-cluster) registrations are not affected by the scale endpoi
 
 ## Deleting a cluster
 
-`DELETE /api/v1/clusters/{id}` is not guarded. It does not check for active projects: deletion proceeds with projects still on the cluster, and their project records are deleted along with the cluster record. Check what is running on a cluster before you delete it, because the API will not check for you.
+`DELETE /api/v1/clusters/{id}` requires the org `admin` role, and it refuses with `409` while any project still exists on the cluster. The error names the blocking projects. Delete them first; there is no force or cascade parameter, because project deletion is always available and a force flag would only restore the hazard the guard removes.
+
+The guard runs before the provisioned/BYOC branch below, so a refused delete never leaves a destroy job behind.
 
 What happens to the cluster itself depends on how it was created:
 
