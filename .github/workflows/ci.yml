@@ -18,21 +18,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # kubenesthq/operator-v2 is private and the default GITHUB_TOKEN cannot read it, so
+      # this step fails on every run until a PAT with read access is added as
+      # OPERATOR_REPO_TOKEN. It is allowed to fail rather than blocking the whole check:
+      # a guard that is always red teaches people to ignore red. The render step below
+      # skips when the chart is absent and runs for real once the token exists.
       - name: Checkout operator chart contract
+        id: operator_chart
+        continue-on-error: true
         uses: actions/checkout@v4
         with:
           repository: kubenesthq/operator-v2
           ref: argo-cd
           path: .operator-v2
+          token: ${{ secrets.OPERATOR_REPO_TOKEN || github.token }}
 
       - name: Install Helm
+        if: steps.operator_chart.outcome == 'success'
         uses: azure/setup-helm@v4
 
       - name: Render published operator values
+        if: steps.operator_chart.outcome == 'success'
         run: >-
           python3 .operator-v2/scripts/check_docs_helm_values.py
           --docs-root .
           --chart .operator-v2/charts/kubenest-operator
+
+      - name: Note when the drift guard was skipped
+        if: steps.operator_chart.outcome != 'success'
+        run: |
+          echo "::warning title=Helm values drift guard skipped::Could not read kubenesthq/operator-v2." \
+               "Add a PAT with read access as the OPERATOR_REPO_TOKEN secret to enable it (kn-lx5t)."
 
       - uses: oven-sh/setup-bun@v2
         with:

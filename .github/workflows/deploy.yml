@@ -22,21 +22,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Checkout operator chart contract
-        uses: actions/checkout@v4
-        with:
-          repository: kubenesthq/operator-v2
-          ref: argo-cd
-          path: .operator-v2
-
-      - name: Install Helm
-        uses: azure/setup-helm@v4
-
-      - name: Render published operator values
-        run: >-
-          python3 .operator-v2/scripts/check_docs_helm_values.py
-          --docs-root .
-          --chart .operator-v2/charts/kubenest-operator
+      # The Helm-values drift guard deliberately does NOT run here. It needs to clone
+      # kubenesthq/operator-v2, which the default GITHUB_TOKEN cannot read, so it failed
+      # closed and blocked publishing entirely (run 32578834006). Publishing must depend
+      # only on this repository. The guard belongs in CI, where it runs on every push to
+      # this branch and can fail loudly without taking the site down with it.
 
       - uses: oven-sh/setup-bun@v2
         with:
