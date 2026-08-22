@@ -262,17 +262,19 @@ transition around it, the gates in front of it, and the rollback behind it.
 
 ## What your workloads experience
 
-Honest expectations, by tier and by workload shape. On the `single-server` tier the answer
-depends on where your replicas are placed, so it gets two rows:
+Honest expectations, by tier and by workload shape. Replica count alone is not an availability
+guarantee on the `single-server` tier. During the control-plane outage, a workload stays available
+only if enough Ready replicas to serve it are already on agent nodes that remain up:
 
 | | Multi-replica workload | Single-replica workload |
 |---|---|---|
 | **`ha` tier** | No downtime. Replicas reschedule ahead of each drain | Restarts once, when its node drains |
-| **`single-server`, replicas spread across nodes** | No downtime for the workload itself. Measured on a two-node cluster through a full 0.9 → 1.0 upgrade: two replicas, polled once a second, reachable on all 146 ticks | Restarts once, when its node drains |
-| **`single-server`, replicas on the control-plane node** | Replicas there restart when that node drains, and can only move to an agent node with capacity. If every replica is on the control-plane node — always the case on a one-node cluster — the workload is down while the node upgrades | Restarts; on a one-node cluster it is down while the node upgrades |
+| **`single-server`, enough Ready replicas already on agent nodes** | No downtime for the workload itself while those replicas remain healthy. A two-node 0.9 → 1.0 upgrade kept a two-replica workload reachable on all 146 one-second probes; that result does not remove the placement condition | Restarts once, when its node drains |
+| **`single-server`, service depends on a control-plane-node replica** | The workload is down if the replicas already on agent nodes cannot serve it alone. A drained replica moves only when an agent has capacity and its scheduling rules allow it. A one-node cluster has no surviving agent, so every workload is down while the node upgrades | Restarts; on a one-node cluster it is down while the node upgrades |
 
-The platform does not restrict workloads to agent nodes, so unless you have constrained
-scheduling yourself, assume the last row applies to you.
+KubeNest does not taint the control-plane node or restrict application workloads to agents. Unless
+you have added scheduling constraints and verified the resulting placement, assume the last row
+applies to you.
 
 Two things are true regardless of tier:
 

@@ -206,6 +206,11 @@ While that node is down: your workloads on other nodes keep running, because the
 need the API server. But nothing schedules, nothing self-heals, no deploy succeeds, and a pod that
 dies is not replaced. If the control-plane node also runs workloads, those stop until it returns.
 
+KubeNest does not taint the control-plane node or otherwise reserve it for system components, so
+application workloads can land there by default. Unless you have constrained scheduling and
+verified placement, plan for some workloads to stop during this reboot. On a one-node cluster,
+every workload is on that node and the reboot is a full application outage.
+
 That is an announced, deliberate action, not something a daemon does at 3am. So the node reports
 pending reboot and **waits for an explicit decision**:
 
