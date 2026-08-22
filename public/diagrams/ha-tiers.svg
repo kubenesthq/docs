@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="790" viewBox="0 0 1200 790" role="img" aria-labelledby="title desc">
+  <title id="title">Single-server and HA behavior after losing a control-plane node</title>
+  <desc id="desc">In a single-server tier, losing the only control-plane node stops its local workloads and the Kubernetes API, while workloads already placed on surviving agent nodes continue without scheduling or self-healing. In the HA tier, losing one of three control-plane nodes preserves etcd quorum and the API; workloads on the failed node stop and may reschedule, while workloads elsewhere continue. Immediate workload impact depends on placement.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#a5b4fc"/>
+    </marker>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .title { fill: #f8fafc; font-size: 30px; font-weight: 700; }
+      .subtitle { fill: #cbd5e1; font-size: 17px; }
+      .panel { fill: #111c33; stroke-width: 2; }
+      .single { stroke: #f59e0b; }
+      .ha { stroke: #34d399; }
+      .panel-title { font-size: 23px; font-weight: 700; }
+      .single-title { fill: #fbbf24; }
+      .ha-title { fill: #6ee7b7; }
+      .node { fill: #172554; stroke: #a5b4fc; stroke-width: 2; }
+      .failed { fill: #4c1d2a; stroke: #fb7185; stroke-width: 3; }
+      .node-title { fill: #f8fafc; font-size: 18px; font-weight: 700; }
+      .copy { fill: #cbd5e1; font-size: 14px; }
+      .result { fill: #e2e8f0; font-size: 16px; }
+      .bad { fill: #fda4af; font-size: 16px; font-weight: 700; }
+      .good { fill: #6ee7b7; font-size: 16px; font-weight: 700; }
+      .foot { fill: #f8fafc; font-size: 17px; font-weight: 700; }
+      .caveat { fill: #fcd34d; font-size: 14px; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="790" rx="22" fill="#0b1220"/>
+  <text x="48" y="54" class="title">Losing a control-plane node: tier sets control-plane behavior</text>
+  <text x="48" y="82" class="subtitle">Workload impact still depends on where each pod was running when the node failed.</text>
+
+  <rect x="40" y="112" width="540" height="578" rx="18" class="panel single"/>
+  <text x="66" y="150" class="panel-title single-title">SINGLE-SERVER</text>
+  <text x="66" y="176" class="copy">One control-plane node · single-node embedded etcd</text>
+
+  <rect x="74" y="214" width="202" height="120" rx="14" class="failed"/>
+  <text x="175" y="250" text-anchor="middle" class="node-title">Control plane 1</text>
+  <text x="175" y="276" text-anchor="middle" class="copy">API + etcd</text>
+  <text x="175" y="298" text-anchor="middle" class="copy">may also run workloads</text>
+  <text x="175" y="322" text-anchor="middle" class="bad">NODE LOST</text>
+
+  <rect x="326" y="214" width="102" height="120" rx="14" class="node"/>
+  <text x="377" y="250" text-anchor="middle" class="node-title">Agent A</text>
+  <text x="377" y="278" text-anchor="middle" class="copy">existing</text>
+  <text x="377" y="300" text-anchor="middle" class="copy">pods run</text>
+
+  <rect x="446" y="214" width="102" height="120" rx="14" class="node"/>
+  <text x="497" y="250" text-anchor="middle" class="node-title">Agent B</text>
+  <text x="497" y="278" text-anchor="middle" class="copy">existing</text>
+  <text x="497" y="300" text-anchor="middle" class="copy">pods run</text>
+
+  <text x="76" y="386" class="bad">Control plane</text>
+  <text x="76" y="414" class="result">• API and kubectl unavailable</text>
+  <text x="76" y="442" class="result">• no scheduling, self-healing, deploy or scale</text>
+  <text x="76" y="470" class="result">• rebuild and restore required</text>
+
+  <text x="76" y="520" class="bad">Workloads</text>
+  <text x="76" y="548" class="result">• pods on the failed control-plane node stop</text>
+  <text x="76" y="576" class="result">• pods already on agent nodes keep serving</text>
+  <text x="76" y="604" class="result">• stopped pods cannot reschedule without the API</text>
+
+  <rect x="620" y="112" width="540" height="578" rx="18" class="panel ha"/>
+  <text x="646" y="150" class="panel-title ha-title">HA</text>
+  <text x="646" y="176" class="copy">Three control-plane nodes · replicated embedded etcd</text>
+
+  <rect x="654" y="214" width="146" height="120" rx="14" class="failed"/>
+  <text x="727" y="250" text-anchor="middle" class="node-title">Control 1</text>
+  <text x="727" y="278" text-anchor="middle" class="copy">etcd member</text>
+  <text x="727" y="322" text-anchor="middle" class="bad">NODE LOST</text>
+
+  <rect x="818" y="214" width="146" height="120" rx="14" class="node"/>
+  <text x="891" y="250" text-anchor="middle" class="node-title">Control 2</text>
+  <text x="891" y="278" text-anchor="middle" class="copy">API + etcd</text>
+  <text x="891" y="302" text-anchor="middle" class="good">READY</text>
+
+  <rect x="982" y="214" width="146" height="120" rx="14" class="node"/>
+  <text x="1055" y="250" text-anchor="middle" class="node-title">Control 3</text>
+  <text x="1055" y="278" text-anchor="middle" class="copy">API + etcd</text>
+  <text x="1055" y="302" text-anchor="middle" class="good">READY</text>
+
+  <line x1="964" y1="352" x2="982" y2="352" stroke="#a5b4fc" stroke-width="3" marker-end="url(#arrow)"/>
+  <text x="891" y="370" text-anchor="middle" class="good">2 of 3 members retain quorum</text>
+
+  <text x="656" y="414" class="good">Control plane</text>
+  <text x="656" y="442" class="result">• API, scheduling and self-healing continue</text>
+  <text x="656" y="470" class="result">• survives one control-plane node loss</text>
+  <text x="656" y="498" class="result">• losing two stops quorum</text>
+
+  <text x="656" y="548" class="good">Workloads</text>
+  <text x="656" y="576" class="result">• pods on the failed node stop</text>
+  <text x="656" y="604" class="result">• pods elsewhere keep serving</text>
+  <text x="656" y="632" class="result">• stopped pods can reschedule if placement allows</text>
+
+  <rect x="70" y="712" width="1060" height="54" rx="12" fill="#1e293b" stroke="#64748b" stroke-width="2"/>
+  <text x="600" y="738" text-anchor="middle" class="foot">Placement decides the immediate workload outage; tier decides whether Kubernetes can recover.</text>
+  <text x="600" y="758" text-anchor="middle" class="caveat">The HA install path is implemented but has not yet run on three real hosts.</text>
+</svg>

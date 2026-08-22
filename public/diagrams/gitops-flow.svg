@@ -1,0 +1,108 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Actual workload and addon reconciliation paths</title>
+  <desc id="desc">Workloads are created by the backend as ArgoCD Applications using a chart repository and inline Helm values, with deployment history in PostgreSQL and no Git commit. Addons are reconciled by the in-cluster addon controller, which commits Chart.yaml and values.yaml under clusters cluster-id addons namespace-name, then points an ArgoCD Application at that Git path.</desc>
+  <defs>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#60a5fa"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#34d399"/>
+    </marker>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .title { fill: #f8fafc; font-size: 30px; font-weight: 700; }
+      .subtitle { fill: #cbd5e1; font-size: 17px; }
+      .lane { fill: #111c33; stroke-width: 2; }
+      .work-lane { stroke: #60a5fa; }
+      .addon-lane { stroke: #34d399; }
+      .lane-title { font-size: 21px; font-weight: 700; }
+      .work-title { fill: #93c5fd; }
+      .addon-title { fill: #6ee7b7; }
+      .card { fill: #172554; stroke: #64748b; stroke-width: 2; }
+      .git { fill: #064e3b; stroke: #34d399; stroke-width: 2; }
+      .card-title { fill: #f8fafc; font-size: 18px; font-weight: 700; }
+      .copy { fill: #cbd5e1; font-size: 14px; }
+      .label { fill: #e2e8f0; font-size: 14px; font-weight: 600; }
+      .no-git { fill: #fecaca; font-size: 16px; font-weight: 700; }
+      .footer { fill: #f8fafc; font-size: 16px; font-weight: 600; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="760" rx="22" fill="#0b1220"/>
+  <text x="48" y="54" class="title">Two ArgoCD paths; only one writes Git</text>
+  <text x="48" y="82" class="subtitle">The implementation keeps workload desired state inline and addon desired state in the GitOps repository.</text>
+
+  <rect x="40" y="112" width="1120" height="250" rx="18" class="lane work-lane"/>
+  <text x="66" y="145" class="lane-title work-title">WORKLOAD COMPONENT</text>
+
+  <rect x="70" y="177" width="156" height="104" rx="13" class="card"/>
+  <text x="148" y="214" text-anchor="middle" class="card-title">POST /apps</text>
+  <text x="148" y="240" text-anchor="middle" class="copy">workload component</text>
+  <text x="148" y="262" text-anchor="middle" class="copy">in App spec</text>
+
+  <rect x="278" y="177" width="176" height="104" rx="13" class="card"/>
+  <text x="366" y="214" text-anchor="middle" class="card-title">Backend</text>
+  <text x="366" y="240" text-anchor="middle" class="copy">creates StackDeploy</text>
+  <text x="366" y="262" text-anchor="middle" class="copy">records Deployment row</text>
+
+  <rect x="512" y="166" width="230" height="126" rx="13" class="card"/>
+  <text x="627" y="202" text-anchor="middle" class="card-title">ArgoCD Application</text>
+  <text x="627" y="229" text-anchor="middle" class="copy">chart repository URL</text>
+  <text x="627" y="251" text-anchor="middle" class="copy">+ inline Helm values</text>
+  <text x="627" y="273" text-anchor="middle" class="copy">prune + selfHeal</text>
+
+  <rect x="814" y="177" width="146" height="104" rx="13" class="card"/>
+  <text x="887" y="214" text-anchor="middle" class="card-title">ArgoCD</text>
+  <text x="887" y="240" text-anchor="middle" class="copy">renders chart</text>
+  <text x="887" y="262" text-anchor="middle" class="copy">and syncs</text>
+
+  <rect x="1012" y="177" width="118" height="104" rx="13" class="card"/>
+  <text x="1071" y="214" text-anchor="middle" class="card-title">Cluster</text>
+  <text x="1071" y="240" text-anchor="middle" class="copy">workload</text>
+  <text x="1071" y="262" text-anchor="middle" class="copy">resources</text>
+
+  <line x1="226" y1="229" x2="278" y2="229" stroke="#60a5fa" stroke-width="3" marker-end="url(#arrow-blue)"/>
+  <line x1="454" y1="229" x2="512" y2="229" stroke="#60a5fa" stroke-width="3" marker-end="url(#arrow-blue)"/>
+  <line x1="742" y1="229" x2="814" y2="229" stroke="#60a5fa" stroke-width="3" marker-end="url(#arrow-blue)"/>
+  <line x1="960" y1="229" x2="1012" y2="229" stroke="#60a5fa" stroke-width="3" marker-end="url(#arrow-blue)"/>
+
+  <text x="600" y="320" text-anchor="middle" class="no-git">NO GIT COMMIT</text>
+  <text x="600" y="344" text-anchor="middle" class="copy">Workload audit history lives in PostgreSQL Deployment rows.</text>
+
+  <rect x="40" y="392" width="1120" height="280" rx="18" class="lane addon-lane"/>
+  <text x="66" y="425" class="lane-title addon-title">ADDON COMPONENT</text>
+
+  <rect x="70" y="465" width="154" height="106" rx="13" class="card"/>
+  <text x="147" y="502" text-anchor="middle" class="card-title">Addon CR</text>
+  <text x="147" y="528" text-anchor="middle" class="copy">chart + values</text>
+  <text x="147" y="550" text-anchor="middle" class="copy">desired state</text>
+
+  <rect x="270" y="465" width="184" height="106" rx="13" class="card"/>
+  <text x="362" y="502" text-anchor="middle" class="card-title">Addon controller</text>
+  <text x="362" y="528" text-anchor="middle" class="copy">runs in tenant cluster</text>
+  <text x="362" y="550" text-anchor="middle" class="copy">commits + pushes</text>
+
+  <rect x="500" y="448" width="254" height="140" rx="13" class="git"/>
+  <text x="627" y="482" text-anchor="middle" class="card-title">GitOps repository</text>
+  <text x="627" y="510" text-anchor="middle" class="copy">clusters/{id}/addons/</text>
+  <text x="627" y="532" text-anchor="middle" class="copy">{namespace}-{name}/</text>
+  <text x="627" y="558" text-anchor="middle" class="copy">Chart.yaml + values.yaml</text>
+
+  <rect x="800" y="465" width="168" height="106" rx="13" class="card"/>
+  <text x="884" y="502" text-anchor="middle" class="card-title">ArgoCD App</text>
+  <text x="884" y="528" text-anchor="middle" class="copy">source.path points</text>
+  <text x="884" y="550" text-anchor="middle" class="copy">to Git directory</text>
+
+  <rect x="1012" y="465" width="118" height="106" rx="13" class="card"/>
+  <text x="1071" y="502" text-anchor="middle" class="card-title">Cluster</text>
+  <text x="1071" y="528" text-anchor="middle" class="copy">addon</text>
+  <text x="1071" y="550" text-anchor="middle" class="copy">resources</text>
+
+  <line x1="224" y1="518" x2="270" y2="518" stroke="#34d399" stroke-width="3" marker-end="url(#arrow-green)"/>
+  <line x1="454" y1="518" x2="500" y2="518" stroke="#34d399" stroke-width="3" marker-end="url(#arrow-green)"/>
+  <line x1="754" y1="518" x2="800" y2="518" stroke="#34d399" stroke-width="3" marker-end="url(#arrow-green)"/>
+  <line x1="968" y1="518" x2="1012" y2="518" stroke="#34d399" stroke-width="3" marker-end="url(#arrow-green)"/>
+
+  <rect x="70" y="696" width="1060" height="42" rx="10" fill="#1e293b"/>
+  <text x="600" y="723" text-anchor="middle" class="footer">Git is an addon audit trail. It is not a workload audit trail.</text>
+</svg>

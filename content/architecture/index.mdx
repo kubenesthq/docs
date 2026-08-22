@@ -49,30 +49,12 @@ The contracts repository is not a running service — it is the shared source of
 
 ## System topology
 
-```mermaid
-flowchart TD
-    UI["kubenest-ui<br/>Next.js management console"]
-    BE["kubenest-backend<br/>FastAPI · PostgreSQL · Redis<br/>stateless with respect to Kubernetes"]
-    HUB["kubenest-hub<br/>Go WebSocket broker · registry in Redis<br/>validates sender identity, routes by cluster_id"]
-    OA["operator<br/>cluster A"]
-    OB["operator<br/>cluster B"]
-    OC["operator<br/>cluster C"]
-    KA["Kubernetes A<br/>CRDs + ArgoCD"]
-    KB["Kubernetes B<br/>CRDs + ArgoCD"]
-    KC["Kubernetes C<br/>CRDs + ArgoCD"]
-    GIT[("Git<br/>Helm values")]
-
-    UI -- "HTTPS REST + SSE" --> BE
-    BE -- "WSS, authenticated and persistent<br/>client_type: backend" --> HUB
-    HUB -- "WSS per cluster, cluster JWT" --> OA
-    HUB -- "WSS per cluster" --> OB
-    HUB -- "WSS per cluster" --> OC
-    OA --> KA
-    OB --> KB
-    OC --> KC
-    OA -- "writes values" --> GIT
-    GIT -- "ArgoCD syncs from Git" --> KA
-```
+<img
+  src="/diagrams/control-plane-topology.svg"
+  alt="The backend and each in-cluster operator open outbound authenticated WebSocket connections to the hub; only the operator connects to the local Kubernetes API"
+  width="1200"
+  height="660"
+/>
 
 The data flow for the two main directions:
 

@@ -13,6 +13,13 @@ Workloads do not produce Git commits: the backend stores the App as a `StackDepl
 Addons use Git: the addon controller commits their chart and values files, then creates an
 `Application` in the tenant cluster that points at that directory.
 
+<img
+  src="/diagrams/gitops-flow.svg"
+  alt="Workloads use backend-created ArgoCD Applications with inline Helm values and no Git commit; addons commit Chart.yaml and values.yaml to their cluster addon path before ArgoCD syncs them"
+  width="1200"
+  height="760"
+/>
+
 ## Where Git is used
 
 ArgoCD is the common reconciliation layer. Git is the source for addons, but not for workloads.

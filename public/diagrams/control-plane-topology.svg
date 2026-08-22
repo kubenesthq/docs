@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="660" viewBox="0 0 1200 660" role="img" aria-labelledby="title desc">
+  <title id="title">KubeNest control-plane, hub, and operator topology</title>
+  <desc id="desc">The browser talks only to the backend. The backend and each in-cluster operator open authenticated outbound WebSocket connections to the hub. The backend has no direct Kubernetes API connection or customer kubeconfig. The operator uses its local service account to reach the Kubernetes API.</desc>
+  <defs>
+    <marker id="arrow-teal" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2dd4bf"/>
+    </marker>
+    <marker id="arrow-amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#fbbf24"/>
+    </marker>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .title { fill: #f8fafc; font-size: 30px; font-weight: 700; }
+      .subtitle { fill: #cbd5e1; font-size: 17px; }
+      .zone { fill: #111c33; stroke: #475569; stroke-width: 2; }
+      .zone-title { fill: #94a3b8; font-size: 15px; font-weight: 700; letter-spacing: 1.4px; }
+      .card { fill: #172554; stroke: #60a5fa; stroke-width: 2; }
+      .hub { fill: #164e63; stroke: #2dd4bf; stroke-width: 3; }
+      .cluster { fill: #312e81; stroke: #a5b4fc; stroke-width: 2; }
+      .card-title { fill: #f8fafc; font-size: 21px; font-weight: 700; }
+      .card-copy { fill: #cbd5e1; font-size: 15px; }
+      .label { fill: #e2e8f0; font-size: 15px; font-weight: 600; }
+      .small { fill: #94a3b8; font-size: 14px; }
+      .good { fill: #5eead4; font-size: 16px; font-weight: 700; }
+      .deny { fill: #fca5a5; font-size: 15px; font-weight: 700; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="660" rx="22" fill="#0b1220"/>
+  <text x="48" y="54" class="title">The cluster connects out; the control plane never connects in</text>
+  <text x="48" y="82" class="subtitle">The hub routes authenticated events across connections opened by the backend and each operator.</text>
+
+  <rect x="40" y="112" width="490" height="446" rx="18" class="zone"/>
+  <text x="66" y="143" class="zone-title">KUBENEST CONTROL PLANE</text>
+
+  <rect x="74" y="184" width="178" height="112" rx="14" class="card"/>
+  <text x="163" y="221" text-anchor="middle" class="card-title">Web console</text>
+  <text x="163" y="248" text-anchor="middle" class="card-copy">REST commands</text>
+  <text x="163" y="271" text-anchor="middle" class="card-copy">SSE status</text>
+
+  <rect x="318" y="174" width="182" height="132" rx="14" class="card"/>
+  <text x="409" y="212" text-anchor="middle" class="card-title">Backend</text>
+  <text x="409" y="240" text-anchor="middle" class="card-copy">FastAPI</text>
+  <text x="409" y="263" text-anchor="middle" class="card-copy">opens outbound WSS</text>
+  <text x="409" y="286" text-anchor="middle" class="card-copy">no kubeconfig</text>
+
+  <line x1="252" y1="240" x2="318" y2="240" stroke="#fbbf24" stroke-width="3" marker-end="url(#arrow-amber)"/>
+  <line x1="318" y1="265" x2="252" y2="265" stroke="#fbbf24" stroke-width="3" marker-end="url(#arrow-amber)"/>
+  <text x="285" y="222" text-anchor="middle" class="small">HTTPS</text>
+
+  <rect x="512" y="200" width="176" height="152" rx="18" class="hub"/>
+  <text x="600" y="241" text-anchor="middle" class="card-title">Hub</text>
+  <text x="600" y="270" text-anchor="middle" class="card-copy">WebSocket broker</text>
+  <text x="600" y="294" text-anchor="middle" class="card-copy">validates identity</text>
+  <text x="600" y="318" text-anchor="middle" class="card-copy">routes by cluster ID</text>
+
+  <line x1="500" y1="226" x2="512" y2="226" stroke="#2dd4bf" stroke-width="4" marker-end="url(#arrow-teal)"/>
+  <line x1="512" y1="332" x2="500" y2="332" stroke="#fbbf24" stroke-width="3" marker-end="url(#arrow-amber)"/>
+  <text x="490" y="355" text-anchor="end" class="small">status events</text>
+
+  <rect x="706" y="112" width="454" height="446" rx="18" class="zone"/>
+  <text x="732" y="143" class="zone-title">CUSTOMER KUBERNETES CLUSTER</text>
+  <line x1="706" y1="154" x2="706" y2="530" stroke="#fb7185" stroke-width="3" stroke-dasharray="8 8"/>
+  <text x="720" y="178" class="deny">Firewall / NAT boundary</text>
+
+  <rect x="756" y="194" width="184" height="132" rx="14" class="cluster"/>
+  <text x="848" y="231" text-anchor="middle" class="card-title">Operator</text>
+  <text x="848" y="259" text-anchor="middle" class="card-copy">cluster-scoped JWT</text>
+  <text x="848" y="282" text-anchor="middle" class="card-copy">opens outbound WSS</text>
+  <text x="848" y="305" text-anchor="middle" class="card-copy">local ServiceAccount</text>
+
+  <rect x="978" y="194" width="148" height="132" rx="14" class="cluster"/>
+  <text x="1052" y="231" text-anchor="middle" class="card-title">Kubernetes</text>
+  <text x="1052" y="259" text-anchor="middle" class="card-copy">local API</text>
+  <text x="1052" y="282" text-anchor="middle" class="card-copy">CRDs + ArgoCD</text>
+  <text x="1052" y="305" text-anchor="middle" class="card-copy">workloads</text>
+
+  <line x1="756" y1="222" x2="688" y2="222" stroke="#2dd4bf" stroke-width="4" marker-end="url(#arrow-teal)"/>
+  <line x1="688" y1="310" x2="756" y2="310" stroke="#fbbf24" stroke-width="3" marker-end="url(#arrow-amber)"/>
+  <text x="722" y="338" text-anchor="middle" class="small">commands</text>
+
+  <line x1="940" y1="260" x2="978" y2="260" stroke="#2dd4bf" stroke-width="4" marker-end="url(#arrow-teal)"/>
+  <text x="959" y="180" text-anchor="middle" class="small">local API</text>
+
+  <path d="M 470 412 C 620 470, 770 470, 996 364" fill="none" stroke="#fb7185" stroke-width="3" stroke-dasharray="9 8"/>
+  <line x1="696" y1="423" x2="720" y2="447" stroke="#fb7185" stroke-width="5"/>
+  <line x1="720" y1="423" x2="696" y2="447" stroke="#fb7185" stroke-width="5"/>
+  <text x="600" y="495" text-anchor="middle" class="deny">No backend → cluster API connection</text>
+  <text x="600" y="519" text-anchor="middle" class="small">No inbound firewall rule · no customer kubeconfig in the backend</text>
+
+  <rect x="72" y="578" width="1056" height="52" rx="12" fill="#0f3d3e" stroke="#2dd4bf" stroke-width="2"/>
+  <text x="600" y="610" text-anchor="middle" class="good">Control-plane traffic requires no inbound connection to the customer cluster.</text>
+</svg>

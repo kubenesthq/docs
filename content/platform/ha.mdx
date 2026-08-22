@@ -37,6 +37,13 @@ goes on. Read the `ha` column below as what the tier is built to do, not as what
 | Honest promise | *"We restore, and the restore is drilled"* | *"Survives the loss of one node"* |
 | Cost | 1 node | 3 nodes, plus etcd operations |
 
+<img
+  src="/diagrams/ha-tiers.svg"
+  alt="After losing a control-plane node, single-server loses its API while existing workloads on agent nodes continue; HA retains quorum and scheduling, while workloads on the failed node stop in either tier"
+  width="1200"
+  height="790"
+/>
+
 ## `single-server`
 
 One control-plane node. Simpler, cheaper, fewer moving parts, and genuinely the right answer for
