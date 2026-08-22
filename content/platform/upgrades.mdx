@@ -362,8 +362,14 @@ until reclaimed. The post-rollback report names any it finds.
 kubenest platform rollback --cluster prod-1
 ```
 
-It reports which mechanism it will use before doing anything, and asks for confirmation when the
-mechanism is a datastore restore.
+It prints which mechanism it will use — and, for a restore, which snapshot and when it was taken —
+before touching anything. The cheap mechanism then proceeds. The expensive one stops and requires
+`--confirm`, rather than prompting: a datastore restore is a service interruption and should not
+be one keystroke away.
+
+```bash filename="terminal"
+kubenest platform rollback --cluster prod-1 --confirm
+```
 
 ## When a stage fails
 
@@ -372,10 +378,14 @@ leave you in that is not covered below.
 
 **Failure during `preflight`.** Nothing was changed. Fix what the report names and re-run.
 
-**Failure during `backup`.** Nothing was changed. This gate failing is important information in
+**Failure during `backup`.** Nothing was changed. This stage failing is important information in
 its own right — investigate before upgrading, because it means your backups were not working.
 
-**Failure during `platform-components`, `profiles` or `agent`.** The cluster is on Kubernetes
+**Failure during `profiles`.** Today this is not a failure so much as a refusal: a cluster with
+any component profile installed stops here rather than being upgraded partially, with core already
+moved. Roll back, or wait for the profile upgrades to ship.
+
+**Failure during `platform-components` or `agent`.** The cluster is on Kubernetes
 version N with some components at N+1. Two supported exits, and the failure message prints both:
 
 - **Roll back** to N with `kubenest platform rollback`. Fast, no data implications.
@@ -404,7 +414,8 @@ before each stage rather than after.
 
 ## Verifying an upgrade
 
-Stage 7 runs these automatically. They are also what to check by hand.
+Stage 7 runs the first five automatically, in this order, and names the one that failed. The sixth
+is yours to check.
 
 These are **convergence checks with deadlines**, on the same three-outcome rule as the install
 checks — `pass`, `converging`, or `fail` with the last observed state. A post-upgrade cluster is
@@ -419,11 +430,13 @@ sampling once here is even less defensible than it is at install.
 kubectl get nodes -o wide
 ```
 
-Within `limits.timeouts.node-ready` of that node's upgrade completing.
+Within `limits.timeouts.node-ready` of that node's upgrade completing. The check also requires
+that no node was left cordoned: a node that upgraded and was never uncordoned is a cluster quietly
+short of capacity, which nobody notices until the next incident.
 
-### Every core and profile component is Running at its new version
+### Every core component is Running
 
-Component versions match the target manifest, and every release reaches Ready within
+Every workload in the platform's own namespaces reaches Ready within
 `limits.timeouts.component-ready`.
 
 `CrashLoopBackOff` and `Pending` fail this check only if they persist to the deadline. Immediately
@@ -435,17 +448,37 @@ A test PVC binds. Upgrades touch the CSI driver, so this is verified rather than
 
 ### Ingress still serves and certificates are still valid
 
-A request reaches a workload through Traefik over TLS, and cert-manager still holds a valid
-certificate. These are the failures customers notice first.
-
-### Your workloads are running
-
-Replica counts match their specs and nothing is stuck rescheduling.
+The Traefik Gateway still reports `Programmed` and the platform's default certificate still
+reports `Ready`. These are the failures customers notice first. The check reads those conditions;
+it does not send a request through them, so an end-to-end probe of your own hostname is still
+worth running.
 
 ### The recorded bundle version matches reality
 
-The cluster record says N+1 and every installed component agrees, profile set unchanged.
+Every pin in the target manifest is compared against what is installed — kubelet version per node,
+chart version per component. Nothing else in the day-2 story is trustworthy if the record drifts,
+and an upgrade is exactly when it would.
+
+### Your workloads are running
+
+Replica counts match their specs and nothing is stuck rescheduling. **This one stage 7 does not
+do.** It checks the platform, not your applications, so this is the check to run yourself.
 
 </Steps>
 
+Stage 8 records the new bundle version against the cluster only after all five pass. An upgrade
+that completed but failed verification leaves the cluster on N+1 and the record on N, which is the
+honest state and the one you want to see.
+
 ## Skipping versions
+
+**Step through one bundle at a time.**
+
+Nothing currently refuses a target more than one bundle ahead. The bundle-path gate checks that
+the target is newer than what you run and that it offers your tier and your profiles — not that
+the hop from your version to it is one we have tested. Only two bundles exist so far, so there is
+nothing to skip yet, but the gate will not stop you when there is.
+
+The reason to step is the deprecated-API scan. It runs against the Kubernetes version pinned by
+the bundle you name, and only that one. An API removed in 1.1 and irrelevant again by 1.3 still
+breaks your workloads at 1.1, and a 1.0 → 1.3 jump would never scan for it.

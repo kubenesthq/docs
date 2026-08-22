@@ -47,9 +47,9 @@ export const SPEC_PAGES: Record<string, BuildStatusEntry> = {
       'Core installs, and the profile set is recorded and validated as of kn-boj — an unknown profile is rejected with 422 rather than ignored. `ha` is the exception in the list: it is an install-time topology stage 3 builds, not components stage 11 installs.',
   },
   '/platform/upgrades': {
-    beads: ['kn-1krv', 'kn-kp3'],
+    beads: ['kn-1krv', 'kn-kp3', 'kn-nqj'],
     missing:
-      'Two things on this page have never run on hardware, and they are the two that matter when an upgrade goes wrong. The datastore-restore rollback — recovery from a failure *after* the point of no return, which is what every pre-flight gate and the stage-2 backup are insurance against — has only ever run in unit tests (kn-1krv). And no upgrade has run on the three-node `ha` tier, so the drain-and-return behaviour described for a multi-node control plane is untested (kn-kp3).',
+      'Two things on this page have never run on hardware, and they are the two that matter when an upgrade goes wrong. The datastore-restore rollback — recovery from a failure *after* the point of no return, which is what every pre-flight gate and the stage-2 backup are insurance against — has only ever run in unit tests (kn-1krv). And no upgrade has run on the three-node `ha` tier, so the drain-and-return behaviour described for a multi-node control plane is untested (kn-kp3). Separately, the maintenance window is not in force at all: `kubenest cluster set-window` stores it through a control-plane route that does not exist, and the upgrade never reads one back, so the gate passes every cluster as unconfigured and the mid-upgrade pause never fires (kn-nqj).',
     today:
       'The upgrade runs, gated on a real host: `kubenest platform upgrade` took a two-node cluster from bundle 0.9 to 1.0 in 3m11s through all eight stages, components-first and Kubernetes-last, with a two-replica workload reachable on every one of 146 one-second probes. The seven pre-flight gates, the deprecated-API scan, the upgrade journal and the fast Helm rollback for a failure before the point of no return are all real.',
   },
