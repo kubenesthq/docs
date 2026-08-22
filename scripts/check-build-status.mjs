@@ -32,12 +32,16 @@ if (specPaths.length === 0) {
 
 // Beads per entry, in registry order, so we can tell which page owns a stale one.
 const entryBeads = new Map()
+const entryAvailability = new Map()
+const entryHasToday = new Map()
 for (const [i, path] of specPaths.entries()) {
   const start = body.indexOf(`  '${path}':`)
   const end = i + 1 < specPaths.length ? body.indexOf(`  '${specPaths[i + 1]}':`) : body.length
   const block = body.slice(start, end)
   const arr = block.match(/beads:\s*\[([^\]]*)\]/)
   entryBeads.set(path, arr ? [...arr[1].matchAll(/'([^']+)'/g)].map((m) => m[1]) : [])
+  entryAvailability.set(path, block.match(/availability:\s*'([^']+)'/)?.[1])
+  entryHasToday.set(path, /\btoday:\s/.test(block))
 }
 
 const pathToFile = (p) => join(contentDir, `${p.replace(/^\//, '')}.mdx`)
@@ -57,6 +61,15 @@ const MARKER = '<BuildStatus'
 
 // 1. Every registered page exists and is marked.
 for (const p of specPaths) {
+  const availability = entryAvailability.get(p)
+  if (availability !== 'unavailable' && availability !== 'partial') {
+    errors.push(
+      `${p} must declare availability: 'unavailable' or 'partial' so its marker is proportional to what ships.`,
+    )
+  } else if (availability === 'partial' && !entryHasToday.get(p)) {
+    errors.push(`${p} is marked partial but has no today text describing the shipped part.`)
+  }
+
   const file = pathToFile(p)
   if (!existsSync(file)) {
     errors.push(`${p} is in SPEC_PAGES but ${relative(root, file)} does not exist.`)

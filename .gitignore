@@ -12,7 +12,9 @@ package-lock.json
 docs/
 docusaurus.config.ts
 sidebars.ts
-src/components/
+src/components/*
+# Current Nextra component; keep the old Docusaurus residue ignored.
+!src/components/build-status.tsx
 src/css/
 static/
 src/pages/index.tsx.bak
