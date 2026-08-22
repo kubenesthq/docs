@@ -3,7 +3,7 @@ title: Registering a Cluster
 description: Two paths to connecting a Kubernetes cluster to kubenest — manual BYO-cluster registration and cloud-provisioned clusters — with the full connection state machine.
 ---
 
-import { Callout, Steps, Tabs } from 'nextra/components'
+import { Callout, Steps } from 'nextra/components'
 
 # Registering a Cluster
 
@@ -26,7 +26,9 @@ ORG_ID=$(curl -s -H "Authorization: Bearer $TOKEN" \
   https://api.your-domain.com/api/v1/orgs | jq -r '.[0].id')
 ```
 
-Now create the cluster record. This reserves a UUID, mints the cluster JWT, and generates the Helm install command.
+Now create the cluster record. This reserves its UUID; the response is deliberately
+credential-free. Installation credentials come from a separate authenticated `POST` and are
+returned exactly once.
 
 For a BYO cluster, **omit** `provider` and `credential_id` entirely — their presence is what tells kubenest to provision infrastructure for you. The request body rejects unknown fields, so do not send `"provider": "manual"`; there is no such provider.
 
@@ -47,14 +49,9 @@ Response (`201 Created`):
   "id": "a1b2c3d4-0001-0000-0000-000000000000",
   "name": "prod-cluster",
   "status": "pending",
-  "connection_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-  "install_command": "helm install kubenest-operator oci://registry.kubenest.io/kubenest-operator --namespace kubenest-system --create-namespace --set kubenest.hubURL=wss://hub.your-domain.com/ws/operator --set kubenest.jwtSecret=eyJhbGc... --set kubenest.clusterID=a1b2c3d4-..."
+  "cli_command": "kubenest cluster connect --cluster a1b2c3d4-0001-0000-0000-000000000000"
 }
 ```
-
-<Callout type="warning">
-**Do not run `install_command` as-is.** The generated command sets `kubenest.hubURL`, a key the operator chart does not read — the chart reads `kubenest.backendURL` — and it pulls from a chart registry that does not currently exist. Run unmodified, the install either fails at the pull or brings up an operator pointed at the chart's default endpoint instead of your hub. Use the `connection_token` and cluster ID with the values file below instead. The [Installation](/getting-started/installation) page has the full explanation.
-</Callout>
 
 A manually registered cluster starts in `pending` and moves to `connected` once the operator's WebSocket handshake reaches the hub. Cloud-provisioned clusters start in `provisioning` instead.
 
@@ -64,69 +61,85 @@ Save the cluster ID. You will need it in subsequent API calls:
 CLUSTER_ID="a1b2c3d4-0001-0000-0000-000000000000"
 ```
 
-You can also retrieve the install command at any time via the API:
+Mint the credentials only when you are ready to install. Calling this endpoint again rotates both
+the agent JWT and, when GitOps is configured, the per-cluster repository deploy key:
 
-```bash filename="retrieve install command"
-curl -H "Authorization: Bearer $TOKEN" \
-  "https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID/install-command"
+```bash filename="mint one-time install credentials"
+umask 077
+curl -sS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID/agent-credentials" \
+  > agent-credentials.json
 ```
 
-Note that this endpoint mints a **new** 365-day cluster JWT on every call and stores it as the cluster's current token. If the operator is already running with an older token, it keeps working (see the note on revocation below), but the command you get back will not match the token in the running Secret. To read the install steps without minting a new token, use `/install-instructions` instead, which reuses the stored token when one exists.
+The response contains `agent_jwt.token`, `agent_jwt.hub_url`, the pinned
+`operator.chart_ref`, and—when the control plane has GitOps configured—a `repo_credential` with
+this cluster's repository URL and write deploy key. `GET /clusters/{id}/install-instructions` is
+the secret-free browser surface. The old credential-bearing install-command endpoint is removed.
 
 ### Prepare your Helm values
 
-For production installs, use a values file rather than a `--set` chain. This makes the configuration auditable and easier to update:
+For production installs, use a mode-`0600` values file rather than a `--set` chain. Map
+`agent_jwt.hub_url` to `kubenest.backendURL`; the latter is the key the chart and Deployment read.
 
 ```yaml filename="kubenest-operator-values.yaml"
 kubenest:
-  # The hub's operator WebSocket endpoint, including the /ws/operator path.
-  # The key is named backendURL, but the value is the hub URL.
   backendURL: wss://hub.your-domain.com/ws/operator
-
-  # connection_token from the cluster record. Required.
   jwtSecret: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
-
-  # UUID of the cluster record. Required.
   clusterID: a1b2c3d4-0001-0000-0000-000000000000
 
-  # GitOps repository the operator writes manifests to.
-  # Leave gitRepoURL empty to use the chart's bundled Gitea instead.
   bootstrapController:
-    gitRepoURL: https://github.com/your-org/gitops-repo
+    gitRepoURL: ssh://git@git.your-domain.com/kubenest/gitops-a1b2c3d4.git
     gitRepoBranch: main
-    gitToken: ghp_...   # personal access token with repo:write scope
+    gitSSHPrivateKey: |
+      -----BEGIN OPENSSH PRIVATE KEY-----
+      ...
+      -----END OPENSSH PRIVATE KEY-----
 
-# Bundled dependencies — ArgoCD, cert-manager, ingress-nginx and Gitea all
-# install by default. Disable whatever the cluster already runs.
 bootstrap:
   argocd:
-    enabled: false      # this cluster already runs ArgoCD
+    enabled: true
   certManager:
-    enabled: false
-  ingressNginx:
-    enabled: false
+    enabled: true
   gitea:
-    enabled: false      # using the external Git repo above
+    enabled: false
   vault:
     enabled: false
 ```
 
-The chart does not validate these values: an install with missing or misspelled keys deploys without complaint and the operator silently dials the chart's default endpoint with an empty token. The [Installation](/getting-started/installation) page covers the failure mode and the full values reference.
+The chart renders the JWT and cluster ID into the required `kubenest-operator-token` Secret. If
+`repo_credential` was `null`, omit the `bootstrapController` Git fields and leave
+`bootstrap.gitea.enabled` at its `true` default.
+
+The credential response does not yet carry the Git server's SSH host key. Leave
+`gitSSHKnownHosts` empty unless you obtained the real key out of band; the resulting unverified-host
+posture is tracked by `kn-rnyl.1`.
 
 The `kubenest.bootstrapController.gitRepoURL` must be a repository that:
-- The operator has read/write access to via the provided token.
-- Is **not** shared with other clusters unless you understand that they will write to different subtrees (see [GitOps and Drift Detection](/architecture/gitops)).
+- The operator can write using the per-repository deploy key.
+- Belongs to this cluster rather than being a shared backend-wide repository.
+
+Render this exact block before installing:
+
+```bash filename="render operator"
+helm template operator oci://ghcr.io/kubenesthq/charts/kubenest-operator-2 \
+  --version 2.3.5 \
+  --namespace kubenest-system \
+  --values kubenest-operator-values.yaml \
+  > /tmp/kubenest-operator-rendered.yaml
+```
 
 ### Install the operator on the cluster
 
 Make sure `kubectl` is pointing at the target cluster, then install:
 
 ```bash filename="install operator"
-helm install kubenest-operator oci://ghcr.io/kubenesthq/charts/kubenest-operator-2 \
-  --version 2.1.0 \
+helm upgrade --install operator oci://ghcr.io/kubenesthq/charts/kubenest-operator-2 \
+  --version 2.3.5 \
   --namespace kubenest-system \
   --create-namespace \
-  --values kubenest-operator-values.yaml
+  --values kubenest-operator-values.yaml \
+  --wait
 ```
 
 Watch the pod start:
@@ -139,14 +152,14 @@ Expected output once healthy (the resource names include the chart name, `kubene
 
 ```
 NAME                                                            READY   STATUS    RESTARTS   AGE
-kubenest-operator-kubenest-operator-2-controller-manager-xyz   1/1     Running   0          30s
+operator-kubenest-operator-2-controller-manager-xyz   1/1     Running   0          30s
 ```
 
 Check the operator log for the hub connection message:
 
 ```bash filename="check operator logs"
 kubectl logs -n kubenest-system \
-  -l app.kubernetes.io/instance=kubenest-operator \
+  -l app.kubernetes.io/instance=operator \
   --tail=30
 ```
 
@@ -171,13 +184,16 @@ The cluster is now ready to receive deployments. Create a project and deploy you
 </Steps>
 
 <Callout type="warning">
-**Secure the cluster JWT.** The connection token is a long-lived credential with the ability to execute any operation the operator supports on that cluster. The Helm chart does **not** put it in a Kubernetes Secret: `kubenest.jwtSecret` is rendered into the operator Deployment as a plain environment variable, readable by anyone who can read Deployments in the namespace. The chart does read an optional Secret named `kubenest-operator-token` (keys `token` and `cluster-id`) — if you create one, the operator prefers its token over the rendered value, and you can then keep the token out of your values file entirely.
-
-Create that Secret regardless of how you handle the token, because `kubenest.clusterID` is accepted by the chart and never used — it is not rendered into the Deployment, and `CLUSTER_ID` comes only from the Secret's `cluster-id` key. Without the Secret the operator runs with an empty cluster ID while looking healthy. Chart defect, tracked as `kn-lx5t`; see [Installing the operator](/getting-started/installation) for the exact command.
+**Secure the install credentials.** The values file contains the agent JWT and, when configured,
+the repository's private deploy key. Keep it mode `0600`, do not commit it, and delete both it and
+`agent-credentials.json` after Helm has accepted the release. The chart stores the operator
+identity and Git key in Kubernetes Secrets; access to Secrets and Helm release records remains a
+cluster-administrator privilege.
 
 Issuing a new token does **not** revoke the old one. The hub accepts any correctly signed, unexpired cluster JWT — it does not check the token against the one currently stored for the cluster. A leaked token therefore stays usable for the remainder of its 365-day lifetime. If a token is compromised, treat rotating the hub's `JWT_SECRET` (which invalidates every cluster token at once and requires re-issuing all of them) or deleting and re-registering the cluster as the only reliable containment.
 
-To issue a fresh cluster JWT, call `GET /api/v1/clusters/{id}/install-command`. Every call mints a new 365-day token and stores it as the cluster's current token. To roll the operator onto it, set the new token as `kubenest.jwtSecret` in your values file and run `helm upgrade` — or, if you created a `kubenest-operator-token` Secret, update its `token` key and restart the operator pod.
+To rotate, call `POST /api/v1/clusters/{id}/agent-credentials`, replace both the JWT and repository
+key in the values file, and run the same `helm upgrade --install` command.
 </Callout>
 
 ---
@@ -330,7 +346,7 @@ What deletion does depends on how the cluster was created:
 
 ```bash filename="BYOC cleanup"
 # 1. Uninstall the operator from the cluster
-helm uninstall kubenest-operator -n kubenest-system
+helm uninstall operator -n kubenest-system
 
 # 2. Optionally remove the namespace
 kubectl delete ns kubenest-system
@@ -344,7 +360,9 @@ curl -X DELETE https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID \
 
 ## Troubleshooting
 
-**Operator pod is in CrashLoopBackOff.** The most common cause is a malformed or expired cluster JWT. Check the pod logs for `"invalid token"` or `"token expired"`. Issue a new token via `GET /api/v1/clusters/{id}/install-command`, set it as `kubenest.jwtSecret` in your values file, and run `helm upgrade` — or update the `kubenest-operator-token` Secret and restart the pod, if you created one.
+**Operator pod is in CrashLoopBackOff.** The most common cause is a malformed or expired agent JWT.
+Mint a replacement with `POST /api/v1/clusters/{id}/agent-credentials`, update both the JWT and
+repository deploy key in the values file, and run the same `helm upgrade --install` command.
 
 **Cluster stuck in `awaiting_operator` after operator install.** The operator is not reaching the hub. Verify:
 - The pod is `Running` (not `CrashLoopBackOff`).

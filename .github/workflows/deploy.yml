@@ -22,6 +22,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Checkout operator chart contract
+        uses: actions/checkout@v4
+        with:
+          repository: kubenesthq/operator-v2
+          ref: argo-cd
+          path: .operator-v2
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+
+      - name: Render published operator values
+        run: >-
+          python3 .operator-v2/scripts/check_docs_helm_values.py
+          --docs-root .
+          --chart .operator-v2/charts/kubenest-operator
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
