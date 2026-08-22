@@ -17,7 +17,24 @@ Understanding the architecture pays off quickly: it tells you where to look when
 
 The backend is the control plane. It is a FastAPI application that owns every user-facing resource: organizations, users, clusters, projects, apps, stack templates, addon instances, and deployment history. All persistent state lives in PostgreSQL. Redis handles job queues, rate-limit counters, and short-lived cache entries (including chart inspection results).
 
-The backend is **stateless with respect to Kubernetes**. It never opens a `kubectl` connection, never reads a kubeconfig, and never calls the Kubernetes API directly. Every cluster operation is dispatched as a signed JSON event to the hub and acknowledged asynchronously. This makes the backend horizontally scalable — you can run multiple replicas behind a load balancer without any shared in-process state.
+The backend is designed to be **stateless with respect to Kubernetes**: it reads no kubeconfig, and
+cluster operations are dispatched as signed JSON events to the hub and acknowledged asynchronously.
+This is what makes the backend horizontally scalable — you can run multiple replicas behind a load
+balancer without any shared in-process state.
+
+<Callout type="warning">
+**Today there are exceptions, and they matter if you are evaluating the trust boundary.** Cluster
+registration persists a cluster-admin bearer token on the cluster record
+(`app/models/cluster.py:96-102`), and several backend paths use it to call the tenant cluster's
+Kubernetes API directly rather than routing through the hub — StackDeploy CRUD
+(`app/services/stack_template.py:125-166`, `:339-352`), ArgoCD cluster registration
+(`app/services/argocd.py:31-67`), component Secret endpoints, and addon CR mutations.
+
+So the boundary described here is the architecture's direction and the target the remaining work is
+converging on, not a description of every path in the current build. The conversion is tracked as
+`kn-cjqw`, with `kn-p61d`, `kn-37n5`, `kn-qh3g`, `kn-owei` and `kn-i6qg` as the specific paths. If
+you are assessing kubenest on this property, assess it against those.
+</Callout>
 
 ### kubenest-hub
 
@@ -30,7 +47,7 @@ The hub understands two event directions: **command events** flow backend → op
 The operator is a Go controller-runtime application that runs inside each registered Kubernetes cluster. It implements five Kubernetes controllers:
 
 - **StackDeploy controller** — watches `StackDeploy` CRDs (the cluster-side representation of an App) and drives the full deploy/patch/delete reconcile loop.
-- **Workload controller** — manages individual workload components within a StackDeploy: renders Helm values, commits to the GitOps repo, creates or updates ArgoCD Applications.
+- **Workload controller** — tracks individual workload components within a StackDeploy: watches the ArgoCD Application's health, reports the cluster's ingress IP, and collects exports once a component is running. It does not render manifests or create the Application — the backend does both. See [GitOps](/architecture/gitops).
 - **Addon controller** — same as Workload but for Helm-chart backing services; also handles export discovery after a successful install.
 - **BuildRequest controller** — manages image build jobs (Kaniko or Cloud Native Buildpacks) for Dockerfile and buildpack deployment modes.
 - **Project controller** — ensures the Kubernetes namespace exists and has the correct resource quotas and RBAC bindings before any app is deployed into it.
@@ -82,13 +99,27 @@ flowchart LR
 
 The backend never holds a kubeconfig or cluster credentials. Every Kubernetes operation originates inside the target cluster, initiated by the operator in response to a validated event. A compromised backend cannot issue arbitrary Kubernetes API calls — the worst it can do is send malformed events, which the hub rejects at the schema-validation boundary.
 
-This also means operator installation requires no inbound firewall rules. The operator dials the hub outbound over WebSocket and holds the connection open. If the cluster is behind a NAT or a restrictive corporate firewall, it still works as long as outbound HTTPS/WSS is allowed.
+This means the operator's own session requires no inbound firewall rule. The operator dials the hub outbound over WebSocket and holds the connection open, so it survives NAT and a restrictive corporate firewall as long as outbound HTTPS/WSS is allowed.
 
-### 2. GitOps as the single source of truth
+It does not yet make the whole deployment path outbound-only. While the direct backend paths described in the warning above remain, the control plane connects to the cluster's Kubernetes API server with the credentials the operator advertises, so that endpoint must be reachable from the control plane. `kn-cjqw` is what closes that gap.
 
-The operator never applies Kubernetes resources directly with `kubectl apply`. Instead, it renders Helm values from the StackDeploy spec, commits them to a dedicated GitOps repository, and creates or updates an ArgoCD Application that points to that path. ArgoCD is responsible for applying the actual Kubernetes resources.
+### 2. ArgoCD reconciles everything; Git backs the addons
 
-This is not just about audit trails (though it produces them). It means every deployed workload has a human-readable representation in Git that you can inspect, diff, and revert independently of kubenest. If kubenest itself goes offline, ArgoCD continues serving the deployed applications from Git.
+Nothing in kubenest applies Kubernetes resources with `kubectl apply`. ArgoCD does the applying, in
+both paths. Where the two paths differ is where the desired state lives, and the difference is worth
+knowing before you go looking for a commit that was never made.
+
+**Addons are backed by Git.** The addon controller writes the chart and values to a per-cluster
+GitOps repository under `clusters/{id}/addons/`, then points an ArgoCD Application at that
+directory. An addon therefore has a human-readable representation in Git that you can inspect, diff
+and revert independently of kubenest, and ArgoCD keeps serving it if kubenest is offline.
+
+**Workloads are not.** The backend creates the ArgoCD Application itself, with the Helm values
+inline in the Application spec against a chart repository. No workload manifest is committed, and
+there is no workload directory in the GitOps repo. A workload's change history lives in the
+backend's deployment records rather than in Git.
+
+[GitOps](/architecture/gitops) has the full comparison, including what this costs you.
 
 ### 3. Event-driven asynchrony for all cluster operations
 
@@ -125,10 +156,11 @@ Operations that change Kubernetes state are asynchronous. The backend dispatches
 flowchart TD
     UI["UI: POST /api/v1/apps"] --> BE["Backend validates the spec"]
     BE --> DB[("PostgreSQL<br/>records intent")]
+    BE --> ARGO["Backend upserts the ArgoCD Application<br/>Helm values inline, no Git commit"]
     BE -- "dispatch event" --> HUB["Hub routes to the operator"]
-    HUB --> OP["Operator reconciles"]
-    OP --> W["write Helm values<br/>commit to Git<br/>upsert the ArgoCD Application"]
-    W -- "status event" --> HUB
+    HUB --> OP["Operator reconciles the StackDeploy"]
+    ARGO --> SYNC["ArgoCD syncs the workload<br/>into the cluster"]
+    OP -- "status event" --> HUB
 ```
 
 ### Status update loop

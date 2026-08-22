@@ -68,7 +68,7 @@ Create an addon instance by posting to `/api/v1/addon-instances`. You must suppl
 # Get the definition ID first
 DEFINITION_ID=$(curl -s -H "Authorization: Bearer $TOKEN" \
   "https://api.your-domain.com/api/v1/addon-definitions" | \
-  jq -r '.data[] | select(.name=="postgresql") | .id')
+  jq -r '.data[] | select(.slug=="postgres") | .id')
 
 curl -X POST https://api.your-domain.com/api/v1/addon-instances \
   -H "Authorization: Bearer $TOKEN" \
@@ -77,17 +77,15 @@ curl -X POST https://api.your-domain.com/api/v1/addon-instances \
     "name": "my-postgres",
     "project_id": "b2c3d4e5-0002-0000-0000-000000000000",
     "definition_id": "'"$DEFINITION_ID"'",
-    "chart_config": {
-      "values": {
-        "auth": {
-          "database": "myapp",
-          "username": "myapp",
-          "password": "mysecretpassword"
-        },
-        "primary": {
-          "persistence": {
-            "size": "10Gi"
-          }
+    "values": {
+      "auth": {
+        "database": "myapp",
+        "username": "myapp",
+        "password": "mysecretpassword"
+      },
+      "primary": {
+        "persistence": {
+          "size": "10Gi"
         }
       }
     }
@@ -106,16 +104,14 @@ curl -X POST https://api.your-domain.com/api/v1/addon-instances \
   -d '{
     "name": "my-custom-addon",
     "project_id": "b2c3d4e5-0002-0000-0000-000000000000",
-    "type": "generic",
-    "chart_config": {
-      "chart": {
-        "repo": "https://charts.example.com",
-        "name": "my-custom-chart",
-        "version": "2.1.0"
-      },
-      "values": {
-        "replicaCount": 1
-      }
+    "type": "custom",
+    "chart": {
+      "repo": "https://charts.example.com",
+      "name": "my-custom-chart",
+      "version": "2.1.0"
+    },
+    "values": {
+      "replicaCount": 1
     }
   }'
 ```
@@ -135,7 +131,7 @@ The response includes the addon instance `id` and initial `phase: Pending`. The 
 INSTANCE_ID="instance-uuid-..."
 
 curl -N -H "Authorization: Bearer $TOKEN" \
-  "https://api.your-domain.com/api/v1/events/stream?addon_instance_id=$INSTANCE_ID"
+  "https://api.your-domain.com/api/v1/events/stream?cluster_id=$CLUSTER_ID&resource_type=addon"
 ```
 
 The phase sequence for a healthy deploy:
@@ -189,23 +185,23 @@ receives the real value in its environment without the value ever passing throug
 
 Update an addon's Helm values with a PATCH request. Common reasons to patch: increasing storage size, changing resource requests, enabling a replica set, or rotating a password.
 
+The body takes **exactly one** of `values` or `chart_version` — never both, and never neither. Sending both is rejected. Change the values in one request and the chart version in another.
+
 ```bash filename="upgrade addon values"
 curl -X PATCH https://api.your-domain.com/api/v1/addon-instances/$INSTANCE_ID \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "chart_config": {
-      "values": {
-        "primary": {
-          "resources": {
-            "requests": {
-              "memory": "512Mi",
-              "cpu": "250m"
-            },
-            "limits": {
-              "memory": "1Gi",
-              "cpu": "500m"
-            }
+    "values": {
+      "primary": {
+        "resources": {
+          "requests": {
+            "memory": "512Mi",
+            "cpu": "250m"
+          },
+          "limits": {
+            "memory": "1Gi",
+            "cpu": "500m"
           }
         }
       }
@@ -225,11 +221,7 @@ curl -X PATCH https://api.your-domain.com/api/v1/addon-instances/$INSTANCE_ID \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "chart_config": {
-      "chart": {
-        "version": "16.5.0"
-      }
-    },
+    "chart_version": "16.5.0",
     "note": "Upgrade postgresql chart to 16.5.0"
   }'
 ```
@@ -283,21 +275,25 @@ To wire a standalone addon instance's exports into a workload component that bel
 ```bash filename="patch app to wire standalone addon"
 INSTANCE_ID="c3d4e5f6-..."
 
-curl -X PATCH https://api.your-domain.com/api/v1/apps/my-project/my-app \
+curl -X PATCH "https://api.your-domain.com/api/v1/apps/my-project/my-app?project_id=$PROJECT_ID" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "components": [
       {
         "name": "api",
-        "op": "patch",
+        "type": "workload",
         "workload_spec": {
+          "build_mode": "image",
+          "image": "myorg/my-api:v1.0.0",
+          "replicas": 2,
+          "port": 8000,
           "env": [
             {
-              "name": "DATABASE_URL",
+              "name": "PGHOST",
               "export_ref": {
                 "addon_instance_id": "'"$INSTANCE_ID"'",
-                "export_key": "connection_string"
+                "export_key": "host"
               }
             }
           ]
@@ -307,7 +303,9 @@ curl -X PATCH https://api.your-domain.com/api/v1/apps/my-project/my-app \
   }'
 ```
 
-This PATCH triggers a full reconcile of the `api` component: the operator re-renders its Helm values with the resolved `DATABASE_URL` and pushes a rolling update. The standalone addon instance is not modified.
+A `components` entry replaces that component wholesale rather than merging, so send its complete spec — see [Creating apps](/guides/creating-apps#updating-an-app). This PATCH triggers a full reconcile of the `api` component: the operator re-renders its Helm values with the resolved export and pushes a rolling update. The standalone addon instance is not modified.
+
+The example wires `host` rather than the `dsn` connection URL deliberately: `dsn` carries an unsubstituted `${postgres-password}` placeholder today (`kn-kgu5`), so it is not a usable connection string. See [Addons](/concepts/addons#exports-how-addons-publish-their-outputs).
 
 You can wire the same addon instance into multiple Apps simultaneously. The addon is unaware of how many workloads depend on it.
 
@@ -355,11 +353,11 @@ kubectl delete addon my-postgres -n my-project
 
 ## Common pitfalls
 
-**Export keys vary for custom (definition-less) addons.** The standard export keys (`connection_string`, `host`, `port`, etc.) are a convention defined in the `AddonDefinition`. For a `generic` type addon without a definition, kubenest cannot auto-discover exports — they will be empty. You must read the relevant values from the Kubernetes Secret the chart creates and set them manually as workload environment variables, or create a custom `AddonDefinition` that specifies the export schema.
+**Export keys vary for custom (definition-less) addons.** The standard export keys (`dsn`, `host`, `port`, etc.) come from the operator's per-type extractor and are mirrored in the `AddonDefinition`'s export schema. For a `custom` type addon without a definition, kubenest cannot auto-discover exports — they will be empty. You must read the relevant values from the Kubernetes Secret the chart creates and set them manually as workload environment variables, or create a custom `AddonDefinition` that specifies the export schema.
 
 **`Deploying` phase that never transitions to `Running`.** The most common cause is the chart's readiness probe never passing — typically because a password is too long (some chart versions have PostgreSQL password length limits), the PVC cannot be provisioned (storage class unavailable), or the image pull is failing. Check the ArgoCD Application in the cluster for the detailed Helm release status.
 
-**Upgrading to a chart version that drops a values key you are using.** If a chart upgrade removes a values key your `chart_config.values` specifies, Helm will typically ignore the extra key — but the behavior is chart-specific. Always read the chart's changelog before upgrading a minor or major version.
+**Upgrading to a chart version that drops a values key you are using.** If a chart upgrade removes a values key your `values` payload specifies, Helm will typically ignore the extra key — but the behavior is chart-specific. Always read the chart's changelog before upgrading a minor or major version.
 
 ---
 

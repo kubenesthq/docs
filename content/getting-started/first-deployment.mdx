@@ -88,6 +88,14 @@ The response carries no secret, by design. A cluster's agent JWT and its per-clu
 For the secret-free values a UI may display — the CLI invocation, hub URL, namespace and chart reference — use `GET /api/v1/clusters/{id}/install-instructions`.
 </Callout>
 
+<Callout type="warning">
+**Do not run the `cli_command` string yet.** `kubenest cluster connect` is not an implemented
+subcommand — the CLI's `cluster` command currently registers only `set-window`, so the invocation
+the API hands you will fail. The API is telling you the shape it intends, ahead of the CLI. Install
+the operator with the Helm path in the [installation guide](/getting-started/installation) instead;
+that is the route that works today.
+</Callout>
+
 Now install the operator on your cluster following the [installation guide](/getting-started/installation). Once the operator connects, the cluster status will transition to `connected`. Verify:
 
 ```bash filename="terminal"

@@ -11,15 +11,15 @@ An Addon is a backing service: PostgreSQL, Redis, Kafka, Elasticsearch, RabbitMQ
 
 The key difference between an Addon and a Workload is what it produces. A Workload exposes a service to users (an API, a web UI, a background processor). An Addon produces **exports** — key-value outputs like connection URLs, hostnames, and references to generated credentials — that downstream Workloads consume.
 
-That difference is why the concept exists. Without it, deploying a database is only half the work: someone still reads the generated password out of a Secret and pastes it into the consuming service's configuration, and does it again after every reinstall. In kubenest the addon publishes its connection details as exports, workloads declare which keys they consume, and the operator wires the values in at deploy time — nothing is copied by hand and nothing is hardcoded.
+That difference is why the concept exists. Without it, deploying a database is only half the work: someone still has to connect the consuming service to it. In kubenest the addon publishes connection details as exports, workloads declare which keys they consume, and the operator copies those export strings into their configuration. Secret-backed values and the current PostgreSQL DSN limitation still require the handling described below.
 
 ## Two entry points for addons
 
-There are two ways to deploy an addon, depending on whether you want it tightly coupled to a specific App or shared across multiple Apps.
+There are two ways to deploy an addon, depending on whether it should share an App's lifecycle or have an independent one. Standalone-to-App sharing is limited as described below.
 
 ### As a component in an App
 
-The most common pattern is to include an addon as a component in the same App as the workloads that depend on it. This bundles the addon's lifecycle with the App: deploy together, pause together, roll back together.
+The most common pattern is to include an addon as a component in the same App as the workloads that depend on it. The addon deploys, patches, rolls back, and deletes with the App. Pausing an App affects workload replicas only; the addon keeps running.
 
 ```json filename="addon as App component"
 {
@@ -46,7 +46,7 @@ When deployed as a component, the operator manages the addon's Helm release as p
 
 ### As a standalone AddonInstance
 
-If you have a database that multiple apps share — a central logging database, a shared cache — you deploy it as a standalone `AddonInstance`. Standalone instances have their own lifecycle, separate from any App.
+You can deploy an addon as a standalone `AddonInstance`. Standalone instances have their own lifecycle, separate from any App.
 
 ```bash filename="create standalone addon instance"
 curl -X POST \
@@ -65,19 +65,9 @@ curl -X POST \
   https://api.your-domain.com/api/v1/addon-instances
 ```
 
-After the addon is running, any workload in the same project can reference its exports using `addon_instance_id` in an `exportRef`:
-
-```json filename="reference standalone addon"
-{
-  "name": "DATABASE_URL",
-  "export_ref": {
-    "addon_instance_id": "c3d4e5f6-...",
-    "export_key": "dsn"
-  }
-}
-```
-
-You can also use the `POST /api/v1/apps/{ns}/{name}/attach-addon` endpoint to wire an existing standalone addon into an App's workload components without modifying the App's component list.
+<Callout type="warning">
+Standalone instances are not currently a working shared-export source for Apps. An inline `export_ref` with `addon_instance_id` passes request validation but fails in the backend's CRD conversion. `POST /api/v1/apps/{ns}/{name}/attach-addon?project_id=<UUID>` injects a component-name reference but does not add the corresponding addon component, so the operator rejects an App that does not already contain a same-name addon component.
+</Callout>
 
 ## The AddonDefinition catalog
 
@@ -89,7 +79,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 # "PostgreSQL"
 ```
 
-Using a definition rather than specifying a chart directly has two benefits. First, the definition enforces a known-good chart version and default configuration — no one accidentally deploys a misconfigured chart. Second, the definition's export schema tells kubenest which keys to look for when the addon completes its first-run setup, enabling automatic export discovery.
+Using a definition rather than specifying a chart directly fixes the chart reference and supplies default values. Its export schema documents the intended keys, but the operator does not consume that schema during extraction; it selects the built-in `postgres`, `redis`, or `kafka` extractor from the addon's `type`, and uses the generic extractor for other types.
 
 <Callout type="info">
 You do not need to use a definition. If `definition_id` is omitted from the `AddonInstanceCreate` payload, you must supply `type` and `chart` directly. This is useful for one-off or custom addons that do not have a definition entry.
@@ -97,7 +87,7 @@ You do not need to use a definition. If `definition_id` is omitted from the `Add
 
 ## Exports: how addons publish their outputs
 
-After a Helm chart deploys successfully, the addon publishes its outputs as **exports** — a key-value map stored on the `AddonInstance` record and available to workloads that reference it.
+After a Helm chart deploys successfully, the addon publishes its outputs as **exports** — a key-value map stored on the `AddonInstance` record. The standalone-to-App wiring limitation above applies to consuming those values.
 
 What the `postgres` addon type publishes:
 
@@ -121,7 +111,7 @@ The password itself is not an export, and there is no export key that yields it.
 This is a live defect, tracked as `kn-kgu5`. Until it is fixed, use `host`, `port`, `user` and `database`, which are plain values and resolve correctly, and read the password from the Secret yourself.
 </Callout>
 
-Exports are read from the addon's Kubernetes Secret after the chart completes. When exports are backed by a Kubernetes Secret (as opposed to being stored in plaintext in the backend database), the API response redacts the values and shows only the keys — the values are fetched directly from the cluster at runtime.
+Exports are read from cluster resources after the chart completes. When exports are backed by a Kubernetes Secret, the API response returns the export keys and Secret reference but redacts the values. The read endpoint does not fetch or return those Secret values.
 
 ```bash filename="read addon exports"
 curl -H "Authorization: Bearer $TOKEN" \
@@ -181,7 +171,7 @@ Standalone addon instances move through the same phase vocabulary as Apps:
 
 ## Common pitfalls
 
-**Deleting an addon instance that workloads depend on.** If you delete a standalone addon instance while App components still have `exportRef` entries pointing to it, those components will lose their environment variables on the next reconcile. Always update or redeploy the depending apps before deleting a shared addon.
+**Deleting an addon instance.** The backend does not check Apps for dependencies before deletion. The current standalone-to-App wiring path is not functional, so do not rely on the backend to discover or protect external consumers.
 
 **Chart version mismatches.** If you specify a chart version in an `AddonDefinition` and then try to deploy with a different version in the `values` override, the definition version takes precedence. Use `chart_version` in the PATCH request to explicitly upgrade.
 

@@ -1,16 +1,16 @@
 ---
 title: API Reference
-description: Base URL, authentication, request/response conventions, error formats, and a complete endpoint index for the kubenest REST API.
+description: Base URL, authentication, request/response conventions, error formats, and a public endpoint index for the kubenest REST API.
 ---
 
 import { Callout } from 'nextra/components'
 
 # API Reference
 
-The kubenest REST API is the interface used by the web console, CLI tools, and any automation you build on top of kubenest. Every action the UI performs is an API call — there is no privileged back channel. This page covers the conventions that apply across the entire API and indexes all available endpoints.
+The kubenest REST API is the interface used by the web console, CLI tools, and any automation you build on top of kubenest. Every action the UI performs is an API call — there is no privileged back channel. This page covers the conventions that apply across the API and indexes the public application and platform endpoints.
 
 <Callout type="info">
-A full interactive API reference with request/response schemas, live "Try it" execution, and example bodies is available at `https://api.{your-domain}/docs` (Swagger UI). This page is the conceptual overview and quick-reference; use `/docs` when you need to inspect a specific field or test a request.
+Swagger UI at `/docs` and the OpenAPI document at `/openapi.json` are available without authentication in local environments and to superusers in staging. Production deployments do not expose either route, so use this page as the production reference.
 </Callout>
 
 ---
@@ -36,7 +36,8 @@ Authenticate by posting credentials to the login endpoint. Note that the login e
 ```bash filename="login"
 curl -X POST https://api.your-domain.com/api/v1/login \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=admin@example.com&password=your-password"
+  -d "username=admin@example.com&password=your-password" \
+  -c cookies.txt
 ```
 
 Response:
@@ -52,76 +53,73 @@ The login response also sets an `HttpOnly` refresh token cookie. Do not discard 
 
 ### Using the access token
 
-Include the access token in the `Authorization` header on every subsequent request:
+For an endpoint that requires authentication, include the access token in the `Authorization` header:
 
 ```
 Authorization: Bearer {access_token}
 ```
 
-Access tokens expire after **30 minutes**. When a request returns `401 Unauthorized` with `detail: "Token expired"`, refresh the token (see below).
+Access tokens expire after **30 minutes by default**; deployments can override that setting. An invalid or expired bearer token returns `401 Unauthorized` with `detail: "User not authenticated."`; refresh the token (see below).
 
 ### Refreshing the access token
 
-The refresh endpoint reads the `HttpOnly` cookie set at login and issues a new access token without requiring you to re-enter your password. It also rotates the refresh cookie:
+The refresh endpoint reads the `HttpOnly` cookie set at login and issues a new access token without requiring you to re-enter your password. It does not rotate the refresh cookie:
 
 ```bash filename="refresh token"
 curl -X POST https://api.your-domain.com/api/v1/refresh \
-  -b cookies.txt \        # curl cookie jar that stores the refresh cookie
-  -c cookies.txt
+  -b cookies.txt
 ```
 
-In a browser context, the browser sends the cookie automatically. In a script, manage the cookie jar explicitly with `-b`/`-c`.
+In a browser context, the browser sends the cookie automatically. In a script, save it at login with `-c` and send it on refresh and logout with `-b`.
 
-Refresh tokens expire after **7 days**. After a refresh token expires, the user must log in again.
+Refresh tokens expire after **7 days by default**; deployments can override that setting. After a refresh token expires, the user must log in again.
 
 ### Logging out
 
 ```bash filename="logout"
 curl -X POST https://api.your-domain.com/api/v1/logout \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $TOKEN" \
+  -b cookies.txt
 ```
 
-Logout invalidates the refresh token cookie and clears the server-side session. The access token itself cannot be invalidated (it is a signed JWT with no revocation list) — it will expire naturally after 30 minutes.
+Logout requires both the bearer access token and the refresh-token cookie. It blacklists both tokens and clears the refresh cookie.
 
 ---
 
 ## Request conventions
 
-**Content-Type.** All endpoints except `POST /login` expect `Content-Type: application/json`. The login endpoint expects `application/x-www-form-urlencoded`.
+**Content-Type.** JSON request bodies use `Content-Type: application/json`. `POST /login` uses `application/x-www-form-urlencoded`; `POST /stack-templates/from-yaml` uses `multipart/form-data`. Requests without a body do not need a content type.
 
 **Namespaced resources.** Apps and stack templates are addressed by `{namespace}/{name}` rather than by UUID. The namespace maps to the project's Kubernetes namespace, and the name is the App or template name you chose at create time. This makes URLs human-readable and stable.
 
-**Pagination.** List endpoints return a `data` array and a `pagination` object:
+**Pagination.** Paginated endpoints return pagination fields beside the `data` array:
 
 ```json
 {
   "data": [...],
-  "pagination": {
-    "total": 142,
-    "page": 1,
-    "page_size": 20,
-    "pages": 8
-  }
+  "total_count": 142,
+  "page": 1,
+  "items_per_page": 10
 }
 ```
 
-Pass `?page=2&page_size=50` to paginate. The default page size is 20; the maximum is 100.
+Pass `?page=2&items_per_page=50` where pagination is implemented. Most paginated endpoints default to 10 items and cap a page at 100; addon revision history defaults to 50 and caps at 200. Some list endpoints return only `data` and `total_count`.
 
-**Filtering and sorting.** Most list endpoints accept query parameters for filtering. Common ones: `?cluster_id=...`, `?project_id=...`, `?phase=running`, `?name=prefix`. Sorting: `?sort_by=created_at&sort_order=desc`.
+**Filtering.** Filters are endpoint-specific. Unsupported query parameters are not a portable way to filter a response; use only the parameters listed for that route.
 
 ---
 
 ## Response conventions
 
-**Success codes.** `200 OK` for reads and updates; `201 Created` for creates; `202 Accepted` for async operations that return before completion (the response body contains the initial state with `phase: Pending`); `204 No Content` for deletes.
+**Success codes.** Status codes are route-specific. Reads and updates generally return `200 OK`, creates generally return `201 Created`, and deletes that have no response body return `204 No Content`. Cluster scale and provisioning-job retry return `202 Accepted` because the infrastructure work continues asynchronously.
 
-**Async responses.** Operations that dispatch events to the operator (app create/patch/delete, addon install/upgrade) return `202 Accepted` with the initial resource state. Subscribe to the SSE stream or poll the resource endpoint to track progress.
+**Asynchronous reconciliation.** App and addon creates can return `201 Created`, and app/addon updates can return `200 OK`, before cluster reconciliation finishes. Track the resource phase through its read endpoint or SSE stream; do not use `202` alone as the signal that work is asynchronous.
 
 ---
 
 ## Error format
 
-**4xx client errors** return a simple `detail` string:
+**4xx client errors** use the FastAPI `detail` field. Many routes return a string:
 
 ```json
 { "detail": "App 'my-app' not found in namespace 'my-project'" }
@@ -141,11 +139,11 @@ Pass `?page=2&page_size=50` to paginate. The default page size is 20; the maximu
 }
 ```
 
-The `loc` array is a path through the request body to the invalid field. The first element is always `"body"` for JSON request bodies or `"query"` for query parameters.
+The `loc` array identifies where validation failed, such as `"body"`, `"query"`, `"path"`, or `"cookie"`.
 
-**409 Conflict** is returned when a write is attempted on a resource that is in `blocked_sync` drift state, or when a component removal would break an `exportRef` dependency.
+Some routes put a structured object in `detail`; for example, App `409 Conflict` responses include a machine-readable `code` and context when a resource is in `blocked_sync` drift state or a component removal would break an `exportRef` dependency.
 
-**503 Service Unavailable** is returned when the target cluster is `disconnected` and the operation requires the operator to be reachable. The `detail` includes the cluster ID and last-seen timestamp.
+Hub- and operator-dependent endpoints can return `502`, `503`, or `504` when dispatch or the response fails. The exact status and `detail` are endpoint-specific.
 
 ---
 
@@ -157,7 +155,7 @@ What exists is the configuration surface. A superuser can define per-tier, per-p
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/tier/{tier_name}/rate_limit` | Define a limit for a tier. Superuser only. Body: `name`, `path`, `limit` (requests), `period` (seconds). |
+| `POST` | `/tier/{tier_name}/rate_limit` | Define a limit for a tier. Superuser only. Required body fields: `path`, `limit` (requests), and `period` (seconds); `name` is optional. |
 | `GET` | `/tier/{tier_name}/rate_limits` | List a tier's configured limits. |
 | `GET` | `/tier/{tier_name}/rate_limit/{id}` | Get one configured limit. |
 | `PATCH` | `/tier/{tier_name}/rate_limit/{id}` | Update a configured limit. Superuser only. |
@@ -172,8 +170,8 @@ What exists is the configuration surface. A superuser can define per-tier, per-p
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/login` | Obtain access token. Body: `application/x-www-form-urlencoded` with `username` and `password`. Sets refresh cookie. |
-| `POST` | `/refresh` | Exchange refresh cookie for a new access token. Rotates the refresh cookie. |
-| `POST` | `/logout` | Invalidate the refresh token cookie. |
+| `POST` | `/refresh` | Exchange the refresh cookie for a new access token. The refresh cookie is not rotated. |
+| `POST` | `/logout` | Blacklist the bearer and refresh tokens and clear the refresh cookie. Requires both tokens. |
 
 ---
 
@@ -186,19 +184,19 @@ What exists is the configuration surface. A superuser can define per-tier, per-p
 | `GET` | `/clusters/{id}` | Get cluster details, status, and metrics. |
 | `PATCH` | `/clusters/{id}` | Update cluster metadata (name, description). |
 | `DELETE` | `/clusters/{id}` | Delete the cluster. Requires the org `admin` role. Returns `409` while any project still exists on the cluster, naming the blocking projects; there is no force or cascade parameter. Once the cluster is empty, cloud-provisioned clusters get a Terraform destroy of their infrastructure and BYOC records are deleted immediately. |
-| `GET` | `/clusters/{id}/metrics` | CPU, memory, and node count metrics aggregated from the last operator heartbeat. |
+| `GET` | `/clusters/{id}/metrics` | Prometheus cluster-capacity time series queried through the operator and hub. Optional query: `?range=1h`. |
 | `GET` | `/clusters/{id}/install-instructions` | Secret-free install instructions: the CLI connect command, hub URL, namespace, pinned operator chart reference and a docs link. Contains no token, key or other credential — this is everything the console may render. (`GET /clusters/{id}/install-command` is removed and returns `410 Gone`: it embedded the cluster JWT and the Git token in a browser-renderable response.) |
-| `POST` | `/clusters/{id}/agent-credentials` | Mint the cluster's install-time credentials — the versioned agent JWT and, when GitOps is configured, a write deploy key on this cluster's own Git repository. Secrets are returned exactly once, in this response, and are never retrievable again. Calling again rotates: the JWT's `token_version` increments and superseded deploy keys are deleted after a grace window. Requires the `clusters:register` scope with a CLI token; audit-logged. |
-| `POST` | `/clusters/{id}/install-events` | Report one live platform-install stage transition. Requires the CLI token's `install:report` scope. The body is the canonical install journal entry: one of the 13 documented stage names, `status` (`started`, `completed`, or `failed`), optional manifest component key, optional user-safe `detail`, and a machine-readable `reason_code` required on failure. The backend relays every transition over SSE, persists terminal transitions in the install journal, and drives `installing` / `install_failed`. Never put secrets or raw command output in this body. |
+| `POST` | `/clusters/{id}/agent-credentials` | Mint the cluster's install-time credentials — the versioned agent JWT and, when GitOps is configured, a write deploy key on this cluster's own Git repository. Secrets are returned exactly once, in this response, and are never retrievable again. Calling again rotates: the JWT's `token_version` increments and superseded deploy keys are deleted after a grace window. Accepts a user JWT; a CLI token must carry `clusters:register`. Audit-logged. |
+| `POST` | `/clusters/{id}/install-events` | Report one live platform install or upgrade stage transition. Accepts a user JWT; a CLI token must carry `install:report`. The body is the canonical journal entry: an accepted install or upgrade stage name, `status` (`started`, `completed`, or `failed`), optional manifest component key, optional user-safe `detail`, and a machine-readable `reason_code` required on failure. The backend relays every transition over SSE, persists terminal transitions in the install journal, and drives `installing` / `install_failed`. Never put secrets or raw command output in this body. |
 | `POST` | `/clusters/{id}/scale` | Change node count (cloud-provisioned clusters only). Requires the org `admin` role — it runs a Terraform apply that adds or removes real machines. |
-| `GET` | `/clusters/{id}/bundle` | Get the cluster's bundle + profile record: bundle version, profile set, HA tier, volume-group ownership and install journal. All fields are `null` until a KubeNest Platform bundle install records them. |
-| `PUT` | `/clusters/{id}/bundle` | Write the bundle record (the installer's record stage). Validated against the bundle catalog: unknown bundle versions, unknown profile names and HA tiers the bundle does not offer are rejected with `422`. Replaces the removed `GET/PUT /clusters/{id}/config` component-toggle endpoints. |
+| `GET` | `/clusters/{id}/bundle` | Get the cluster's bundle + profile record: bundle version, profile set, HA tier, volume-group ownership and install journal. All fields are `null` until a KubeNest Platform bundle install records them. Accepts a user JWT or a CLI token with `clusters:read`. |
+| `PUT` | `/clusters/{id}/bundle` | Write the bundle record (the installer's record stage). Validated against the bundle catalog: unknown bundle versions, unknown profile names and HA tiers the bundle does not offer are rejected with `422`. Accepts a user JWT or a CLI token with `install:report`. Replaces the removed `GET/PUT /clusters/{id}/config` component-toggle endpoints. |
 | `GET` | `/clusters/{id}/provisioning-jobs` | List provisioning jobs for a cloud-provisioned cluster, with status and timestamps. |
 | `POST` | `/clusters/{id}/register-argocd` | Register the cluster as an ArgoCD target so the GitOps controller can sync to it. |
 | `GET` | `/clusters/{id}/rbac` | List cluster-scoped role assignments. |
 | `POST` | `/clusters/{id}/rbac` | Grant a cluster-scoped role to a user. |
 | `PUT` | `/clusters/{id}/rbac` | Replace a user's cluster-scoped role. |
-| `DELETE` | `/clusters/{id}/rbac` | Revoke a cluster-scoped role assignment. |
+| `DELETE` | `/clusters/{id}/rbac` | Revoke a cluster-scoped role assignment. Required query: `?binding_id=<UUID>`. |
 | `GET` | `/clusters/{id}/registry-secrets` | List image pull secrets attached at the cluster level. |
 | `POST` | `/clusters/{id}/registry-secrets` | Attach an image pull secret at the cluster level. |
 
@@ -225,11 +223,11 @@ The bundle catalog: the KubeNest Platform release manifests this control plane k
 | `GET` | `/projects/{id}` | Get project details and status. |
 | `DELETE` | `/projects/{id}` | Delete the project record. Requires the org `admin` role. Still unguarded on contents and control-plane-only: it does not check whether apps or addons exist, and it removes nothing from the cluster — the namespace and everything running in it stay live. |
 | `GET` | `/projects/{id}/apps` | List every app in the project. |
-| `GET` | `/projects/{id}/available-exports` | List export values published by apps and addons in the project, for wiring `exportRef` entries. |
+| `GET` | `/projects/{id}/available-exports` | List export keys published by standalone addon instances in the project. |
 | `GET` | `/projects/{id}/rbac` | List project-scoped role assignments. |
 | `POST` | `/projects/{id}/rbac` | Grant a project-scoped role to a user. |
 | `PUT` | `/projects/{id}/rbac` | Replace a user's project-scoped role. |
-| `DELETE` | `/projects/{id}/rbac` | Revoke a project-scoped role assignment. |
+| `DELETE` | `/projects/{id}/rbac` | Revoke a project-scoped role assignment. Required query: `?binding_id=<UUID>`. |
 | `GET` | `/projects/{id}/secrets-overview` | Summarize the secrets visible to the project and where each one is inherited from. |
 | `GET` | `/projects/{id}/registry-secrets` | List image pull secrets attached at the project level. |
 | `POST` | `/projects/{id}/registry-secrets` | Attach an image pull secret at the project level. |
@@ -245,24 +243,26 @@ kubenest does not manage ResourceQuota. A project is a namespace boundary, not a
 
 ### Apps
 
+Every route below that contains `{namespace}/{name}` requires `?project_id=<UUID>`, including reads, mutations, logs, metrics, addon attachment, deployment history, and rollback. Omitting it returns `422 Unprocessable Entity`.
+
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/apps` | List apps. Filter by `?project_id=`, `?phase=`, `?cluster_id=`. |
-| `POST` | `/apps` | Create an app. Body includes `name`, `project_id`, and `components` array. Returns `202 Accepted`. |
-| `GET` | `/apps/{namespace}/{name}` | Get app details, component statuses, drift state, and resolved exports. |
-| `PATCH` | `/apps/{namespace}/{name}` | Add, remove, or patch components. Returns `202 Accepted`. |
-| `DELETE` | `/apps/{namespace}/{name}` | Delete app and all its components. Returns `202 Accepted`. |
+| `GET` | `/apps` | List apps. Optional filter: `?project_id=`. |
+| `POST` | `/apps` | Create an app. Body includes `name`, `project_id`, and `components` array. Returns `201 Created`. |
+| `GET` | `/apps/{namespace}/{name}` | Get app details, component specs, phase, and drift state. |
+| `PATCH` | `/apps/{namespace}/{name}` | Add, remove, or patch components. Returns `200 OK`. |
+| `DELETE` | `/apps/{namespace}/{name}` | Delete the app and its components. Returns `204 No Content`. |
 | `POST` | `/apps/{namespace}/{name}/scale` | Scale a specific workload component's replica count. Body: `{component_name, replicas}`. |
 | `POST` | `/apps/{namespace}/{name}/pause` | Set all workload replicas to 0, snapshot pre-pause counts. |
 | `POST` | `/apps/{namespace}/{name}/resume` | Restore pre-pause replica counts. |
 | `POST` | `/apps/{namespace}/{name}/redeploy` | Force a hard-refresh and re-sync without spec changes. |
-| `GET` | `/apps/{namespace}/{name}/deployments` | List deployment history (create, patch, rollback events). |
-| `POST` | `/apps/{namespace}/{name}/rollback` | Restore a prior deployment spec. Body: `{deployment_id}` or `{revision}`. Returns `202 Accepted`. |
+| `GET` | `/apps/{namespace}/{name}/deployments` | List App operation history. |
+| `POST` | `/apps/{namespace}/{name}/rollback` | Restore a prior deployment spec. Body: exactly one of `{deployment_id}` or `{revision}`. Returns `200 OK`. |
 | `POST` | `/apps/{namespace}/{name}/deployments/{deployment_id}/rollback` | Roll back to one specific deployment by ID. |
-| `GET` | `/apps/{namespace}/{name}/logs` | Fetch recent logs across the app's components. |
+| `GET` | `/apps/{namespace}/{name}/logs` | Stream logs as SSE. A multi-workload app also requires `?component=<name>`. |
 | `GET` | `/apps/{namespace}/{name}/components/{component}/logs/stream` | Stream logs from a single component. |
-| `GET` | `/apps/{namespace}/{name}/metrics` | CPU and memory usage per component. |
-| `POST` | `/apps/{namespace}/{name}/attach-addon` | Attach an existing addon instance to the app and wire its exports into a component. |
+| `GET` | `/apps/{namespace}/{name}/metrics` | App, workload-component, and cluster-capacity Prometheus time series. Optional query: `?range=1h`. |
+| `POST` | `/apps/{namespace}/{name}/attach-addon` | Inject an existing addon instance's name as an `exportRef`. This does not add an addon component; without an existing same-name component, operator validation fails. |
 | `DELETE` | `/apps/{namespace}/{name}/attach-addon/{addon_instance_id}` | Detach an addon instance from the app. |
 | `GET` | `/apps/{namespace}/{name}/components/{component}/secrets` | List a component's secret keys. |
 | `PATCH` | `/apps/{namespace}/{name}/components/{component}/secrets` | Set or update a component's secret values. |
@@ -274,16 +274,16 @@ kubenest does not manage ResourceQuota. A project is a namespace boundary, not a
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/stack-templates` | List templates. Filter by `?scope=`, `?cluster_id=`, `?project_id=`. |
+| `GET` | `/stack-templates` | List templates. Optional filters: `?namespace=` and `?scope=`. |
 | `POST` | `/stack-templates` | Create a template directly (full template body). |
 | `GET` | `/stack-templates/{namespace}/{name}` | Get template details including parameters and component specs. |
-| `PUT` | `/stack-templates/{namespace}/{name}` | Replace template contents (creates a new version). |
-| `DELETE` | `/stack-templates/{namespace}/{name}` | Delete a template. Fails if active deployed instances reference it. |
-| `POST` | `/stack-templates/from-app/{namespace}/{name}` | Capture a running app as a new template. Body: `{name, version, scope, preserve_export_refs}`. |
+| `PUT` | `/stack-templates/{namespace}/{name}` | Update description, icon, tags, components, or parameters in place. The version is unchanged. |
+| `DELETE` | `/stack-templates/{namespace}/{name}` | Delete a template. The backend does not check for deployed instances that reference it. |
+| `POST` | `/stack-templates/from-app/{namespace}/{name}` | Capture a running app as a new template. Required query: `?project_id=<UUID>`. Body includes `name`, `version`, `scope`, and `preserve_export_refs`. |
 | `POST` | `/stack-templates/from-chart` | Create a template wrapping a Helm chart with promoted parameters. |
-| `POST` | `/stack-templates/from-yaml` | Import a template from a `StackTemplateExport` JSON body. |
-| `POST` | `/stack-templates/{namespace}/{name}/deploy` | Deploy a template to a project. Body: `{project_id, parameters, app_name, timeout}`. Returns `202 Accepted`. |
-| `GET` | `/stack-templates/inspect-chart` | Fetch schema and defaults for a Helm chart. Query params: `?repo=&name=&version=`. Cached 1 hour. |
+| `POST` | `/stack-templates/from-yaml` | Validate YAML supplied as multipart `file` or `yaml_content`. It validates only by default; add `?create=true&namespace=...` to create the template. |
+| `POST` | `/stack-templates/{namespace}/{name}/deploy` | Deploy a template to a project. Body: `{project_id, parameters, timeout}`. Returns `201 Created` with `message`, `deploy_name`, and `namespace`. |
+| `GET` | `/stack-templates/inspect-chart` | Fetch schema and defaults for a Helm chart. Query params: `?repo=&name=&version=`. Responses are cached for 1 hour when Redis is available. |
 | `GET` | `/stack-templates/registry` | Browse the community template registry. |
 
 ---
@@ -292,16 +292,16 @@ kubenest does not manage ResourceQuota. A project is a namespace boundary, not a
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/addon-instances` | List addon instances. Filter by `?project_id=`, `?phase=`. |
-| `POST` | `/addon-instances` | Deploy a standalone addon instance. Returns `202 Accepted`. |
-| `GET` | `/addon-instances/{id}` | Get instance details, current phase, and resolved exports. |
-| `PATCH` | `/addon-instances/{id}` | Update values or chart version. Creates a new revision. Returns `202 Accepted`. |
+| `GET` | `/addon-instances` | List addon instances. At least one of `?project_id=` or `?org_id=` is required. Supports `page` and `items_per_page`. |
+| `POST` | `/addon-instances` | Deploy a standalone addon instance. Returns `201 Created`. |
+| `GET` | `/addon-instances/{id}` | Get instance details, current phase, and exports. Secret-backed values are redacted; the response includes their keys and Secret reference. |
+| `PATCH` | `/addon-instances/{id}` | Update exactly one of `values` or `chart_version`. Creates a new revision and returns `200 OK`. |
 | `DELETE` | `/addon-instances/{id}` | Uninstall and delete the addon instance. No parameters. Returns `502` without deleting the record if the hub is unreachable. |
-| `POST` | `/addon-instances/{id}/rollback` | Restore a prior revision. Body: `{revision_number}` or `{revision_id}`. |
+| `POST` | `/addon-instances/{id}/rollback` | Restore a prior revision. Body must contain exactly one of `{revision_number}` or `{revision_id}`. |
 | `GET` | `/addon-instances/{id}/revisions` | List all revisions with values snapshots and notes. |
 
 <Callout type="info">
-To find what depends on an addon instance, use `GET /projects/{id}/available-exports` — it lists the exports each addon and app publishes, which is what `exportRef` entries resolve against.
+`GET /projects/{id}/available-exports` lists the keys published by standalone addon instances. It does not report reverse dependencies or App-component exports.
 </Callout>
 
 ---
@@ -311,7 +311,7 @@ To find what depends on an addon instance, use `GET /projects/{id}/available-exp
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/addon-definitions` | List all addon definitions in the catalog. |
-| `GET` | `/addon-definitions/{name}` | Get a definition's chart reference, default values, and export schema. |
+| `GET` | `/addon-definitions/{id}` | Get a definition by UUID, including its chart reference, default values, and export schema. |
 
 ---
 
@@ -322,16 +322,16 @@ Organizations are the top-level tenant boundary. Clusters, projects, and credent
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/orgs` | List organizations the caller belongs to. |
-| `POST` | `/orgs` | Create an organization. |
+| `POST` | `/orgs` | Create an organization. Superuser only. |
 | `GET` | `/orgs/{id}` | Get organization details. |
-| `PUT` | `/orgs/{id}` | Update an organization. |
-| `DELETE` | `/orgs/{id}` | Delete an organization and everything scoped to it. |
-| `GET` | `/orgs/{id}/members` | List members and their organization roles. |
-| `POST` | `/orgs/{id}/members` | Add a user to the organization. |
-| `PUT` | `/orgs/{id}/members/{user_id}` | Change a member's organization role. |
-| `DELETE` | `/orgs/{id}/members/{user_id}` | Remove a member from the organization. |
-| `GET` | `/org/settings` | Get settings for the caller's current organization. |
-| `PATCH` | `/org/settings` | Update settings for the caller's current organization. |
+| `PUT` | `/orgs/{id}` | Update an organization. Org admin only. |
+| `DELETE` | `/orgs/{id}` | Delete an organization. Superuser only. |
+| `GET` | `/orgs/{id}/members` | List members and their organization roles. Requires org membership. |
+| `POST` | `/orgs/{id}/members` | Add a user to the organization. Org admin only. |
+| `PUT` | `/orgs/{id}/members/{user_id}` | Change a member's organization role. Org admin only. |
+| `DELETE` | `/orgs/{id}/members/{user_id}` | Remove a member from the organization. Org admin only. |
+| `GET` | `/org/settings` | Get settings for `?org_id=<UUID>`. The query parameter is required. |
+| `PATCH` | `/org/settings` | Update settings for `?org_id=<UUID>`. The query parameter and org admin role are required. |
 | `GET` | `/orgs/{id}/credentials` | List cloud provider credentials used for cluster provisioning. |
 | `POST` | `/orgs/{id}/credentials` | Store a new set of cloud provider credentials. |
 | `GET` | `/credentials/{id}` | Get a credential record. Secret material is never returned. |
@@ -341,8 +341,8 @@ Organizations are the top-level tenant boundary. Clusters, projects, and credent
 | `GET` | `/users` | List users. |
 | `POST` | `/user` | Create a user. |
 | `GET` | `/user/{id}` | Get a user. |
-| `PATCH` | `/user/{id}` | Update a user. |
-| `DELETE` | `/user/{id}` | Delete a user. |
+| `PATCH` | `/user/{id}` | Update the authenticated user's own record. |
+| `DELETE` | `/user/{id}` | Delete the authenticated user's own record. |
 
 ---
 
@@ -362,16 +362,16 @@ Cloud cluster provisioning runs asynchronously. Creating a cluster with a cloud 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/events/stream` | Server-Sent Events stream. Filter by `?namespace=&name=` for a specific app, `?addon_instance_id=` for an addon, or `?cluster_id=` for all events on a cluster. |
+| `GET` | `/events/stream` | Server-Sent Events stream. Optional filters: `cluster_id`, `project_id`, `workload_id`, and `resource_type` (`cluster`, `project`, `workload`, `build`, `addon`, `app`, `activity`, or `all`). |
 
 The SSE stream uses standard `text/event-stream` encoding. Each frame has an event name and a JSON `data` payload. `install_stage_update` carries the same install journal entry sent by the CLI: `started` makes the current stage move immediately, while `completed` and `failed` are terminal. A failed component stage includes the exact component key and puts the cluster in `install_failed`; the same stage and component remain readable from `GET /clusters/{id}/bundle` even after the live event has passed. Other event types include app, addon, cluster-status, drift, and build updates.
 
-```bash filename="subscribe to app events"
+```bash filename="subscribe to project app events"
 curl -N -H "Authorization: Bearer $TOKEN" \
-  "https://api.your-domain.com/api/v1/events/stream?namespace=my-project&name=my-app"
+  "https://api.your-domain.com/api/v1/events/stream?project_id=$PROJECT_ID&resource_type=app"
 ```
 
-The connection is long-lived. Clients should implement reconnection with a backoff if the connection drops. The `Last-Event-ID` header is supported — pass the last received event ID to resume from where you left off.
+The connection is long-lived. Clients should reconnect with backoff if it drops. The endpoint does not implement `Last-Event-ID` replay; after reconnecting, refresh current state through the relevant read endpoint.
 
 ---
 
@@ -379,4 +379,4 @@ See also:
 - [Architecture Overview](/architecture) — how the API, hub, and operator relate
 - [Creating and Managing Apps](/guides/creating-apps) — practical walkthroughs of the most common app API calls
 - [Managing Addons](/guides/managing-addons) — addon instance API calls with real examples
-- Interactive Swagger UI: `https://api.{your-domain}/docs`
+- Local and staging OpenAPI UI: `/docs`

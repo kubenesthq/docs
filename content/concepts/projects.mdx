@@ -1,13 +1,13 @@
 ---
 title: Projects
-description: Projects group your Apps, Addons, and Secrets — one Kubernetes namespace per project.
+description: Projects group Apps and Addons in one Kubernetes namespace, with registry and per-component secret views.
 ---
 
 import { Callout } from 'nextra/components'
 
 # Projects
 
-A Project is the unit of grouping in kubenest. Every App, Addon, and Secret you deploy lives inside a project. From Kubernetes' perspective, a project is a namespace — all resources belonging to the project share that namespace.
+A Project is the unit of grouping in kubenest. Every App and standalone AddonInstance belongs to a project; registry credentials and workload-component secrets can also be attached at this scope. From Kubernetes' perspective, a project is a namespace — its runtime resources share that namespace.
 
 A project is not a capacity boundary or an enforced permission boundary today. kubenest does not manage `ResourceQuota` objects, and the role bindings the API stores are not consulted when requests are authorized. Both gaps are described plainly below — do not design an isolation or access policy around a project until they are closed.
 
@@ -38,7 +38,7 @@ Projects move through two phases:
 | `Pending` | Backend has created the project record; operator has not yet confirmed namespace creation |
 | `Ready` | Operator has created the namespace and the project is available for deployments |
 
-The transition from `Pending` to `Ready` is fast — typically under a second when the cluster is connected. If a cluster is disconnected at the time of project creation, the project stays `Pending` until the operator reconnects and processes the backlog.
+When the hub send succeeds, the operator creates the namespace and reports `Ready`. If the send fails, the backend still returns the new `Pending` project record and does not replay the `project_create` event after reconnect. There is no project retry endpoint; an org admin must delete the orphaned record and create it again while the cluster is reachable.
 
 ## Resource quotas
 
@@ -52,7 +52,7 @@ If you need a quota, create the `ResourceQuota` in the project's namespace with 
 
 The API stores role bindings with three roles — `admin`, `member`, and `viewer` — at three scopes: organization, cluster, and project. The **organization** role is enforced. The cluster- and project-scoped bindings are membership records only: no endpoint consults them when authorizing a request.
 
-Destructive operations require the org `admin` role. Everything else checks organization membership and passes any role, so a `viewer` credential is not read-only in the way the word suggests — it can create projects, deploy apps, and write secrets. It cannot delete a project, delete a cluster, or change a cluster's node count.
+The three protected project and cluster destructive operations require the org `admin` role. Most other project and cluster routes check organization membership and pass any role, so a `viewer` credential is not read-only in the way the word suggests — it can create projects, deploy apps, and write secrets. It cannot delete a project, delete a cluster, or change a cluster's node count.
 
 The role checks that exist today:
 
@@ -62,7 +62,7 @@ The role checks that exist today:
 | `DELETE /projects/{id}` | The org `admin` role |
 | `DELETE /clusters/{id}` | The org `admin` role |
 | `POST /clusters/{id}/scale` | The org `admin` role |
-| Everything else | Organization membership, any role |
+| Most other project and cluster operations | Organization membership, any role |
 
 Two exemptions apply to the admin-gated routes. A superadmin passes regardless of org role. A cluster with no organization — a legacy record from before organizations existed — keeps the older any-authenticated-user access, because there is no org role to check.
 
@@ -84,22 +84,14 @@ curl -X POST \
 
 The binding is stored and can be listed, updated, and deleted — and no endpoint consults it when authorizing a request. The operator also creates no Kubernetes `RoleBinding` objects in the namespace, so direct access to the cluster's API server is outside this role model entirely.
 
-## Secrets at the project level
+## Secrets visible to a project
 
-Secrets that should be available across multiple apps in a project — database passwords, API keys, registry pull secrets — can be stored at the project level:
+kubenest has no general project-scoped key/value secret store. There is no `POST /projects/{id}/secrets` endpoint. Two narrower secret surfaces exist:
 
-```bash filename="create project secret"
-curl -X POST \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "key": "STRIPE_SECRET_KEY",
-    "value": "sk_live_..."
-  }' \
-  https://api.your-domain.com/api/v1/projects/b2c3d4e5-.../secrets
-```
+- Registry credentials can be attached with `POST /projects/{id}/registry-secrets` and inspected through the effective-registry-secret view.
+- Application values such as API keys are stored against a workload component with `PATCH /apps/{namespace}/{name}/components/{component}/secrets?project_id=<UUID>`.
 
-Project secrets are stored encrypted in the backend database and injected into the namespace as Kubernetes Secrets during reconciliation. Workload components can reference them by key in their environment variable configuration.
+`GET /projects/{id}/secrets-overview` combines the registry credentials visible to the project with the names of keys held by each workload component. Secret values are not returned.
 
 ## Listing and managing projects
 

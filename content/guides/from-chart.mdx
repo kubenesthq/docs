@@ -134,7 +134,7 @@ curl -X POST https://api.your-domain.com/api/v1/stack-templates/from-chart \
       "name": "postgresql",
       "version": "16.4.0"
     },
-    "default_values": {
+    "values": {
       "primary": {
         "persistence": {
           "size": "8Gi"
@@ -198,7 +198,6 @@ curl -X POST \
   -H "Content-Type: application/json" \
   -d '{
     "project_id": "b2c3d4e5-0002-0000-0000-000000000000",
-    "app_name": "prod-db",
     "parameters": {
       "database_name": "production",
       "db_username": "produser",
@@ -208,13 +207,15 @@ curl -X POST \
   }'
 ```
 
-`db_password` is omitted — the `generator` handles it. The backend resolves all parameters, writes the final values, and dispatches the deploy event to the operator. The response is the new App record with `phase: Pending`.
+`db_password` is omitted — the `generator` handles it. The backend resolves all parameters, writes the final values, and dispatches the deploy event to the operator.
+
+The body takes `project_id`, `parameters` and `timeout` and nothing else — it rejects unknown fields, so there is no way to choose the App's name here. The deploy is named for you, as the template name followed by the first eight characters of the project UUID (`postgresql-16-b2c3d4e5` for the call above). The response carries that `deploy_name` and the namespace it landed in.
 
 ### Monitor the deployment
 
 ```bash filename="watch deploy progress"
 curl -N -H "Authorization: Bearer $TOKEN" \
-  "https://api.your-domain.com/api/v1/events/stream?namespace=my-project&name=prod-db"
+  "https://api.your-domain.com/api/v1/events/stream?cluster_id=$CLUSTER_ID&resource_type=app"
 ```
 
 The phase progression for a PostgreSQL chart deploy is typically:
@@ -229,7 +230,7 @@ Read the resolved exports (including the auto-generated password):
 
 ```bash filename="read addon exports"
 APP_RESPONSE=$(curl -s -H "Authorization: Bearer $TOKEN" \
-  "https://api.your-domain.com/api/v1/apps/my-project/prod-db")
+  "https://api.your-domain.com/api/v1/apps/my-project/postgresql-16-b2c3d4e5?project_id=$PROJECT_ID")
 
 echo "$APP_RESPONSE" | jq '.components[] | select(.name=="postgres") | .exports'
 ```
@@ -243,7 +244,7 @@ echo "$APP_RESPONSE" | jq '.components[] | select(.name=="postgres") | .exports'
 Deploying a from-chart template creates:
 
 1. A **StackDeploy** CRD in the project's namespace with a single addon component.
-2. A **Helm values file** committed to the GitOps repository at `clusters/{id}/namespaces/{ns}/apps/prod-db/postgres/values.yaml`.
+2. A **Helm values file** committed to the GitOps repository at `clusters/{id}/namespaces/{ns}/apps/postgresql-16-b2c3d4e5/postgres/values.yaml`.
 3. An **ArgoCD Application** that points to that values file and the chart source.
 4. A **Helm release** in the project namespace (ArgoCD applies it).
 5. An **AddonInstance** record in the backend database, linked to the App component, with exports populated after the chart's first-run setup completes.
@@ -257,23 +258,35 @@ The deployed instance behaves exactly like any other App: you can update it (PAT
 To upgrade the underlying chart version for a template-deployed App, PATCH the component's `addon_spec.chart.version`:
 
 ```bash filename="upgrade chart version"
-curl -X PATCH https://api.your-domain.com/api/v1/apps/my-project/prod-db \
+curl -X PATCH "https://api.your-domain.com/api/v1/apps/my-project/postgresql-16-b2c3d4e5?project_id=$PROJECT_ID" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "components": [
       {
         "name": "postgres",
-        "op": "patch",
+        "type": "addon",
         "addon_spec": {
+          "type": "postgres",
           "chart": {
+            "repo": "https://charts.bitnami.com/bitnami",
+            "name": "postgresql",
             "version": "16.5.0"
+          },
+          "values": {
+            "primary": {
+              "persistence": {
+                "size": "50Gi"
+              }
+            }
           }
         }
       }
     ]
   }'
 ```
+
+A `components` entry replaces that component wholesale rather than merging field by field, so send the addon's complete spec with only the version changed — see [Creating apps](/guides/creating-apps#updating-an-app).
 
 The operator re-renders the values with the new chart version and updates the ArgoCD Application. ArgoCD triggers a Helm upgrade. The upgrade is recorded as a new Deployment revision, so you can roll back if it causes problems.
 

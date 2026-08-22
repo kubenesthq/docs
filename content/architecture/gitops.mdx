@@ -188,7 +188,7 @@ desired state is unchanged.
 ```bash
 curl -X POST \
   -H "Authorization: Bearer $TOKEN" \
-  https://api.your-domain.com/api/v1/apps/my-project/my-app/redeploy
+  "https://api.your-domain.com/api/v1/apps/my-project/my-app/redeploy?project_id=$PROJECT_ID"
 ```
 
 Under the hood, the backend requests a hard refresh on each workload component's ArgoCD
@@ -213,7 +213,7 @@ List the deployment history to find the revision you want:
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://api.your-domain.com/api/v1/apps/my-project/my-app/deployments" | jq '.[] | {id, created_at, phase, message}'
+  "https://api.your-domain.com/api/v1/apps/my-project/my-app/deployments?project_id=$PROJECT_ID" | jq '.data[] | {id, created_at, status, message: .description}'
 ```
 
 ### Trigger the rollback
@@ -223,7 +223,7 @@ curl -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"deployment_id": "d4e5f6g7-..."}' \
-  https://api.your-domain.com/api/v1/apps/my-project/my-app/rollback
+  "https://api.your-domain.com/api/v1/apps/my-project/my-app/rollback?project_id=$PROJECT_ID"
 ```
 
 ### What happens

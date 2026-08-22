@@ -31,7 +31,7 @@ flowchart TD
 - **StackDeploy** — the custom resource an App becomes. The operator only understands StackDeploys; the backend translates API calls into operations on this resource. A StackDeploy carries either inline components (an App) or a `stackRef` pointing at a deployed Stack Template.
 - **Workload component** — one containerized service inside an App: an image, a replica count, a port, environment variables, optionally ingress. A workload component cannot exist outside an App.
 - **Addon component** — a backing service inside an App (Postgres, Redis), installed from a Helm chart. After install it publishes **exports** — values like `dsn`, `host` and `port` — that workload components in the same App consume via `exportRef`.
-- **Standalone addon** — an addon instance that belongs to no App, created through `/api/v1/addon-instances` and shared by several Apps. Wire it with `export_ref.addon_instance_id` instead of `export_ref.component`.
+- **Standalone addon** — an addon instance created through `/api/v1/addon-instances` with a lifecycle outside any App. The current App conversion path cannot deploy an inline `export_ref.addon_instance_id`; see the limitation below.
 
 The [worked example below](#a-worked-example-web-worker-and-postgres) shows the first four in a single spec; [Addons](/concepts/addons) covers the standalone form.
 
@@ -47,19 +47,19 @@ An App's components are defined in the `components` array of the create request.
 
 A Workload component runs a containerized application. Its `workload_spec` defines the image, replica count, port, environment variables, ingress, and optionally a custom command.
 
-**Three deployment modes** control how the container image is obtained:
+The schema names three deployment modes, but only pre-built images are wired end to end through the App API today:
 
 | Mode | When to use | Required field |
 |------|-------------|---------------|
-| `image` | You have a pre-built image in a registry | `image: "nginx:1.25-alpine"` |
-| `dockerfile` | You want kubenest to build from a git repo using a Dockerfile | `git.repo` + `git.branch` |
-| `buildpack` | You want auto-detection of the language/runtime (no Dockerfile needed) | `git.repo` + `git.branch` |
+| `image` | Deploy a pre-built image from a registry | `image: "nginx:1.25-alpine"` |
+| `dockerfile` | Present in the schema, but the App flow does not create the required `BuildRequest` | Do not use through `/apps` |
+| `buildpack` | Present in the schema, but the App flow does not create the required `BuildRequest` | Do not use through `/apps` |
 
-The `image` mode is the simplest and most common. The `dockerfile` and `buildpack` modes require a build component (Kaniko or Buildpack builder) to be available on the cluster, enabled via `components.build=true` in the cluster's Helm values.
+The backend schema also requires `image` or `chart` even when `build_mode` is `dockerfile` or `buildpack`, and the operator's Workload controller does not create a BuildRequest. Supplying only Git fields therefore returns `422`; adding an image avoids validation but does not start a source build.
 
 ### Addon components
 
-An Addon component is a backing service packaged as a Helm chart. Its `addon_spec` references a chart repository, chart name, and chart version. The operator installs this chart into the project's namespace and, after a successful install, publishes a set of **exports** — key-value pairs like connection strings, hostnames, and passwords — that downstream Workload components can consume.
+An Addon component is a backing service packaged as a Helm chart. Its `addon_spec` references a chart repository, chart name, and chart version. The operator installs this chart into the project's namespace and, after a successful install, publishes a set of **exports** — key-value pairs like connection strings, hostnames, and references to Kubernetes Secrets — that downstream Workload components can consume.
 
 ## Export wiring with exportRef
 
@@ -77,19 +77,11 @@ The most powerful feature of multi-component Apps is the `exportRef` mechanism. 
 
 The `component` field refers to another component in the **same App** by name. The `export_key` identifies which output to use. The operator resolves this reference at reconcile time: it waits for the `postgres` addon to publish its exports, then injects the `dsn` value into the referring workload's environment.
 
-This is the mechanism that lets you define a complete multi-tier application in a single API call without knowing the database password or connection string in advance — the addon generates them on first deploy.
+This mechanism lets you define the wiring for a multi-tier application in one API call. Export values become available after the producing component deploys. PostgreSQL password-bearing DSNs currently need the workaround described in the worked example below.
 
-If you need to wire an environment variable from an **existing** addon instance that is not part of this App (a shared database, for example), use `addon_instance_id` instead of `component`:
-
-```json filename="external addon reference"
-{
-  "name": "DATABASE_URL",
-  "export_ref": {
-    "addon_instance_id": "c3d4e5f6-...",
-    "export_key": "dsn"
-  }
-}
-```
+<Callout type="warning">
+Do not put `addon_instance_id` in an App create body's `export_ref` today. The request schema accepts it, but the CRD converter reads a `component` key and the create fails instead of producing a usable StackDeploy. The attach-addon endpoint also injects a component-name `exportRef` without adding that component to the App, so a StackDeploy without an existing same-name addon component fails operator validation. Standalone-addon sharing is not a working App wiring path in the current source.
+</Callout>
 
 <Callout type="warning">
 An `exportRef` that uses `component` must refer to a name that exists within the same App. A reference to a nonexistent component name will cause the operator to set the App's phase to `Failed` with an explanatory message. The API validates component names at create time, but cross-component references are only resolved at reconcile time.
@@ -97,7 +89,7 @@ An `exportRef` that uses `component` must refer to a name that exists within the
 
 ## App lifecycle states
 
-An App moves through a defined set of phases. The current phase is always available on `GET /api/v1/apps/{namespace}/{name}` and is broadcast as an SSE event whenever it changes.
+An App moves through a defined set of phases. Read the current phase with `GET /api/v1/apps/{namespace}/{name}?project_id=<UUID>`; phase changes are also broadcast as SSE events.
 
 ```mermaid
 stateDiagram-v2
@@ -231,24 +223,28 @@ spec:
 1. The operator expands the components: `postgres` becomes an `Addon` resource, `web` and
    `worker` become `Workload` resources in the same namespace.
 2. The addon's chart installs, and the operator extracts its exports. For type `postgres` these
-   are `dsn`, `host`, `port`, `user` and `database`, plus `passwordRef.name` and
+   include `dsn`, `host`, `port`, `user` and `database`, plus `passwordRef.name` and
    `passwordRef.key` naming the Kubernetes Secret that holds the password.
 3. The StackDeploy controller resolves each `valueFrom.exportRef` against those exports, in
-   dependency order, and writes the resolved value onto the Workload's env. A reference that
+   dependency order, and copies the export string onto the Workload's env. A reference that
    cannot resolve yet — the addon is still deploying — is kept pending and retried on the next
    reconcile.
 
-The `dsn` is a full PostgreSQL URL whose password segment is a `${...}` placeholder resolved from
-the Secret named by `passwordRef`, so the password itself never sits in the addon's exports.
+<Callout type="warning">
+The current PostgreSQL `dsn` and `DATABASE_URL` exports contain a literal `${postgres-password}`
+placeholder. The export resolver copies that string verbatim; it does not read and substitute the
+Secret value. Use the plain `host`, `port`, `user`, and `database` exports and mount or read the
+password from the Secret named by `passwordRef` until `kn-kgu5` is fixed.
+</Callout>
 
 ## Pause and resume
 
 Pausing an App is a clean way to stop paying for compute without destroying the deployment state. When you pause:
 
-1. The backend fetches the current replica count for every Workload component.
-2. It snapshots those counts alongside the current timestamp.
+1. The backend resolves the intended replica count for every Workload component from deployment history, falling back to the current StackDeploy spec.
+2. It stores those counts in a StackDeploy annotation and in the pause history entry.
 3. It patches all Workload components' replicas to `0`.
-4. The App's phase transitions to a paused state with the snapshot recorded.
+4. The backend records a `pause` deployment-history entry. There is no separate paused phase; the App continues to report the phase produced by reconciliation.
 
 When you resume:
 
@@ -259,22 +255,22 @@ When you resume:
 ```bash filename="pause and resume"
 # Pause
 curl -X POST -H "Authorization: Bearer $TOKEN" \
-  https://api.your-domain.com/api/v1/apps/my-project/my-api/pause
+  "https://api.your-domain.com/api/v1/apps/my-project/my-api/pause?project_id=$PROJECT_ID"
 
 # Resume
 curl -X POST -H "Authorization: Bearer $TOKEN" \
-  https://api.your-domain.com/api/v1/apps/my-project/my-api/resume
+  "https://api.your-domain.com/api/v1/apps/my-project/my-api/resume?project_id=$PROJECT_ID"
 ```
 
 Addon components are not affected by pause — the database keeps running. Only Workload components have their replicas zeroed.
 
 ## Deployment history and rollback
 
-Every state-changing operation on an App — create, patch, redeploy, rollback — records a `Deployment` row in the backend's database. You can list an App's deployment history:
+App create, patch, scale, pause, resume, redeploy, rollback, attach-addon, and detach-addon operations record `Deployment` rows in the backend database. App deletion does not record one. You can list an App's deployment history:
 
 ```bash filename="deployment history"
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://api.your-domain.com/api/v1/apps/my-project/my-api/deployments" | jq .
+  "https://api.your-domain.com/api/v1/apps/my-project/my-api/deployments?project_id=$PROJECT_ID" | jq .
 ```
 
 To roll back to a prior state, POST the deployment ID to the rollback endpoint:
@@ -283,7 +279,7 @@ To roll back to a prior state, POST the deployment ID to the rollback endpoint:
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"deployment_id": "d4e5f6g7-..."}' \
-  https://api.your-domain.com/api/v1/apps/my-project/my-api/rollback
+  "https://api.your-domain.com/api/v1/apps/my-project/my-api/rollback?project_id=$PROJECT_ID"
 ```
 
 The backend replays the prior deployment's component spec through the same reconcile path — it is not a Helm rollback, but a kubenest re-deployment to the prior configuration.
@@ -296,12 +292,12 @@ To scale a single Workload component without touching anything else:
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"component_name": "api", "replicas": 4}' \
-  https://api.your-domain.com/api/v1/apps/my-project/my-api/scale
+  "https://api.your-domain.com/api/v1/apps/my-project/my-api/scale?project_id=$PROJECT_ID"
 ```
 
 ## GitOps drift detection
 
-If someone modifies a resource directly (bypassing kubenest), the operator detects the drift and surfaces it on the App's status. The `sync` field on `GET /api/v1/apps/{namespace}/{name}` shows the desired versus observed state and whether the drift is safe-to-reconcile (`recoverable`) or conflicts with a pending API write (`blocked_sync`).
+If someone modifies a resource directly (bypassing kubenest), the operator detects the drift and surfaces it on the App's status. The `sync` field on `GET /api/v1/apps/{namespace}/{name}?project_id=<UUID>` shows the desired versus observed state and whether the drift is safe-to-reconcile (`recoverable`) or conflicts with a pending API write (`blocked_sync`).
 
 ---
 

@@ -3,7 +3,7 @@ title: kubenest — Kubernetes without the maintenance dread
 description: A tested, versioned Kubernetes platform that installs on servers you already own — with upgrades, backups, restore drills and OS patching handled. Deploying apps onto it is the easy part.
 ---
 
-import { Cards, Steps } from 'nextra/components'
+import { Callout, Cards, Steps } from 'nextra/components'
 
 # kubenest
 
@@ -33,7 +33,7 @@ thing, upgraded as one thing, and carrying one version number for the whole set.
 ## What you actually get
 
 **One version number for the whole platform.** Not eight component upgrades you sequence yourself
-and hope about. `Platform 1.4 → 1.5` is a single tested transition, and what changed between any
+and hope about. `Platform 0.9 → 1.0` is a single tested transition, and what changed between any
 two versions is in the [bundle manifest](/platform/bundle).
 
 **Upgrades that check before they run.** Every upgrade scans your live workloads for Kubernetes
@@ -113,13 +113,32 @@ flowchart TD
 
 The dotted contract is shared by all three services: a change to an event shape lands there first.
 
-That design has one consequence worth stating plainly: **the backend never holds a kubeconfig or
-cluster credentials.** Every cluster operation flows through the hub to the operator, which runs
-inside the cluster and has local Kubernetes API access. A compromised backend cannot issue
-arbitrary kubectl commands — the operator acts only on signed, schema-validated events.
+That design has one consequence worth stating plainly: **no kubeconfig for your cluster is ever
+uploaded to kubenest.** Cluster operations flow through the hub to the operator, which runs inside
+the cluster and has local Kubernetes API access, and the operator acts only on signed,
+schema-validated events.
 
-The operator dials **out** to the hub, so no node needs a public address and no inbound firewall
-rule is required.
+<Callout type="warning">
+**The boundary is not yet complete, and we would rather you heard it from us.** Registration
+currently stores a cluster-admin bearer token for your cluster in the control plane's database, and
+a few backend paths still call your cluster's Kubernetes API with it directly instead of going
+through the hub — StackDeploy CRUD, ArgoCD cluster registration, component secrets and addon
+mutations. Until those are converted, a compromised backend could reach your cluster with that
+token, and the "operator-only" boundary above describes the destination rather than today.
+
+Closing this is the current priority, tracked as `kn-cjqw` and its children. We are not withdrawing
+the design — it is the right one and it is what the remaining work is converging on — but shipping
+the claim without this caveat would be the kind of thing you should find out by reading the code,
+not by trusting a homepage.
+</Callout>
+
+The operator dials **out** to the hub, so no node needs a public address for that session and it
+survives NAT and restrictive egress-only firewalls.
+
+Note the same caveat as above applies here: while the direct backend paths remain, the control
+plane also connects to your cluster's Kubernetes API server using the credentials the operator
+advertises, so that endpoint does need to be reachable from the control plane today. Outbound-only
+becomes true of the whole deployment path when `kn-cjqw` closes, not before.
 
 ---
 

@@ -66,6 +66,10 @@ The response includes the cluster ID and a CLI pointer:
 }
 ```
 
+`cli_command` is the invocation the API intends, not one you can run yet: `kubenest cluster connect`
+is not an implemented subcommand — the CLI's `cluster` command currently registers only
+`set-window`. Keep following this guide, which uses the Helm path that works today.
+
 Save the ID:
 
 ```bash filename="terminal"

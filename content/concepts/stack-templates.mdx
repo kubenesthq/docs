@@ -18,7 +18,7 @@ A Stack Template is a Kubernetes CRD (`StackTemplate`) with four key parts:
 1. **Components** — the same component list as an App: Workload and Addon components with `depends_on` and `exportRef` wiring already configured.
 2. **Parameters** — a map of named slots with types (`string`, `integer`, `boolean`), descriptions, and optional defaults. Each parameter is bound to a field path inside a specific component's spec.
 3. **Metadata** — name, version (semver), description, icon, tags, and scope.
-4. **Scope** — who can use the template: `global` (built-in, visible to all), `cluster` (visible within one cluster), or `project` (visible within one project).
+4. **Scope** — `global`, `cluster`, or `project` metadata. The backend can filter by this value but does not enforce it as visibility or authorization.
 
 ## Three ways to create a template
 
@@ -37,7 +37,7 @@ curl -X POST \
     "scope": "cluster",
     "preserve_export_refs": true
   }' \
-  "https://api.your-domain.com/api/v1/stack-templates/capture?namespace=my-project&name=my-api&project_id=b2c3d4e5-..."
+  "https://api.your-domain.com/api/v1/stack-templates/from-app/my-project/my-api?project_id=b2c3d4e5-..."
 ```
 
 `preserve_export_refs: true` keeps the `exportRef` wiring intact so that the template, when deployed, will wire component exports automatically — exactly as the original App did.
@@ -50,7 +50,7 @@ The workflow uses the chart inspection endpoint to fetch the chart's values sche
 
 ```bash filename="inspect chart"
 curl -H "Authorization: Bearer $TOKEN" \
-  "https://api.your-domain.com/api/v1/stack-templates/inspect-chart?repo=https://charts.bitnami.com/bitnami&chart=postgresql&version=13.4.4" | jq .
+  "https://api.your-domain.com/api/v1/stack-templates/inspect-chart?repo=https://charts.bitnami.com/bitnami&name=postgresql&version=13.4.4" | jq .
 ```
 
 Response:
@@ -64,7 +64,6 @@ Response:
     "description": "PostgreSQL (Offical Bitnami Helm chart)"
   },
   "schema": {
-    "type": "object",
     "properties": {
       "auth": {
         "type": "object",
@@ -108,14 +107,14 @@ curl -X POST \
         "default": "myapp",
         "required": true,
         "component": "postgres",
-        "path": "auth.database"
+        "path": "addonSpec.values.auth.database"
       }
     }
   }' \
-  https://api.your-domain.com/api/v1/stack-templates
+  https://api.your-domain.com/api/v1/stack-templates/from-chart
 ```
 
-### From YAML (import)
+### From exported JSON (import)
 
 You can import a Stack Template that was previously exported or authored by hand:
 
@@ -124,7 +123,7 @@ curl -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d @my-template.json \
-  https://api.your-domain.com/api/v1/stack-templates/import
+  "https://api.your-domain.com/api/v1/stack-templates/import?namespace=my-project"
 ```
 
 The import format is the canonical `StackTemplateExport` JSON, with `api_version: "apps.kubenest.io/v1"` and `kind: "StackTemplate"`. This is the same format used by the community registry.
@@ -140,7 +139,7 @@ Parameters are the mechanism that makes templates reusable. Each parameter maps 
     "description": "PostgreSQL admin password",
     "required": false,
     "component": "postgres",
-    "path": "auth.password",
+    "path": "addonSpec.values.auth.password",
     "generator": "random_password"
   },
   "replica_count": {
@@ -149,7 +148,7 @@ Parameters are the mechanism that makes templates reusable. Each parameter maps 
     "default": 2,
     "required": false,
     "component": "api",
-    "path": "replicas"
+    "path": "workloadSpec.replicas"
   }
 }
 ```
@@ -165,10 +164,10 @@ curl -H "Authorization: Bearer $TOKEN" \
   https://api.your-domain.com/api/v1/stack-templates/registry | jq .data[].name
 ```
 
-Templates in the registry can be deployed directly from the UI or via the API using the same deploy flow as local templates.
+To use a registry entry through the API, first install it into a namespace with `POST /stack-templates/registry/{name}/install?namespace=...`, then deploy that installed template through the normal local-template endpoint.
 
 <Callout type="info">
-Registry templates have `scope: "global"` and are read-only — you cannot modify them. To customize a registry template, deploy it first and then capture the running App as a new template with `scope: "cluster"` or `scope: "project"`.
+The GitHub registry source is read-only through these endpoints. Installing an entry creates a local StackTemplate; the generic update and delete endpoints do not protect that local copy from modification.
 </Callout>
 
 ## Deploying a template
@@ -190,17 +189,17 @@ curl -X POST \
   "https://api.your-domain.com/api/v1/stack-templates/my-project/my-api-template/deploy"
 ```
 
-The response is a `StackDeploy` record — the same shape as an App read response. From this point, the deployed instance behaves exactly like a manually-created App: you can pause it, roll it back, patch its components, and capture it again as a new template.
+The endpoint returns `201 Created` with `message`, `deploy_name`, and `namespace`, not an App object. Use `GET /apps/{namespace}/{deploy_name}?project_id=<UUID>` to read the deployed App. From that point, it can be paused, rolled back, patched, and captured as a new template.
 
 ## Template scopes
 
-| Scope | Visibility | Who can create |
-|-------|-----------|----------------|
-| `global` | All organizations | kubenest team (via registry) |
-| `cluster` | All projects on one cluster | Cluster admins |
-| `project` | One project only | Project members |
+| Scope | Stored meaning today |
+|-------|----------------------|
+| `global` | Global intent metadata |
+| `cluster` | Cluster intent metadata |
+| `project` | Project intent metadata |
 
-Scopes are enforced by the backend's RBAC layer. A project member cannot create a `cluster`-scoped template; they can only create `project`-scoped ones.
+All authenticated users can create, list, read, update, and delete templates regardless of the `scope` value. Treat scope as metadata, not an access-control boundary.
 
 ---
 

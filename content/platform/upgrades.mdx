@@ -32,7 +32,7 @@ any of them, including the Kubernetes version itself. What changes between two s
 in the [bundle manifest](/platform/bundle), and you can see the diff before you start:
 
 ```bash filename="terminal"
-kubenest platform diff --from 1.0 --to 1.1
+kubenest platform diff --from 0.9 --to 1.0
 ```
 
 Your profile set does not change during an upgrade. Adding or removing a profile is a separate
@@ -108,7 +108,7 @@ then calls us. A finding you have judged safe is accepted one resource at a time
 audit afterwards:
 
 ```bash filename="terminal"
-kubenest platform upgrade --cluster prod-1 --to 1.1 \
+kubenest platform upgrade --cluster prod-1 --to 1.0 \
   --acknowledge payments/Ingress/legacy-gateway
 ```
 

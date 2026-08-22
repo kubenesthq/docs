@@ -11,7 +11,7 @@ A Cluster in kubenest represents a Kubernetes cluster that the operator has been
 
 ## How cluster registration works
 
-Registration is a two-phase process: you create a cluster record in the backend (which reserves a UUID and issues a cluster JWT), and then you install the operator on the actual Kubernetes cluster (which uses that JWT to authenticate with the hub).
+Registration separates the public cluster record from install-time credentials. Creating the record reserves a UUID and returns a secret-free CLI command. The CLI then calls the agent-credentials endpoint, which returns a versioned cluster JWT only in that response for the operator to use when authenticating with the hub. Calling the endpoint again rotates the credential.
 
 ```mermaid
 sequenceDiagram
@@ -22,14 +22,17 @@ sequenceDiagram
     participant Op as Operator (on your cluster)
 
     You->>BE: POST /orgs/{id}/clusters
-    BE-->>You: cluster_id + connection_token
-    Note over Op: operator installed via Helm,<br/>carrying that token
+    BE-->>You: cluster_id + CLI connect command
+    You->>BE: POST /clusters/{id}/agent-credentials (CLI token)
+    BE-->>You: one-time agent JWT
+    Note over Op: operator installed with<br/>the one-time response
     Op->>Hub: WebSocket CONNECT + JWT (outbound)
-    Hub->>BE: cluster connected
+    Op->>Hub: cluster heartbeat
+    Hub->>BE: relay heartbeat
     BE->>BE: cluster.status = connected
 ```
 
-The operator never needs a public IP or inbound firewall rules. It initiates a WebSocket connection outbound to the hub, authenticates with the JWT, and maintains a persistent session. All subsequent communication — deploy events, status updates, log streams — flows over this connection.
+The operator-to-hub session is outbound-only: the operator initiates the WebSocket, authenticates with the JWT, and reconnects in the background. That does not make the whole deployment path outbound-only. The operator advertises the Kubernetes API server URL and a service-account token; the backend and control-plane ArgoCD use those credentials to connect to the cluster API for StackDeploy creation and reconciliation. The advertised API endpoint therefore has to be reachable from the control plane.
 
 ## Connection state machine
 
@@ -37,15 +40,17 @@ A cluster record transitions through the following states:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> pending: record created
-    pending --> connected: operator connects (BYO cluster)
-    pending --> provisioning: cloud-provisioned
+    [*] --> pending: BYOC record created
+    [*] --> provisioning: cloud provisioning starts
     provisioning --> awaiting_operator: infrastructure ready
-    awaiting_operator --> connected: operator connects
-    connected --> disconnected: hub lost the session
-    disconnected --> connected: automatic reconnect, exponential backoff
+    pending --> installing: install stage starts
+    installing --> install_failed: install stage fails
+    pending --> connected: heartbeat received
+    awaiting_operator --> connected: heartbeat received
+    installing --> connected: heartbeat received
     provisioning --> error: provisioning failed
-    connected --> error: operator reported a fatal error
+    connected --> destroying: provisioned cluster deletion starts
+    destroying --> error: destroy failed
 ```
 
 | State | Meaning |
@@ -53,21 +58,23 @@ stateDiagram-v2
 | `pending` | Cluster record created. For a manually registered (BYO) cluster this is the state it sits in until the operator connects |
 | `provisioning` | Cloud provider is creating the VM or managed cluster |
 | `awaiting_operator` | Infrastructure ready; waiting for operator first connect. Only cloud-provisioned clusters enter this state — it is set by the provisioning job when it finishes |
-| `connected` | Operator has an active WebSocket session with the hub |
-| `disconnected` | Hub lost the session; cluster is temporarily unreachable |
-| `error` | Unrecoverable error; details in the cluster's `message` field |
+| `installing` | The CLI has reported an in-progress platform install stage |
+| `install_failed` | The CLI reported a failed install stage; this state remains sticky across heartbeats |
+| `connected` | The backend received a heartbeat or connected status update. This is not a live-session check |
+| `destroying` | A Terraform destroy job is running for a provisioned cluster |
+| `error` | Provisioning or destroy failed |
 
-The operator implements automatic reconnection with exponential backoff. Transient disconnects (network blips, operator restarts) recover automatically without user intervention.
+The operator implements automatic reconnection with capped exponential backoff. The backend does not change `cluster.status` to `disconnected` when a session disappears. Fleet-health silence detection instead marks the last health checks unknown and raises a critical alert after the configured missed-report window.
 
-<Callout type="info">
-Deployments queued while a cluster is `disconnected` are buffered. When the operator reconnects, it resumes reconciling any pending StackDeploy CRs. The buffering happens at the Kubernetes controller level — the operator reads its own queue of un-reconciled objects on startup.
+<Callout type="warning">
+Do not treat a failed backend-to-hub send as a durable queue. For example, project creation keeps the database record when its `project_create` event cannot be sent, but the backend has no replay path for that event. Confirm connectivity before issuing hub-dependent operations and retry the operation after reconnecting when the route permits it.
 </Callout>
 
 ## Multi-cluster topology
 
 You can register any number of clusters with a single kubenest control plane. Common topologies include:
 
-**Environment-per-cluster.** Separate clusters for development, staging, and production. Each has its own operator, its own GitOps repo branch, and its own ArgoCD instance. Projects and apps are created independently on each cluster.
+**Environment-per-cluster.** Separate clusters for development, staging, and production. Each has its own operator and ArgoCD target. Addon state is separated under `clusters/{cluster-id}/addons/` in the configured Git repository; a dedicated branch per cluster is not automatic. Projects and apps are created independently on each cluster.
 
 **Region-per-cluster.** Multiple clusters across geographic regions. The backend aggregates metrics and status from all of them into a single dashboard view.
 
@@ -90,10 +97,12 @@ By default, all components of an App deploy to the cluster associated with the A
 }
 ```
 
-The operator on the target cluster handles this component; the operator on the primary cluster handles the rest. Cross-cluster `exportRef` is also supported — a workload on cluster A can consume an export from an addon on cluster B, as long as both clusters are connected.
+For a workload component, the backend creates a control-plane ArgoCD Application whose destination is the target cluster. The primary cluster's StackDeploy controller skips the non-local child and derives its status from the relayed ArgoCD status.
+
+Cross-cluster `exportRef` is only partially wired. The primary operator can resolve exports from a remote producer into a local workload after that remote resource exists. A workload targeted at a non-primary cluster has no child Workload CR for export resolution, and the backend renders its `export_ref` as an empty inline Helm value. Initial App creation also does not create a non-primary addon component; the direct remote-addon creation path currently exists only when adding a component through PATCH. Do not use either shape as a working deployment path.
 
 <Callout type="warning">
-Cross-cluster deployments require both clusters to be `connected` at deploy time. If the secondary cluster is `disconnected`, the component targeting it will remain `pending` until the connection is restored.
+Before creating a cross-cluster App, both cluster IDs must be accessible to the caller and every non-primary target must have completed API registration. A missing API URL or service-account token returns `422 missing_cluster_registration`; the backend does not accept the App and leave that component pending.
 </Callout>
 
 ## Cluster metrics
@@ -111,7 +120,12 @@ curl -H "Authorization: Bearer $TOKEN" \
   }'
 ```
 
-These are aggregate cluster-level figures, not per-workload measurements. For per-workload metrics, kubenest supports forwarding Prometheus remote-write data to an external monitoring backend (configured via `components.monitoring` in the cluster's Helm values).
+These are aggregate cluster-level figures, not per-workload measurements. Per-workload time series come from the App metrics endpoint, which sends Prometheus queries to the operator through the hub:
+
+```bash filename="app metrics"
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/apps/my-project/my-app/metrics?project_id=$PROJECT_ID&range=1h"
+```
 
 ## Cloud-provisioned clusters
 
@@ -138,10 +152,11 @@ The guard runs before the provisioned/BYOC branch below, so a refused delete nev
 What happens to the cluster itself depends on how it was created:
 
 - **Cloud-provisioned clusters** get a destroy job: the backend runs Terraform destroy and the VMs are terminated. This deletes the infrastructure, not just the record.
-- **BYOC registrations** have only their record deleted. Nothing on the cluster is touched — the operator keeps running and must be removed by hand:
+- **BYOC registrations** have only their record deleted. Nothing on the cluster is touched. If the CLI installed the platform, remove it separately with the CLI; it preserves persistent data unless `--destroy-data` is supplied:
 
-  1. Uninstall the operator: `helm uninstall kubenest-operator -n kubenest-system`
-  2. Optionally delete the namespace: `kubectl delete ns kubenest-system`
+  ```bash
+  kubenest platform uninstall --name <cluster-name> --confirm
+  ```
 
 ---
 

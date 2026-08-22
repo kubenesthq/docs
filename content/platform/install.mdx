@@ -146,8 +146,14 @@ Outbound from the cluster and from the machine running the installer:
 
 - HTTPS to container registries and Helm repositories, for the duration of the install.
 - HTTPS to your KubeNest control plane, from the installer.
-- Persistent outbound WSS to your KubeNest hub, from the cluster. The agent dials out; no node
-  needs a public address and no inbound port needs opening for KubeNest itself.
+- Persistent outbound WSS to your KubeNest hub, from the cluster. The agent dials out, so no node
+  needs a public address for that session.
+
+One inbound path is still required today, and it is easy to miss when planning firewall rules: the
+control plane connects to your cluster's Kubernetes API server directly for some operations, using
+the credentials the agent advertises. That API endpoint must be reachable from the control plane.
+Removing that requirement is tracked as `kn-cjqw`; see
+[Architecture](/architecture#kubenest-backend).
 
 <Callout type="info">
 **Air-gapped installs are not supported.** Both the install and the running cluster require

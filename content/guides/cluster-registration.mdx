@@ -55,6 +55,10 @@ Response (`201 Created`):
 
 A manually registered cluster starts in `pending` and moves to `connected` once the operator's WebSocket handshake reaches the hub. Cloud-provisioned clusters start in `provisioning` instead.
 
+`cli_command` is the invocation the API intends, not one you can run yet: `kubenest cluster connect`
+is not an implemented subcommand — the CLI's `cluster` command currently registers only
+`set-window`. Use the Helm install below, which is the route that works today.
+
 Save the cluster ID. You will need it in subsequent API calls:
 
 ```bash filename="save cluster ID"

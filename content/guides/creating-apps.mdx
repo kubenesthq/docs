@@ -47,16 +47,22 @@ The backend responds immediately with `phase: Pending`. The operator begins reco
 
 ```bash filename="watch status"
 curl -N -H "Authorization: Bearer $TOKEN" \
-  "https://api.your-domain.com/api/v1/events/stream?namespace=my-project&name=my-app"
+  "https://api.your-domain.com/api/v1/events/stream?cluster_id=$CLUSTER_ID&resource_type=app"
 ```
+
+The stream filters by `cluster_id`, `project_id`, `workload_id` and `resource_type` only — there are no namespace or name filters. App status events carry the cluster ID, so filter on that.
 
 A healthy deploy produces this event sequence:
 
 ```
-data: {"type":"app.status","name":"my-app","phase":"deploying","message":"Waiting for ArgoCD sync"}
-data: {"type":"app.status","name":"my-app","phase":"deploying","message":"ArgoCD syncing"}
-data: {"type":"app.status","name":"my-app","phase":"running","message":""}
+event: app_status_update
+data: {"event_type":"app_status_update","resource_type":"app","app_id":"<stackdeploy-uid>","cluster_id":"a1b2c3d4-...","phase":"Deploying"}
+
+event: app_status_update
+data: {"event_type":"app_status_update","resource_type":"app","app_id":"<stackdeploy-uid>","cluster_id":"a1b2c3d4-...","phase":"Running"}
 ```
+
+Phases are Title-case: `Pending`, `Deploying`, `Running`, `Degraded`, `Failed`.
 
 Once `Running`, the ingress is live with TLS provisioned automatically by cert-manager.
 
@@ -167,40 +173,63 @@ The addon instance must be in the same project as the App.
 
 ## Updating an app
 
-Use `PATCH /api/v1/apps/{namespace}/{name}` to modify an existing App. The PATCH body accepts a `components` array containing mutations: you can add new components, remove existing ones, or patch individual fields within a component.
+Use `PATCH /api/v1/apps/{namespace}/{name}` to modify an existing App. The body carries three separate arrays, applied in a fixed order — remove, then patch, then add:
+
+| Field | Effect |
+|---|---|
+| `remove_component_names` | Names of existing components to drop |
+| `components` | Patch by name — each entry must name an existing component |
+| `add_components` | New components to append; names must not collide after removals |
+
+**Every day-2 call on an App also requires the `project_id` query parameter**, which is how the backend finds the cluster the App lives on. Omitting it returns `422`.
 
 ### Patching a component (change image tag)
 
 ```bash filename="update image tag"
-curl -X PATCH https://api.your-domain.com/api/v1/apps/my-project/my-api \
+curl -X PATCH "https://api.your-domain.com/api/v1/apps/my-project/my-api?project_id=$PROJECT_ID" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "components": [
       {
         "name": "api",
-        "op": "patch",
+        "type": "workload",
         "workload_spec": {
-          "image": "myorg/my-api:v1.1.0"
+          "build_mode": "image",
+          "image": "myorg/my-api:v1.1.0",
+          "replicas": 2,
+          "port": 8000,
+          "env": [
+            {"name": "APP_ENV", "value": "production"}
+          ],
+          "ingress": {
+            "enabled": true,
+            "host": "api.your-domain.com"
+          }
         }
       }
     ]
   }'
 ```
 
-Fields omitted from the patch are left unchanged. The operator re-renders the Helm values with the new image, commits to Git, and ArgoCD performs a rolling update.
+<Callout type="warning">
+**A `components` entry replaces that component wholesale — it is not a field-level merge.** Send the component's *complete* spec, including everything you are not changing.
+
+This matters because the omitted fields do not stay as they were: they take schema defaults. A patch carrying only `image` silently resets `replicas` to `1` and `port` to `8080`, and drops `env` and `ingress` entirely. Read the current spec first (`GET /api/v1/apps/{namespace}/{name}?project_id=…`), change the one field, and send the whole component back.
+</Callout>
+
+The operator re-renders the Helm values with the new image, commits to Git, and ArgoCD performs a rolling update.
 
 ### Adding a component to an existing app
 
 ```bash filename="add a Redis addon"
-curl -X PATCH https://api.your-domain.com/api/v1/apps/my-project/my-api \
+curl -X PATCH "https://api.your-domain.com/api/v1/apps/my-project/my-api?project_id=$PROJECT_ID" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "components": [
+    "add_components": [
       {
         "name": "cache",
-        "op": "add",
         "type": "addon",
         "addon_spec": {
           "type": "redis",
@@ -221,18 +250,15 @@ curl -X PATCH https://api.your-domain.com/api/v1/apps/my-project/my-api \
 ### Removing a component
 
 ```bash filename="remove a component"
-curl -X PATCH https://api.your-domain.com/api/v1/apps/my-project/my-api \
+curl -X PATCH "https://api.your-domain.com/api/v1/apps/my-project/my-api?project_id=$PROJECT_ID" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "components": [
-      {
-        "name": "cache",
-        "op": "remove"
-      }
-    ]
+    "remove_component_names": ["cache"]
   }'
 ```
+
+An App must retain at least one component after removals.
 
 <Callout type="warning">
 Removing a component that another component's `exportRef` depends on will be rejected with a `409 Conflict`. You must first update the dependent component to remove the `exportRef`, then remove the source component in a second PATCH.
@@ -247,7 +273,7 @@ For example, if `api` reads `REDIS_URL` from `cache`, you must first patch `api`
 To change the replica count of a workload component, use the dedicated scale endpoint rather than a full PATCH. This is a lightweight operation — it does not trigger a full reconcile of all components.
 
 ```bash filename="scale a component"
-curl -X POST https://api.your-domain.com/api/v1/apps/my-project/my-api/scale \
+curl -X POST "https://api.your-domain.com/api/v1/apps/my-project/my-api/scale?project_id=$PROJECT_ID" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -265,7 +291,7 @@ The operator updates only the affected component's Helm values and ArgoCD Applic
 Pausing an App sets every workload component's replica count to zero, preserving the deployment configuration. This stops all compute costs for the App while retaining the namespace, the Kubernetes resources, and the addon state (databases remain running).
 
 ```bash filename="pause"
-curl -X POST https://api.your-domain.com/api/v1/apps/my-project/my-api/pause \
+curl -X POST "https://api.your-domain.com/api/v1/apps/my-project/my-api/pause?project_id=$PROJECT_ID" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -274,12 +300,12 @@ The backend:
 2. Saves the snapshot as `pre_pause_replicas` on the App record.
 3. Issues a scale-to-zero for each workload component.
 
-The App's phase transitions to `paused`. Addon components (PostgreSQL, Redis, etc.) are **not** scaled — they continue running so that data is preserved.
+There is no `Paused` phase — pausing is scale-to-zero, and the App's reported phase is unchanged by it. Addon components (PostgreSQL, Redis, etc.) are **not** scaled — they continue running so that data is preserved.
 
 Resume restores the pre-pause replica counts:
 
 ```bash filename="resume"
-curl -X POST https://api.your-domain.com/api/v1/apps/my-project/my-api/resume \
+curl -X POST "https://api.your-domain.com/api/v1/apps/my-project/my-api/resume?project_id=$PROJECT_ID" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -315,7 +341,7 @@ Example output:
 ### Roll back to a specific deployment
 
 ```bash filename="rollback"
-curl -X POST https://api.your-domain.com/api/v1/apps/my-project/my-api/rollback \
+curl -X POST "https://api.your-domain.com/api/v1/apps/my-project/my-api/rollback?project_id=$PROJECT_ID" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"deployment_id": "b3c4d5e6-..."}'
@@ -324,7 +350,7 @@ curl -X POST https://api.your-domain.com/api/v1/apps/my-project/my-api/rollback 
 Alternatively, roll back by a relative revision number (useful in automation):
 
 ```bash filename="rollback by revision"
-curl -X POST https://api.your-domain.com/api/v1/apps/my-project/my-api/rollback \
+curl -X POST "https://api.your-domain.com/api/v1/apps/my-project/my-api/rollback?project_id=$PROJECT_ID" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"revision": -1}'
@@ -345,7 +371,7 @@ Rolling back an App that contains addon components will also roll back those add
 Deleting an App removes all its components from the cluster (Helm uninstalls, ArgoCD Applications deleted) and removes the corresponding Git paths from the GitOps repository.
 
 ```bash filename="delete app"
-curl -X DELETE https://api.your-domain.com/api/v1/apps/my-project/my-api \
+curl -X DELETE "https://api.your-domain.com/api/v1/apps/my-project/my-api?project_id=$PROJECT_ID" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
