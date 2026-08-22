@@ -117,17 +117,14 @@ If you supply an S3-compatible target with `--backup-target`, Velero is configur
 scheduled backup runs per the schedule on the backup and restore page. If you do not, Velero is
 installed unconfigured and the installer says so as it passes stage 8.
 
-<Callout type="warning">
-**The reporting half of this is not built yet.** The cluster does not report
-`backup: unconfigured` in its heartbeat, and the console raises no warning for it: the heartbeat
-carries node, version and resource data, and the cluster record has no field for backup state at
-all. Until that lands, an unconfigured backup is visible once — in the install output — and not
-continuously.
-</Callout>
-
 A cluster that has never taken a backup is exactly the quiet failure this product exists to
-prevent. The intent is to surface that continuously rather than block the install on it; today
-only the second half of that holds.
+prevent, so it is surfaced continuously rather than blocking the install.
+
+The agent reports backup state in every health report, and the control plane turns an unconfigured
+target into a `BACKUP_TARGET_UNCONFIGURED` warning. The same check reports a failed backup, a
+backup that has never run, and one that has gone stale past the manifest's `max-backup-age`. The
+console shows the verdict on the cluster. Configure a target after the fact with
+`kubenest backup set-target` — see [Backup and restore](/platform/backup-restore).
 
 <Callout type="info">
 Velero itself is not optional and is not a profile. Core is a fixed set — variation comes from
@@ -274,7 +271,9 @@ kubenest platform install \
 
 `--bundle` selects the platform version. Every component version is pinned by that number — the
 bundle is the unit of test, of support and of upgrade, and a cluster is always at exactly one
-bundle version plus a recorded profile set. **Platform 1.0 is the only released bundle**; a
+bundle version plus a recorded profile set. **Install Platform 1.0.** The catalog also carries
+Platform 0.9, which exists so the upgrade path has a real predecessor to move from — it differs
+from 1.0 in the k3s and agent pins only, and there is no reason to install it deliberately. A
 version the control plane does not offer is refused by preflight. What each version contains is
 on the Bundle contents page.
 
@@ -501,7 +500,14 @@ arrived. A cluster the control plane still records as `install_failed` does not 
 
 The heartbeat carries node count, Kubernetes version and node resource data. The bundle version,
 profile set, HA tier and volume-group ownership reach the control plane from stage 12, not from
-the heartbeat, and backup configuration state is not reported anywhere yet.
+the heartbeat.
+
+Alongside it the agent sends a health report — nodes, control plane, certificate expiry dates,
+backup and restore-drill evidence, and its own version — which the control plane evaluates into
+per-check verdicts and alerts. Two groups it cannot collect yet, datastore health and drift from
+the recorded bundle, report the reason they are missing and evaluate to `unknown`. `unknown` is
+never rendered as healthy, so an unmeasured check is visible as unmeasured rather than counted
+green.
 
 ### The recorded manifest matches reality
 

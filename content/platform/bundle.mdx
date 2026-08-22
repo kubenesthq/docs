@@ -38,10 +38,11 @@ Kubernetes" and a much more testable one.
 
 <Callout type="warning">
 **"Tested together" is not yet a fact about every configuration.** Core has been installed and
-verified end to end on a real host, and every component pin is compared against the running
-cluster before an install reports success. The compatibility matrix — each supported
-configuration taken through install, workload, backup, restore drill and upgrade on every release
-— has never run, and no profile has been tested against core at all.
+verified end to end on a real host, every component pin is compared against the running cluster
+before an install reports success, and one real transition — 0.9 to 1.0, on two nodes with a
+workload running — has been taken through backup, restore drill and upgrade. The compatibility
+matrix that would do that for *each* supported configuration on *every* release has never run,
+and no profile has been tested against core at all.
 </Callout>
 
 ## Core
@@ -104,10 +105,16 @@ That is a separate migration, not part of installing the bundle.
 Two different things that are easy to confuse.
 
 **Fleet health telemetry** ships in core and is not optional. Its job is to make a problem known
-before someone has to report it. Today the agent's heartbeat carries connection status, node
-count, Kubernetes version and per-node resource figures. The bundle version, profile set, HA tier
-and volume-group ownership are recorded by the installer's `record` stage rather than by the
-heartbeat, and backup configuration state is not reported at all yet.
+before someone has to report it. The agent reports node status, control-plane health, certificate
+expiry as dates rather than booleans, and backup and restore-drill evidence; the control plane
+evaluates those into per-check verdicts and routes alerts. The bundle version, profile set, HA
+tier and volume-group ownership are recorded by the installer's `record` stage rather than by the
+heartbeat.
+
+Two groups are declared and not yet collected — datastore health and drift from the recorded
+bundle. Both say why they are missing and evaluate to `unknown`, which is ordered above `ok`
+rather than folded into it: a fleet view showing forty green and two grey is the truth, and one
+showing forty-two green is the failure this exists to prevent.
 
 **Your observability** — metrics, dashboards, logs for your own workloads — is the
 `observability` profile. Different audience, different data, different lifetime.
@@ -117,11 +124,13 @@ heartbeat, and backup configuration state is not reported at all yet.
 The bundle is machine-readable and versioned. It is the record of what a release contains, and it
 is what the installer, the upgrade path and the compatibility tests all read.
 
-The installer reads it now. `kubenest platform install` fetches the manifest from the control
+Two of its three readers exist. `kubenest platform install` fetches the manifest from the control
 plane, takes every component version and every deadline from it, and its last acceptance check
 compares the manifest's pins against what is actually on the cluster before reporting success.
-The other two readers do not exist yet: `kubenest platform upgrade` is a stub, and the
-compatibility matrix has never run.
+`kubenest platform upgrade` reads both the manifest it is leaving and the one it is moving to: the
+difference between them *is* the upgrade plan, and a transition the two manifests do not describe
+— a downgrade, an unoffered tier — is refused at the gate rather than attempted. The third reader,
+the compatibility matrix, has never run.
 
 ```yaml filename="platform-1.0.yaml"
 bundle: "1.0"
@@ -164,7 +173,31 @@ limits:
     node-reboot:      20m    # node leaves, comes back, reports Ready
     install-total:    30m    # all 13 stages; the 15-minute budget is the target
     upgrade-per-node: 30m
+    backup:            1h
     restore-drill:     2h
+
+health:
+  # The thresholds fleet health evaluates against. Here rather than in backend
+  # code so a release can retune them without a deploy, and so a missing one is
+  # a validation error rather than a default nobody can find.
+  provisional: true
+  certificates: { warning-days: 30, critical-days: 7 }
+  reporting:    { missed-reports-before-alert: 3, clock-skew-tolerance: 5m }
+  nodes:        { not-ready-grace: 25m }
+  backup:       { max-backup-age: 48h, max-restore-drill-age: 336h, ... }
+  datastore:    { max-snapshot-age: 3h }
+
+upgrade:
+  # The deprecation dataset is pinned with the bundle. A scan whose data has
+  # gone stale reports confidence it has not earned, which is worse than no scan.
+  deprecation-scanner: { tool: pluto, version: <pinned>, dataset: <pinned> }
+
+backup:
+  object-store-plugin: { provider: aws, version: <pinned> }
+  defaults:
+    datastore-snapshot: { interval: 1h,  keep: 24 }
+    workload-backup:    { interval: 24h, keep: 14 }
+    restore-drill:      { interval: 7d }
 
 profiles:
   # Each profile pins its own components, and carries provisional: true until the
@@ -189,9 +222,15 @@ support conversation can start with *"which bundle, and what were its limits"* r
 **Platform 1.0's limits are marked `provisional`.** The structure is settled and the installer
 reads every threshold and deadline from it, but the numbers themselves are judgement rather than
 measurement. The resource floors come closest: they are k3s's documented minimum plus headroom,
-written in the units a real host actually reports. A later bundle replaces the rest with measured
-figures and drops the flag. A provisional number that says so is worth more than one that waits
-to be perfect — the alternative was blocking everything downstream on a measurement campaign.
+written in the units a real host actually reports. A provisional number that says so is worth
+more than one that waits to be perfect — the alternative was blocking everything downstream on a
+measurement campaign.
+
+Real hardware has since produced two figures: a single-server core install in **4m14s**, and a
+0.9 → 1.0 upgrade across two nodes in **3m11s**. Neither has replaced anything. `install-total`
+is still 30m and `upgrade-per-node` still 30m, both unmeasured, and the `health` thresholds are
+provisional on the same terms. Two measurements are not a measurement campaign, and the flag
+comes off a section at a time or not at all.
 
 ### Units
 
@@ -252,4 +291,9 @@ What separates a major bump from a minor one is not settled. Until it is, read t
 identity — the thing you run, that we test, and that an upgrade moves you off — rather than as a
 promise about the size of the change.
 
-Platform 1.0 is the only released bundle.
+**Platform 1.0 is the current release, and the one to install.** The catalog also carries Platform
+0.9, the release 1.0 succeeds. It exists because an upgrade cannot be built or tested against a
+catalog with one entry in it, and because a transition that changes no Kubernetes version never
+reaches the point of no return — so it would not test the part that matters. It differs from 1.0
+in the k3s pin and the agent pin, and both were real releases of the same k3s line when each was
+cut. Nothing in it is a placeholder, and there is no reason to install it deliberately.

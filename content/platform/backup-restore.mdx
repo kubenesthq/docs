@@ -117,6 +117,12 @@ fleet telemetry. The console distinguishes a drill that has never run, one that 
 previous pass that has become stale; failure is an alert, while an unconfigured target remains a
 visible warning rather than blocking the rest of the install.
 
+One part of that is not yet watched. The operator cannot read etcd membership or snapshot times
+from inside a pod, so the datastore group of the health report carries a collection error and the
+bundle manifest's three-hour snapshot-age threshold is fed by nothing. It shows as unknown rather
+than green — the report does not claim a snapshot it cannot see — but a single-server cluster whose
+hourly snapshots quietly stopped would not raise an alert. Until that lands, check the bucket.
+
 Daily workload backups include customer namespaces and the restore-proof namespace. They exclude
 the platform control namespaces (`velero`, `kubenest-system`, `kube-system`, `kube-public` and
 `kube-node-lease`): backing up a backup controller's own transient jobs does not protect customer

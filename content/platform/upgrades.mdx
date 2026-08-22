@@ -10,9 +10,11 @@ import { Callout, Steps } from 'nextra/components'
 <BuildStatus path="/platform/upgrades" />
 
 <Callout type="info">
-The core install places the pinned `system-upgrade-controller` and waits for it to become Ready,
-but it creates no upgrade Plan and runs none of the workflow below. The installer's proven journal
-and resume path cover installation only; an upgrade needs its own transition journal.
+The workflow below runs. `kubenest platform upgrade` has taken a real two-node cluster from bundle
+0.9 to 1.0 in 3m11s, through all eight stages, with a two-replica workload reachable on every one
+of 146 one-second probes. Two things on this page are not yet proven on hardware: the
+datastore-restore rollback — the path for a failure *after* the point of no return — has only ever
+run in unit tests, and no upgrade has run on the three-node `ha` tier.
 </Callout>
 
 Upgrading is one operation: **`Platform N → N+1`, for your cluster's exact recorded profile set.**
@@ -38,22 +40,26 @@ operation.
 
 ## Pre-flight gates
 
-Every gate runs before anything is touched. Any gate that fails stops the upgrade with nothing
+Seven gates run before anything is touched. Any gate that fails stops the upgrade with nothing
 changed.
 
 These are not ceremony. Each one exists because skipping it produces a specific, known bad
-outcome.
+outcome. All seven run even after one has failed: being told to fix one thing, re-running and
+hitting the next is the tool failing you rather than your cluster.
 
 | Gate | Passes when | Why it exists |
 |---|---|---|
 | **Deprecated API scan** | No running workload uses an API removed in the target Kubernetes version | See [below](#the-deprecated-api-scan). This is the one that matters most |
-| **Restore drill** | The most recent verified restore drill passed | Rollback partly depends on restore. An untested restore is not a rollback plan |
-| **Backup** | A fresh backup completes immediately before the upgrade starts | The state you may need to return to must be from *now*, not from last night |
+| **Restore drill** | The most recent verified restore drill passed, and passed recently enough for `health.backup.max-restore-drill-age` | Rollback partly depends on restore. An untested restore is not a rollback plan, and a drill that passed in March is not evidence about a cluster in August |
 | **Node readiness** | Every node reports Ready, and has done for `limits.timeouts.node-ready` | Upgrading onto an already-degraded cluster turns one problem into two. A node that is flapping in and out of Ready fails this gate, which a single sample would miss |
 | **Disk headroom** | Every node has at least `limits.resources.upgrade-headroom.disk` free (default 10 GiB) on the filesystem holding `/var/lib/rancher` | Running out of disk mid-upgrade is a hard failure at the worst moment. The new images land beside the old ones, so the requirement is free space, not total size |
 | **Pod disruption budgets** | No PDB would block a drain for longer than `limits.timeouts.node-drain` | A PDB that permits zero disruption stalls the upgrade forever, holding the cluster mid-transition. The gate is *"would this drain finish in the window"*, which is answerable in advance, not *"is this PDB reasonable"*, which is not |
-| **Maintenance window** | Now is inside the cluster's configured window | See [maintenance windows](#maintenance-windows) |
-| **Bundle path** | N+1 is a supported transition from N for this profile set | Untested transitions are not offered |
+| **Maintenance window** | Now is inside the cluster's configured window | See [maintenance windows](#maintenance-windows), including what this gate does *not* do today |
+| **Bundle path** | The target is a newer bundle than the one you are running, and offers this cluster's HA tier and every profile it has installed | Kubernetes does not downgrade, so a backward move is refused here rather than discovered at the point of no return — that was found on a real cluster. And a profile set does not change during an upgrade, so a bundle that drops one cannot be a target for this cluster |
+
+The fresh backup most people expect to find in that table is not a gate: it is stage 2, the first
+thing that runs once the gates pass. A failure there still leaves nothing changed, and it is still
+important information in its own right — see [when a stage fails](#when-a-stage-fails).
 
 ## The deprecated API scan
 
@@ -73,7 +79,7 @@ in the target Kubernetes version. **If it finds any, the upgrade is blocked** an
 the resource, its namespace, the API version it uses, and the version it should move to.
 
 ```
-BLOCKED: 3 resources use APIs removed in the target version.
+BLOCKED: 3 resource(s) use APIs removed in Kubernetes v1.36.0.
 
   namespace/payments   Ingress api-gateway
       networking.k8s.io/v1beta1  →  networking.k8s.io/v1
@@ -85,10 +91,45 @@ BLOCKED: 3 resources use APIs removed in the target version.
       batch/v1beta1              →  batch/v1
 
 Fix these, then re-run. Nothing has been changed.
+
+If a resource is genuinely safe — it is inert, or you are removing it in the same
+window — accept it by name and only by name:
+  --acknowledge payments/Ingress/api-gateway
+  --acknowledge payments/HorizontalPodAutoscaler/worker
+  --acknowledge internal/CronJob/nightly-report
 ```
 
 Fixing them is your work, in your manifests — we cannot rewrite your application for you. Once
 they are fixed and redeployed, re-run the upgrade.
+
+**There is no `--force`.** A blanket override is how a customer takes their own product down and
+then calls us. A finding you have judged safe is accepted one resource at a time, by
+`namespace/Kind/name`, which is tedious enough to prevent reflexive use and specific enough to
+audit afterwards:
+
+```bash filename="terminal"
+kubenest platform upgrade --cluster prod-1 --to 1.1 \
+  --acknowledge payments/Ingress/legacy-gateway
+```
+
+An API that is deprecated but *not yet removed* in the target version does not block. It is
+printed as a warning, because an upgrade that refused every deprecation would refuse most real
+clusters.
+
+Two properties of the scanner matter more than the scan itself:
+
+- **The scanner and its dataset are both pinned in the bundle manifest** (`pluto`, under
+  `upgrade.deprecation-scanner`). A scanner whose deprecation data has drifted reports you clean
+  against removals it has never heard of, and you believe it. That is confidence it has not
+  earned.
+- **It fails closed.** If pluto cannot be fetched, cannot run, or emits output the parser does not
+  recognise, the gate *fails*. It never reports "no deprecations found" — a scan that silently
+  degrades into a pass is indistinguishable from a clean cluster at the moment it matters most.
+
+One limit to know: the scan reads what is **in the cluster** — its live objects and its Helm
+releases. A manifest that exists only in your GitOps repository, unsynced, is not scanned and will
+not block. It will break you on the deploy after the upgrade instead, which is the same failure
+detached from its cause.
 
 ## Maintenance windows
 
@@ -99,10 +140,29 @@ kubenest cluster set-window --cluster prod-1 \
   --days sat,sun --start 02:00 --end 06:00 --timezone Asia/Kolkata
 ```
 
+The timezone is an IANA name, never an offset: offsets move twice a year, and a window that
+silently shifts by an hour is worse than no window at all. An end time earlier than the start
+means the window crosses midnight.
+
 **The rule when a window closes mid-upgrade: no new stage starts, but the stage in progress
 finishes.** Abandoning a half-completed stage to respect a clock leaves the cluster in a worse
 state than the overrun does. If the window closes with stages remaining, the upgrade pauses and
 resumes at the next window, and the cluster reports that it is mid-upgrade the whole time.
+
+Four stages are exempt from that pause. `preflight` is where the window is checked in the first
+place, so pausing before it would be circular. `backup` takes the snapshot a rollback depends on,
+which is not skipped for a clock. `verify` and `record` must not be separated from the transition
+they describe — pausing there would leave a cluster upgraded and unverified until the next window.
+Everything expensive sits between `backup` and `verify`, and none of it is exempt.
+
+<Callout type="warning">
+**None of this is in force yet.** `kubenest cluster set-window` validates what you give it and
+then stores it through a control-plane route that does not exist, so the command fails. The
+upgrade, for its part, never asks the control plane what the window is: the gate treats every
+cluster as having none configured, and passes. Until that route ships, an upgrade you start runs
+whenever you start it, and the mid-upgrade pause never fires. The window is shared with the reboot
+coordinator, and lands with it — see [OS patching](/platform/os-patching).
+</Callout>
 
 ## The order of operations
 
@@ -118,7 +178,7 @@ step last means the great majority of failures happen while retreating is still 
 |---|---|---|
 | 1 | `preflight` | All gates above. Nothing is changed |
 | 2 | `backup` | Fresh backup taken. The last moment before anything changes |
-| 3 | `platform-components` | cert-manager, Traefik, OpenEBS, Velero, `kured`, in dependency order |
+| 3 | `platform-components` | The seven core components, in dependency order: Gateway API, Traefik, cert-manager, OpenEBS, Velero, `system-upgrade-controller`, `kured` |
 | 4 | `profiles` | Components of each enabled profile |
 | 5 | `agent` | The KubeNest agent |
 | 6 | **`kubernetes`** | **Point of no return.** k3s on each node in turn, via `system-upgrade-controller` |
@@ -151,11 +211,20 @@ The diagram is the argument for the ordering. Every stage before 6 exits through
 the left; only 6 and 7 exit through a datastore restore. Five of the seven ways an upgrade can
 fail cost you seconds, and that is a consequence of *sequencing*, not of any recovery machinery.
 
-**Health checks run between every stage**, and a failed check halts the sequence rather than
-continuing. Continuing past a failed check is how one broken component becomes a broken cluster.
+**Every stage converges on its own health check before the next one starts**, and a check that
+fails halts the sequence rather than continuing. Continuing past a failed check is how one broken
+component becomes a broken cluster.
+
+A component stage is not satisfied by "the pods are Ready", because the *previous* version's pods
+are Ready too — a chart pin that cannot resolve leaves the old release running and everything
+green. It requires that the release reports the pinned version **and** that the job applying it
+succeeded. That distinction was found by a real cluster, where a deliberately poisoned pin
+otherwise sailed through.
 
 Stage 6 upgrades nodes one at a time. Each node is cordoned, drained, upgraded, and must return to
-Ready and pass its health check before the next node is touched.
+Ready and pass its health check before the next node is touched. Servers complete before any agent
+starts: an agent joining a control plane it is newer than is the one version skew Kubernetes does
+not promise to tolerate.
 
 ### Every wait in that sequence has a deadline
 
@@ -199,7 +268,7 @@ depends on where your replicas are placed, so it gets two rows:
 | | Multi-replica workload | Single-replica workload |
 |---|---|---|
 | **`ha` tier** | No downtime. Replicas reschedule ahead of each drain | Restarts once, when its node drains |
-| **`single-server`, replicas only on agent nodes** | No downtime for the workload itself | Restarts once, when its node drains |
+| **`single-server`, replicas spread across nodes** | No downtime for the workload itself. Measured on a two-node cluster through a full 0.9 → 1.0 upgrade: two replicas, polled once a second, reachable on all 146 ticks | Restarts once, when its node drains |
 | **`single-server`, replicas on the control-plane node** | Replicas there restart when that node drains, and can only move to an agent node with capacity. If every replica is on the control-plane node — always the case on a one-node cluster — the workload is down while the node upgrades | Restarts; on a one-node cluster it is down while the node upgrades |
 
 The platform does not restrict workloads to agent nodes, so unless you have constrained
@@ -217,7 +286,8 @@ Two things are true regardless of tier:
   The cluster is frozen, briefly and deliberately.
 
 On the `ha` tier the API stays available throughout, because servers upgrade one at a time and
-quorum is maintained.
+quorum is maintained. That row is reasoning, not measurement: no cluster has yet been installed or
+upgraded on three machines — see [high availability](/platform/ha).
 
 ## What actually rolls back
 
@@ -226,8 +296,19 @@ people end up surprised.
 
 ### Platform components — genuine rollback
 
-Stages 3, 4 and 5 roll back cleanly. Each component is a Helm release, and a failed upgrade
-reverts to the previous revision in seconds. Nothing is lost.
+A failure before the k3s stage takes the seven core components back to the bundle they came from.
+Each is a Helm release, so reverting is rewriting its resource at the previous pinned version and
+letting the cluster's own helm-controller take it back: seconds, nothing lost.
+
+This is the path a forced failure took on a real cluster. Traefik was pinned to a version that
+does not exist; the upgrade failed at `platform-components` naming Traefik, chose the component
+revert rather than a datastore restore, put every component back, and the two-replica workload
+kept both replicas throughout.
+
+Two limits are worth knowing. Stage 4 never needs reverting because it cannot run — a cluster with
+any component profile installed is refused there rather than upgraded partially, see
+[profiles](/platform/profiles). And the agent moved at stage 5 is not part of the component
+revert; it is left at the version the upgrade installed.
 
 ### Kubernetes — no such thing as a downgrade
 
@@ -243,6 +324,20 @@ also a control-plane outage, because there is only one control plane.
 
 That is a genuine restore, not a rollback: the cluster returns to its state at the moment the
 snapshot was taken, and there is a service interruption while it happens.
+
+<Callout type="warning">
+**This is the one path on this page that has never been run on real hardware.**
+
+The cheap half has: a forced failure before the point of no return reverted a real cluster's
+components while its workload stayed up. This half is implemented and unit-tested, and the same
+`k3s --cluster-reset` mechanism it uses has been exercised on a fresh host by the
+[restore drills](/platform/backup-restore) — but restoring a snapshot onto an already-upgraded k3s
+binary, which is what a rollback from stage 6 actually asks for, has not been done.
+
+Read it as the reason the irreversible stage is last, not as a proven escape hatch. If you are
+weighing whether to upgrade, the argument for doing so is that five of the seven ways this can
+fail never reach here.
+</Callout>
 
 <Callout type="warning">
 **Restoring the platform does not restore your application data**, and that is deliberate.

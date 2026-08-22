@@ -44,7 +44,8 @@ plenty of workloads.
 
 **What it promises:** that when the control-plane node is lost, the cluster can be rebuilt from
 datastore snapshots and workload backups, and that the restore path has been tested rather than
-assumed.
+assumed. That second half is now literal: the release gate rebuilt embedded etcd from a snapshot
+held only in S3, with the node-local copy deleted first.
 
 It deliberately does not promise a single number of hours. Restore time is dominated by how much
 volume data you hold, so one figure quoted for every cluster would be wrong for almost all of
@@ -85,8 +86,14 @@ one. Until you restore, you are running without a safety net, and the clock is q
 
 <Callout type="warning">
 **This is why the restore drill is not optional.** The `single-server` tier is honest exactly to
-the degree that the restore path is proven. Verified restore drills are in core and run on a
-schedule for this reason — see [backup and restore](/platform/backup-restore).
+the degree that the restore path is proven. Verified restore drills are in core and run weekly for
+this reason: each one restores real objects and real volume bytes and compares them, a failure is
+an alert rather than a log line, and the result is the evidence the upgrade pre-flight reads before
+it will touch anything — see [backup and restore](/platform/backup-restore).
+
+What the platform does not yet watch is the freshness of the datastore snapshots themselves. A
+cluster whose hourly snapshots stopped shows the check as unknown, not as an alert, so on this tier
+that is worth confirming by hand.
 
 It is also why we tell you this rather than burying it. Because KubeNest abstracts k3s away, you
 are less able to diagnose a frozen cluster than you would be if you had assembled it yourself.
@@ -112,6 +119,10 @@ Three control-plane nodes with embedded etcd, maintaining quorum.
 The API stays available, workloads keep scheduling and self-healing, and control-plane nodes can
 reboot for OS patching one at a time without a human deciding.
 
+The last of those is the tier's property, not yet a shipped behaviour: nothing coordinates a reboot
+on either tier today, because the policy that decides when one is allowed is unbuilt. See
+[OS patching](/platform/os-patching).
+
 **What it does not promise:**
 
 - **Surviving the loss of two.** Three nodes with quorum of two means two failures is a stopped
@@ -122,6 +133,10 @@ reboot for OS patching one at a time without a human deciding.
 - **Zero operational weight.** etcd brings quorum, compaction and defragmentation. We absorb that
   on your behalf, but it is real, and it is why the tier is priced differently rather than offered
   as a free upgrade.
+- **Telling you the moment you have spent your one failure.** Fleet health derives redundancy from
+  control-plane node health, so a lost node is reported as degraded quorum. An etcd member that
+  fails while its node stays Ready is not: the operator cannot read etcd membership from inside a
+  pod yet, so that cluster still reads as having quorum.
 
 Two things the first three-node install is expected to test, because a single-server one could not:
 whether etcd is actually healthy before the rest of the bundle is applied — the installer waits for
