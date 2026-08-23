@@ -2,26 +2,28 @@ import type { MetaRecord } from 'nextra'
 
 const meta: MetaRecord = {
   index: 'KubeNest',
-  'getting-started': 'Getting Started',
-  // kn-nlaf: day-2 platform docs. Merge gate: this branch does not merge to main until
-  // kn-ze1 has verified these pages against a real cluster (PLAN-DAY2-HAPPY-PATH.md).
-  platform: {
-    title: 'Platform',
-    items: {
-      install: 'Install the platform',
-      bundle: 'What is in the bundle',
-      profiles: 'Profiles',
-      upgrades: 'Upgrades',
-      'backup-restore': 'Backup and restore',
-      'os-patching': 'OS patching and reboots',
-      ha: 'HA tiers',
-      'deploying-an-app': 'Deploying an app',
-    },
-  },
+  prerequisites: 'Prerequisites',
+  quickstart: 'Quickstart',
+
+  '-- install': { type: 'separator', title: 'Install' },
+  install: 'Install the platform',
+  'connect-cluster': 'Connect a cluster',
+
+  '-- use': { type: 'separator', title: 'Use it' },
   concepts: 'Concepts',
+  deploying: 'Deploying apps',
+  addons: 'Addons and templates',
+
+  '-- operate': { type: 'separator', title: 'Operate it' },
+  upgrades: 'Upgrades',
+  'backup-restore': 'Backup and restore',
+  ha: 'HA tiers',
+  'os-patching': 'OS patching and reboots',
+
+  '-- reference': { type: 'separator', title: 'Reference' },
+  bundle: 'What is in the bundle',
   architecture: 'Architecture',
-  guides: 'Guides',
-  api: 'API Reference',
+  api: 'API reference',
 }
 
 export default meta

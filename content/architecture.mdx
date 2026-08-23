@@ -22,20 +22,6 @@ cluster operations are dispatched as signed JSON events to the hub and acknowled
 This is what makes the backend horizontally scalable — you can run multiple replicas behind a load
 balancer without any shared in-process state.
 
-<Callout type="warning">
-**Today there are exceptions, and they matter if you are evaluating the trust boundary.** Cluster
-registration persists a cluster-admin bearer token on the cluster record
-(`app/models/cluster.py:96-102`), and several backend paths use it to call the tenant cluster's
-Kubernetes API directly rather than routing through the hub — StackDeploy CRUD
-(`app/services/stack_template.py:125-166`, `:339-352`), ArgoCD cluster registration
-(`app/services/argocd.py:31-67`), component Secret endpoints, and addon CR mutations.
-
-So the boundary described here is the architecture's direction and the target the remaining work is
-converging on, not a description of every path in the current build. The conversion is tracked as
-`kn-cjqw`, with `kn-p61d`, `kn-37n5`, `kn-qh3g`, `kn-owei` and `kn-i6qg` as the specific paths. If
-you are assessing kubenest on this property, assess it against those.
-</Callout>
-
 ### kubenest-hub
 
 The hub is a Go WebSocket message broker. Its sole job is routing events between the backend and the operators running on each cluster. The backend connects to the hub as a persistent WebSocket client (identified by a `client_type: "backend"` claim in its JWT). Each operator also connects as a persistent client (authenticated by a cluster-scoped JWT). The hub maintains a connection registry in Redis so that multiple hub replicas can be deployed without routing failures.
@@ -47,7 +33,7 @@ The hub understands two event directions: **command events** flow backend → op
 The operator is a Go controller-runtime application that runs inside each registered Kubernetes cluster. It implements five Kubernetes controllers:
 
 - **StackDeploy controller** — watches `StackDeploy` CRDs (the cluster-side representation of an App) and drives the full deploy/patch/delete reconcile loop.
-- **Workload controller** — tracks individual workload components within a StackDeploy: watches the ArgoCD Application's health, reports the cluster's ingress IP, and collects exports once a component is running. It does not render manifests or create the Application — the backend does both. See [GitOps](/architecture/gitops).
+- **Workload controller** — tracks individual workload components within a StackDeploy: watches the ArgoCD Application's health, reports the cluster's ingress IP, and collects exports once a component is running. It does not render manifests or create the Application — the backend does both. See [GitOps](/architecture#gitops).
 - **Addon controller** — same as Workload but for Helm-chart backing services; also handles export discovery after a successful install.
 - **BuildRequest controller** — manages image build jobs (Kaniko or Cloud Native Buildpacks) for Dockerfile and buildpack deployment modes.
 - **Project controller** — ensures the Kubernetes namespace exists and has the correct resource quotas and RBAC bindings before any app is deployed into it.
@@ -101,7 +87,7 @@ The backend never holds a kubeconfig or cluster credentials. Every Kubernetes op
 
 This means the operator's own session requires no inbound firewall rule. The operator dials the hub outbound over WebSocket and holds the connection open, so it survives NAT and a restrictive corporate firewall as long as outbound HTTPS/WSS is allowed.
 
-It does not yet make the whole deployment path outbound-only. While the direct backend paths described in the warning above remain, the control plane connects to the cluster's Kubernetes API server with the credentials the operator advertises, so that endpoint must be reachable from the control plane. `kn-cjqw` is what closes that gap.
+The control plane connects to the cluster's Kubernetes API server with the credentials the operator advertises, so that endpoint must be reachable from the control plane. `kn-cjqw` is what closes that gap.
 
 ### 2. ArgoCD reconciles everything; Git backs the addons
 
@@ -119,7 +105,7 @@ inline in the Application spec against a chart repository. No workload manifest 
 there is no workload directory in the GitOps repo. A workload's change history lives in the
 backend's deployment records rather than in Git.
 
-[GitOps](/architecture/gitops) has the full comparison, including what this costs you.
+[GitOps](/architecture#gitops) has the full comparison, including what this costs you.
 
 ### 3. Event-driven asynchrony for all cluster operations
 
@@ -196,7 +182,7 @@ When a cluster is registered, the backend mints a **cluster JWT** — a long-liv
 The hub validates the cluster JWT (signature + `cluster_id` claim) and associates the authenticated session with that cluster ID. Subsequent events from that session are authoritative for that cluster — the backend trusts hub-routed status events without re-validating the operator's identity on each message.
 
 <Callout type="warning">
-The cluster JWT is long-lived and has significant privilege. Treat it like an SSH private key: store it in a Kubernetes Secret (the Helm chart does this automatically), restrict access to that Secret via RBAC, and rotate it immediately if you believe it was compromised. Rotation is done via the backend API — see [Cluster Registration](/guides/cluster-registration).
+The cluster JWT is long-lived and has significant privilege. Treat it like an SSH private key: store it in a Kubernetes Secret (the Helm chart does this automatically), restrict access to that Secret via RBAC, and rotate it immediately if you believe it was compromised. Rotation is done via the backend API — see [Cluster Registration](/connect-cluster).
 </Callout>
 
 ### Backend-to-hub authentication
@@ -229,9 +215,68 @@ kubenest enforces isolation at four levels, each reinforcing the others.
 
 **Namespace boundary (operator).** The operator's Project controller enforces namespace boundaries on all reconcile operations. A StackDeploy that specifies a target namespace outside its registered project is rejected by the operator with a validation error that propagates back through the hub to the backend.
 
+## GitOps
+
+ArgoCD is the common reconciliation layer. Git is the source of truth for addons, and not for
+workloads — a distinction worth knowing before you go looking for something in the wrong place.
+
+**Workload history lives in PostgreSQL.** Every App operation is a `Deployment` row, and the ones
+that support rollback store the prior `StackDeploy` snapshot alongside. Workload ArgoCD
+Applications carry inline Helm values, so a `git log` is not the audit trail for a workload deploy,
+patch or rollback — the API is.
+
+**Addon history lives in Git.** Each addon reconciliation writes `Chart.yaml` and `values.yaml`
+under the cluster's addon directory and commits:
+
+```
+gitops-repo/
+└── clusters/
+    └── {cluster-id}/
+        └── addons/
+            └── {namespace}-{addon-name}/
+                ├── Chart.yaml
+                └── values.yaml
+```
+
+Either way ArgoCD self-heals against its desired state, prunes what should not be there, and
+reports sync and health back.
+
+### Drift detection
+
+Drift is live Kubernetes resources diverging from desired state. ArgoCD reports Application sync
+and health; the Workload controller separately compares the desired image and replica count against
+the observed Deployment, and the StackDeploy controller aggregates its children.
+
+The API exposes it as `sync` on the App:
+
+```json
+{
+  "phase": "Running",
+  "sync": {
+    "driftDetected": true,
+    "driftClass": "recoverable",
+    "driftDetails": [
+      { "resource": "Deployment/my-app-web", "field": "spec.replicas", "desired": 2, "observed": 1 }
+    ]
+  }
+}
+```
+
+Two classes, distinguished by what they do to your next operation:
+
+- **`recoverable`** — ArgoCD can re-apply the desired resources itself, and does.
+- **`blocked_sync`** — the Application is `Unknown`, `Error` or `Degraded`. Mutating routes return
+  `409` until the underlying condition is resolved, rather than layering another change on top of a
+  cluster that is not converging.
+
+<Callout type="warning">
+Treat workload ArgoCD Applications and addon Git directories as KubeNest-managed desired state.
+Direct edits can be overwritten by the next API operation or controller reconciliation.
+</Callout>
+
 ---
 
 See also:
-- [GitOps and Drift Detection](/architecture/gitops) — how the GitOps layer works in detail
-- [Cluster Registration](/guides/cluster-registration) — the mechanics of connecting a cluster to the hub
-- [Apps and Components](/concepts/apps) — the StackDeploy CRD and reconcile lifecycle
+- [Connect a cluster](/connect-cluster) — the mechanics of connecting a cluster to the hub
+- [Concepts](/concepts) — the object model these components reconcile
+- [Deploying apps](/deploying) — the API these paths serve

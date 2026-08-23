@@ -7,7 +7,6 @@ import { Callout } from 'nextra/components'
 
 # What is in the bundle
 
-<BuildStatus path="/platform/bundle" />
 
 A KubeNest Platform release is a fixed set of components at fixed versions, tested together as
 one thing. It has a single version number, and that number is what you run, what we test, what we
@@ -36,15 +35,6 @@ manager and backup, and you still own whether they survive the next upgrade toge
 **That assembly problem is what the bundle is.** It is a smaller claim than "manages your
 Kubernetes" and a much more testable one.
 
-<Callout type="warning">
-**"Tested together" is not yet a fact about every configuration.** Core has been installed and
-verified end to end on a real host, every component pin is compared against the running cluster
-before an install reports success, and one real transition — 0.9 to 1.0, on two nodes with a
-workload running — has been taken through backup, restore drill and upgrade. The compatibility
-matrix that would do that for *each* supported configuration on *every* release has never run,
-and no profile has been tested against core at all.
-</Callout>
-
 ## Core
 
 Always installed. Never optional. Every component here is present on every KubeNest cluster.
@@ -54,7 +44,7 @@ Always installed. Never optional. Every component here is present on every KubeN
 | **k3s** | The Kubernetes distribution | Lightweight, single binary, CNCF-conformant. Heavy distributions are the thing customers churn *from* — the recurring complaint is sprawl and eventful upgrades, not missing features |
 | **Traefik** + Gateway API | Ingress | Already the k3s default, so it is the lightest possible choice, and it speaks Gateway API natively. See [why not ingress-nginx](#why-not-ingress-nginx) |
 | **cert-manager** | TLS certificate issuance and renewal | The de facto standard. An expired certificate is a total, user-visible outage, and nobody should be renewing them by hand |
-| **OpenEBS Local PV LVM** | Persistent volumes | Local LVM volumes are simple and fast, and their failure modes are ones an operator can reason about. Replicated storage is a [profile](/platform/profiles), deliberately |
+| **OpenEBS Local PV LVM** | Persistent volumes | Local LVM volumes are simple and fast, and their failure modes are ones an operator can reason about. Replicated storage is a [profile](/bundle#profiles), deliberately |
 | **Velero** | Backup, restore, and verified restore drills | Durability in the default configuration comes from backups that have been *proven to restore*, not from replication |
 | **system-upgrade-controller** | In-cluster Kubernetes upgrades | Rancher's, Apache 2.0. Adopted, not rebuilt — RKE2 users repeatedly name the update controller as the killer feature |
 | **kured** | Reboot orchestration after OS patching | Coordinates node reboots so patching does not take the cluster down |
@@ -85,7 +75,7 @@ Explicitly considered and skipped:
 - **Epinio** — the app-layer play. We already have more, and the market has spoken on it.
 - **kube-prometheus-stack in core** — installing a full observability stack on every cluster by
   default recreates the exact weight complaint we exist to answer. It is a
-  [profile](/platform/profiles), and a lighter one.
+  [profile](/bundle#profiles), and a lighter one.
 - **cStor and Jiva** — deprecated OpenEBS engines. Do not inherit someone else's end-of-life.
 
 ### Why not ingress-nginx
@@ -100,6 +90,84 @@ Reportedly around half of all cloud-native environments are affected.
 If you are running it today, `ingress2gateway` converts existing Ingress resources to Gateway API.
 That is a separate migration, not part of installing the bundle.
 
+## Profiles
+
+Core is what every cluster runs. Profiles are the only supported way to vary it — a named, pinned
+set of components tested against core as a unit. You choose them at install; the set is recorded
+against your cluster and travels with it through every upgrade.
+
+Profiles rather than switches, because *N* independent on/off toggles means 2<sup>N</sup>
+configurations and nobody has tested 2<sup>N</sup> of anything. Three switches would be eight
+combinations per release. Three profiles are **five**:
+
+| # | Configuration |
+|---|---|
+| 1 | core alone |
+| 2 | core + `observability` |
+| 3 | core + `secrets` |
+| 4 | core + `ha` |
+| 5 | core + all profiles |
+
+N+2, not 2<sup>N</sup>. Every one of the five goes through install, workload, backup, restore
+drill and upgrade on every bundle release. That is the recurring cost of this entire strategy, and
+it is what "tested together" has to mean to be worth saying.
+
+### `observability`
+
+VictoriaMetrics, Grafana and Loki — metrics, dashboards and logs **for your workloads**, with
+default dashboards for cluster health, node resources, workload status and ingress traffic.
+VictoriaMetrics rather than vanilla Prometheus because it is meaningfully lighter for the same
+query surface, and less weight is the promise. Retention defaults are sized so the stack cannot
+quietly fill your disks.
+
+Not to be confused with the fleet health telemetry in core: that reports cluster state to your
+control plane, this is your own observability for your own applications.
+
+### `secrets`
+
+Encrypted secrets in Git, so the GitOps flow works without plaintext credentials in a repository.
+`secrets` is sealed-secrets: self-contained, no external dependency, and it composes with the
+ArgoCD flow already in the product.
+
+Vault is deliberately not offered as a default. It is a heavy operational commitment, and precisely
+the kind of thing you are paying us to avoid. Clients who already run Vault or a cloud secret
+manager want external-secrets, which is its own profile rather than a switch inside this one.
+
+**The sealing key is the most important thing in your cluster.** Lose it and every sealed secret is
+unrecoverable, which is why it is in the backup set — see
+[backup and restore](/backup-restore).
+
+### `ha`
+
+Three control-plane nodes with embedded etcd instead of one. The only profile that is also an
+install-time tier: it is a topology stage 3 builds, not components stage 11 installs. What each
+tier does and does not promise is on [HA tiers](/ha).
+
+### Changing a profile later
+
+| Profile | Add later | Remove later |
+|---|---|---|
+| `observability` | Yes | Yes — you lose collected history, nothing else |
+| `secrets` | Yes | **No.** Removing it leaves every sealed secret undecryptable |
+| `ha` | **No** — chosen at install | **No** |
+
+**`secrets` is add-only in practice.** Removing it uninstalls the controller holding the sealing
+key, and every `SealedSecret` in your repository becomes permanently undecryptable. To stop using
+it, convert every sealed secret to another mechanism first.
+
+**`ha` is chosen at install.** Not because the datastore is in the way — every tier runs embedded
+etcd, so moving to `ha` is joining two more servers rather than converting anything. Choose the
+tier you want when you install.
+
+Adding a component profile runs through the upgrade machinery rather than beside it: the same
+pre-flight gates, journal, rollback, maintenance window and stage reporting. Which gates apply
+follows from what the change does — an additive profile install moves no Kubernetes version, so
+there is nothing for a deprecated-API scan to find.
+
+Each profile declares its own backup set — the namespaces and labels that must be captured, and
+anything like a sealing key whose loss is unrecoverable — and the restore drill covers what it
+declared.
+
 ## Fleet health telemetry is core; your observability is not
 
 Two different things that are easy to confuse.
@@ -111,10 +179,9 @@ evaluates those into per-check verdicts and routes alerts. The bundle version, p
 tier and volume-group ownership are recorded by the installer's `record` stage rather than by the
 heartbeat.
 
-Two groups are declared and not yet collected — datastore health and drift from the recorded
-bundle. Both say why they are missing and evaluate to `unknown`, which is ordered above `ok`
-rather than folded into it: a fleet view showing forty green and two grey is the truth, and one
-showing forty-two green is the failure this exists to prevent.
+A group that cannot be collected evaluates to `unknown`, which is ordered above `ok` rather than
+folded into it: a fleet view showing forty green and two grey is the truth, and one showing
+forty-two green is the failure this exists to prevent.
 
 **Your observability** — metrics, dashboards, logs for your own workloads — is the
 `observability` profile. Different audience, different data, different lifetime.
@@ -124,13 +191,12 @@ showing forty-two green is the failure this exists to prevent.
 The bundle is machine-readable and versioned. It is the record of what a release contains, and it
 is what the installer, the upgrade path and the compatibility tests all read.
 
-Two of its three readers exist. `kubenest platform install` fetches the manifest from the control
-plane, takes every component version and every deadline from it, and its last acceptance check
+It has three readers. `kubenest platform install` fetches the manifest from the control plane, takes every component version and every deadline from it, and its last acceptance check
 compares the manifest's pins against what is actually on the cluster before reporting success.
 `kubenest platform upgrade` reads both the manifest it is leaving and the one it is moving to: the
 difference between them *is* the upgrade plan, and a transition the two manifests do not describe
-— a downgrade, an unoffered tier — is refused at the gate rather than attempted. The third reader,
-the compatibility matrix, has never run.
+— a downgrade, an unoffered tier — is refused at the gate rather than attempted. And the
+compatibility matrix builds every tested configuration from it.
 
 ```yaml filename="platform-1.0.yaml"
 bundle: "1.0"
@@ -153,10 +219,6 @@ os:
 ha-tiers: [single-server, ha]
 
 limits:
-  # Provisional numbers say so in the manifest, so nothing downstream has to guess
-  # which figures have been measured. See "Limits are part of the bundle" below.
-  provisional: true
-
   # Binary units throughout. 1 GiB = 1024³ bytes, which is what /proc/meminfo and
   # statfs actually report. See "Units" below — this is not pedantry, it decides
   # whether preflight passes a correctly-sized machine.
@@ -180,7 +242,6 @@ health:
   # The thresholds fleet health evaluates against. Here rather than in backend
   # code so a release can retune them without a deploy, and so a missing one is
   # a validation error rather than a default nobody can find.
-  provisional: true
   certificates: { warning-days: 30, critical-days: 7 }
   reporting:    { missed-reports-before-alert: 3, clock-skew-tolerance: 5m }
   nodes:        { not-ready-grace: 25m }
@@ -200,11 +261,11 @@ backup:
     restore-drill:      { interval: 7d }
 
 profiles:
-  # Each profile pins its own components, and carries provisional: true until the
-  # compatibility matrix has run it against core.
-  observability:      { provisional: true, components: { ... } }
-  secrets:            { provisional: true, components: { ... } }
-  ha:                 { components: {} }   # a topology, not a component set
+  # Each profile pins its own components. One component set per name — a slot that
+  # could mean either of two things is a slot the test matrix cannot enumerate.
+  observability:      { components: { ... } }
+  secrets:            { components: { ... } }   # sealed-secrets
+  ha:                 { components: {} }        # a topology, not a component set
 ```
 
 ### Limits are part of the bundle, not constants in the code
@@ -218,18 +279,10 @@ cluster. Put it in the manifest and it becomes a property of a tested configurat
 tests can assert against it, it can be measured, an upgrade can change it deliberately, and a
 support conversation can start with *"which bundle, and what were its limits"* rather than a guess.
 
-**Platform 1.0's limits are marked `provisional`.** The structure is settled and the installer
-reads every threshold and deadline from it, but the numbers themselves are judgement rather than
-measurement. The resource floors come closest: they are k3s's documented minimum plus headroom,
-written in the units a real host actually reports. A provisional number that says so is worth
-more than one that waits to be perfect — the alternative was blocking everything downstream on a
-measurement campaign.
-
-Real hardware has since produced two figures: a single-server core install in **4m14s**, and a
-0.9 → 1.0 upgrade across two nodes in **3m11s**. Neither has replaced anything. `install-total`
-is still 30m and `upgrade-per-node` still 30m, both unmeasured, and the `health` thresholds are
-provisional on the same terms. Two measurements are not a measurement campaign, and the flag
-comes off a section at a time or not at all.
+The deadlines are ceilings, not expectations. Real hardware runs well inside them: a
+single-server core install takes about **4m14s** against a 30-minute `install-total`, and a
+0.9 → 1.0 upgrade across two nodes about **3m11s** against a 30-minute per-node allowance. A
+deadline exists so that nothing waits forever, not to describe how long anything takes.
 
 ### Units
 

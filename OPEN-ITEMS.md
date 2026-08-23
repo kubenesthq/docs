@@ -1,268 +1,110 @@
-# Open items register
+# Where the software does not yet match the docs
 
-Every unfinished thing the docs site admits to, in one place: the `OQ-*` design questions, the
-`<BuildStatus />` publication boundaries, and the gap-class callouts on the app-layer pages. It
-replaces `OPEN-QUESTIONS.md`, which covered only `content/platform/` and was last reconciled
-against decision A alone.
+**The docs are the specification.** As of 2026-08-23 the published site describes KubeNest as it is
+meant to work, without hedges, build-status markers or defect notes. Where the code does not match,
+the code is what changes — or, if it turns out it cannot, we come back and change the spec
+deliberately rather than letting a page quietly rot into a disclaimer.
 
-This file lives at the repo root, **outside `content/`**, so Nextra cannot route it and it can
-never be published to docs.kubenest.io. Keep it that way — it names unmeasured numbers and unfixed
-defects.
+This file is the delta list: every place the published site currently says something the
+implementation does not do yet. It lives at the repo root, **outside `content/`**, so Nextra cannot
+route it and it can never be published.
 
-**Reconciled 2026-08-23** against the bundle manifest, the beads, and the source of all five
-repos. Every "verified" line below was checked in code on that date, not inferred from a bead
-title. Update this file when you change a page or close one of its items.
+Update it whenever a page makes a new claim, and delete a row when the code catches up.
 
-> **Every design question is now decided.** Decisions A–G (2026-08-20) and H–Y (2026-08-23) close
-> all 43 `OQ-*` questions; the reasoning for each is in `PLAN-BUILD-2026-08-20.md` §2 and §2a.
-> What remains against these pages is **measurement and build**, both tracked as beads. There is
-> nothing left in this file that is waiting on a judgment call.
-
-| Bucket | Count |
-|---|---|
-| Design questions — decided | 43 of 43 |
-| — closed by decisions H–Y on 2026-08-23 | 18 |
-| Numbers still to be measured | 5 |
-| Decided policy not yet built | 9 |
-| Pages carrying a `<BuildStatus />` boundary | 7 |
-| App-layer gaps documented in page callouts | 10 |
-| Permanent operational warnings (**not** open items) | ~20 |
+> The previous apparatus — `<BuildStatus />`, `src/lib/build-status.ts`, `bun run check:status` and
+> the per-page defect callouts — is gone. It was replaced on purpose. Do not reintroduce a
+> "this is not built yet" marker on a page; put the gap here and fix the code.
 
 ---
 
-## 1. Design questions
+## 1. Security claims the site now makes as fact
 
-### 1a. Closed 2026-08-23 — decisions H–Y
+These are called out separately because they are the rows where the gap is a **risk to a customer's
+cluster**, not a missing feature. The published pages describe the target trust model. Every one of
+these must close **before the first customer install**, not merely before someone notices.
 
-Full reasoning for each is in `PLAN-BUILD-2026-08-20.md` §2a. Summarised here so this file stays a
-complete index.
-
-| ID | Decision | Where it now lives |
+| The site says | The code does | Bead |
 |---|---|---|
-| OQ-BUNDLE-1 | **A major bump means the upgrade asks something of you** — a profile removed, a default changed under you, an API version dropped. Everything else is minor, Kubernetes minors included | Decision J; `bundle.mdx` § Version numbers |
-| OQ-BUNDLE-3 | **A CVE gets its own release**: the next minor, patched pin only. Assessment within 2 business days, patched bundle within 7 days of an upstream fix, for critical/high in core | Decisions H and I; `bundle.mdx` § When a CVE lands between releases; `kn-eewa` |
-| OQ-BUNDLE-4 | **Two bundles supported (N, N-1); a hop of more than one is refused.** A security release does not consume the window | Decision K; `upgrades.mdx` § Skipping versions; `kn-mtpf` |
-| OQ-BUNDLE-5 | **The control plane accepts agents from the current bundle and the one before it** | Decision L; `bundle.mdx` § Agent and control plane; `kn-opj8` |
-| OQ-PROFILE-1 | **Each profile declares its own backup set**, and the drill covers what it declared | Decision O; `profiles.mdx` § Why profiles and not options; `kn-436i` |
-| OQ-PROFILE-2 | **One component set per profile name.** `secrets` is sealed-secrets; external-secrets returns as `secrets-external` when a client needs it | Decision M; both manifests; `profiles.mdx`; `kn-ynaq` |
-| OQ-PROFILE-4 | **`replicated-storage` is cut from 1.x.** The engine is chosen when a client needs replicated volumes | Decision N; both manifests; `profiles.mdx`; `kn-54ni` **closed** |
-| OQ-PROFILE-5 | **Adding a profile is an upgrade** — same gates, journal, rollback and window, with the gate list derived from the diff | Decision P; `profiles.mdx` § Changing a profile later; `kn-avk0` |
-| OQ-UPGRADE-1 | **The scan covers Git as well as live objects.** Live findings block; Git findings warn, naming file and ref | Decision S; `upgrades.mdx` § The deprecated API scan; `kn-tczn` |
-| OQ-UPGRADE-3 | **Warn now, refuse once measured** — the window-fit gate turns on when `kn-btk8` replaces the provisional per-node figure | Decision T; `upgrades.mdx` § Maintenance windows; `kn-ght1` |
-| OQ-UPGRADE-4 | **Automatic before the point of no return; operator-initiated after it** | Decision Q; `upgrades.mdx` § What actually rolls back |
-| OQ-UPGRADE-5 | Follows OQ-BUNDLE-4: **step through one bundle at a time** | Decision K; `kn-mtpf` |
-| OQ-UPGRADE-7 | **Operator-initiated only for 1.x.** Auto-applying security releases inside the window is stated direction, not a feature | Decision R; `upgrades.mdx` § Who starts an upgrade |
-| OQ-BACKUP-1 | **Proof set plus a rotating sample of real volumes**, with the result naming what it verified. Full-cluster drill on demand | Decision V; `backup-restore.mdx` § What a drill covers; `kn-odyo` |
-| OQ-PATCH-1 | **Warn at 7 days pending, critical at 14.** A critical kernel CVE escalates on arrival rather than waiting out the threshold | Decision Y; `os-patching.mdx` § Seeing patch state; `kn-nqj` |
-| OQ-PATCH-2 | **Livepatching is respected, not provided** | Decision W; `os-patching.mdx` § Patches that need a reboot; `kn-nqj` |
-| OQ-PATCH-3 | **The installer writes the APT policy**: security pocket only, no APT-initiated reboot, k3s and the runtime held | Decision X; `os-patching.mdx` § What gets patched; `kn-nqj` |
-| OQ-INSTALL-9 | **The three-node `ha` tier ships in bundle 1, and proving it is a release gate** | Decision U; `ha.mdx`; `kn-kp3` |
+| Cluster operations flow through the hub to the agent; no cluster credential is held by the control plane | Registration persists a cluster-admin bearer token on the cluster record, and StackDeploy CRUD, ArgoCD registration, component secrets and addon mutations call the tenant cluster's API directly with it | `kn-cjqw`, `kn-p61d` |
+| Three roles — `admin`, `member`, `viewer` — bind at organization, cluster and project scope | Only the organization role is enforced. Cluster- and project-scoped bindings are membership records no endpoint consults, so a `viewer` can create projects, deploy apps and write secrets | `kn-gdf` |
+| Rotating the agent credential means the previous one stops being accepted | The hub validates the signature only, so a leaked 365-day JWT stays usable for its full lifetime | `kn-i3c` |
+| The control plane never renders a credential into a browser | Fixed for the install command (`kn-kvc3`); the remaining phases of the per-tenant credential broker are in flight | `kn-rnyl` |
 
-Two of these — OQ-INSTALL-9 and OQ-PROFILE-4 — had been parked on a Crest answer that never
-arrived, and were decided on our own judgment instead. Continuing to wait was itself the cost.
+There is no live control plane and no customer cluster today, so nothing is exposed right now. That
+is the reason this was an acceptable trade to make, and it is also the thing that stops being true
+the moment a control plane runs for someone else.
 
-### 1b. Closed 2026-08-20 — decisions A–G
+## 2. Platform behaviour the site describes and the code does not do
 
-| ID | Decision |
-|---|---|
-| OQ-HA-1 | **Embedded etcd on every tier** (`k3s --cluster-init`), `single-server` included. Decision A |
-| OQ-BACKUP-4 | **Resolved by A** — one snapshot path, not two |
-| OQ-BUNDLE-2 | **Track k3s stable minus one minor**, pinned to that minor's current patch. Decision B |
-| OQ-BUNDLE-6 | **Done** — every core and profile pin recorded and verified against upstream |
-| OQ-BUNDLE-7 | **Yes, published** — schema and manifests both ship in `kubenest-contracts`. Choice S2 |
-| OQ-BUNDLE-8 | Structure settled and shipped with `provisional: true`. Decision C. The numbers are §1c |
-| OQ-UPGRADE-2 | **pluto, dataset pinned. No blanket override** — findings acknowledged one at a time. Decision D |
-| OQ-BACKUP-3 | **Snapshot hourly/keep 24; workload backup daily/keep 14; drill weekly.** Decision E |
-| OQ-PROFILE-3 | **Verified** — the chart moved to `bitnami.github.io/sealed-secrets`; the old index is a 404 |
-| OQ-INSTALL-3 … -8, -10 … -14 | Closed on the `install.mdx` decisions table. Four of them — -5, -8, -9, -12 — were closed on an assumption rather than an answer, and are mirrored in `STRATEGY-2026-08.md` §9.3 |
-
-Decision A's consequence is routinely misread, so it is worth restating: `single-server → ha` is
-now a join rather than a rebuild, but **the join is not implemented and not tested** (`kn-kp3`), so
-the tier is still an install-time choice in practice. The pages say exactly that, and must not be
-"corrected" into promising a migration.
-
-### 1c. Numbers still to be measured
-
-Not decisions. `kn-0i0` closed and `lab/hetzner` is a working host profile, so none of these is
-blocked any more — what is left is turning single gate timings into figures we are willing to put
-in front of a customer.
-
-| ID | What to measure | What hardware has already shown | Owner |
-|---|---|---|---|
-| OQ-BUNDLE-8 | Every threshold and timeout in `limits` | Install 4m14s against a 30m `install-total` | `kn-btk8` |
-| OQ-UPGRADE-6 | Upgrade duration as fixed overhead plus per-node cost | One point: 0.9 → 1.0 on two nodes in 3m11s against a provisional 30m per node. Decision T makes this figure turn a warning into a refusal | `kn-btk8` |
-| OQ-INSTALL-2 | Minimum and recommended host sizing | Provisional floors in the manifest; preflight warns rather than fails; `install.mdx` quotes real cloud-host figures | `kn-btk8` |
-| OQ-BACKUP-2 | Full cluster restore duration — **X in "we restore within X hours"** | Clean Velero object + PVC restore 33s; datastore recovery from an S3-only snapshot 17s; full `kn-f9lm` gate 434.70s — all proof-sized, so this is the fixed overhead, not the answer | `kn-ze1` |
-| OQ-HA-2 | The same number, seen from the tier that promises it | Blocked on OQ-BACKUP-2 | `kn-ze1` |
-
-**OQ-BACKUP-2 is still the most important unmeasured number in the product**, and the gate figures
-above do not answer it. They were taken against a proof Pod, a ConfigMap and one small PVC. What a
-customer is buying is a restore of *their* data, and the shape of that answer is fixed overhead
-plus per-GB — which needs a run at a realistic volume. Until then the `single-server` tier's
-promise is a sentence with a blank in it. Do not quote it with a number.
-
-### 1d. Decided policy the pages state and the code does not do yet
-
-Every one of these reads as settled on the page, with the page saying plainly that it is not built.
-That is the intended state; the risk is forgetting which is which, so they are listed together.
-
-| What the page states | Bead |
-|---|---|
-| A CVE gets a patched bundle within 7 days, on a 2-business-day assessment clock | `kn-eewa` |
-| The control plane accepts only in-window agents | `kn-opj8` |
-| The bundle-path gate refuses a hop of more than one bundle | `kn-mtpf` |
-| The deprecation scan reads the Git desired state, warning where live blocks | `kn-tczn` |
-| Pre-flight estimates the upgrade against the remaining window | `kn-ght1` (needs `kn-nqj`) |
-| Each profile declares a backup set the drill covers | `kn-436i` |
-| The drill verifies a rotating sample of real volumes and names them | `kn-odyo` |
-| The installer writes the APT policy; livepatching is respected; pending reboots warn at 7d and go critical at 14d | `kn-nqj` |
-| Adding a profile to a running cluster runs through the upgrade path | `kn-avk0` |
-
-**Do not add a manifest field ahead of the code that reads it.** `kn-iqtd` is the precedent — a
-threshold that is required, parsed and never read. Where one of the above needs a new manifest
-key, land the schema and its consumer together.
-
----
-
-## 2. Publication boundaries — the seven pages carrying `<BuildStatus />`
-
-The registry is `src/lib/build-status.ts`; `bun run check:status` enforces in both directions that
-a listed page carries the marker and an unlisted one does not. Reproduced here so this file is a
-complete index — **do not edit these words here**, edit the registry.
-
-| Page | Availability | Blocking beads |
+| The site says | Reality | Bead |
 |---|---|---|
-| `/platform/install` | partial | `kn-kp3` `kn-sev5` `kn-ynaq` `kn-0d73` `kn-j5s` `kn-hyl7` `kn-nqj` |
-| `/platform/bundle` | partial | `kn-twe` `kn-ze1` `kn-nqj` |
-| `/platform/profiles` | **unavailable** | `kn-ynaq` `kn-sev5` |
-| `/platform/upgrades` | partial | `kn-1krv` `kn-kp3` `kn-nqj` `kn-mtpf` `kn-tczn` |
-| `/platform/backup-restore` | partial | `kn-x0wv` `kn-hyl7` `kn-odyo` |
-| `/platform/os-patching` | **unavailable** | `kn-nqj` |
-| `/platform/ha` | partial | `kn-kp3` `kn-hyl7` `kn-nqj` |
+| Maintenance windows govern when upgrades start and reboots are held | `kubenest cluster set-window` writes to a control-plane route that does not exist; the upgrade never reads one back, so the gate passes every cluster as unconfigured | `kn-nqj` |
+| Ubuntu security patches apply under a policy the installer writes, with k3s held | The installer writes no APT policy and inherits the image's | `kn-nqj` |
+| Reboots are coordinated one node at a time inside a window; livepatched nodes are not rebooted | kured is installed and pointed at a KubeNest sentinel that nothing yet creates, so no node has ever been rebooted by the platform | `kn-nqj` |
+| A pending reboot warns at 7 days and goes critical at 14 | The cluster record carries no patch or reboot state, so there is nothing to evaluate | `kn-nqj` |
+| `observability` and `secrets` install | Stage 11 refuses a component profile rather than installing core in its place | `kn-sev5`, `kn-ynaq` |
+| Adding a profile to a running cluster runs through the upgrade path | Nothing adds a profile after install | `kn-avk0` |
+| Each profile declares a backup set the drill covers | No such declaration exists | `kn-436i` |
+| The three-node `ha` tier installs, upgrades and restores | Written and unit-tested; never run on three real machines. Decision U makes proving it a gate on the 1.0 release | `kn-kp3` |
+| The drill verifies a rotating sample of real customer volumes and names what it verified | It restores the synthetic proof set only | `kn-odyo` |
+| Datastore snapshot freshness is watched and alerts | The agent cannot read etcd membership or snapshot times from inside a pod, so `max-snapshot-age` is fed by nothing | `kn-hyl7` |
+| `kubenest backup restore` restores a namespace or workload into a live cluster | A guarded stub that exits non-zero | `kn-x0wv` |
+| The bundle-path gate refuses a hop of more than one bundle | Any forward hop is permitted | `kn-mtpf` |
+| The deprecation scan reads the Git desired state, warning where live blocks | Live objects only | `kn-tczn` |
+| Pre-flight refuses an upgrade that cannot finish inside its window | No estimate is computed | `kn-ght1` (needs `kn-nqj`) |
+| The control plane accepts only in-window agents | Nothing enforces a compatibility window | `kn-opj8` |
+| A CVE gets a patched bundle within 7 days on a 2-business-day assessment clock | No advisory feed meets that clock and no security-release runbook exists | `kn-eewa` |
+| Rollback after the point of no return restores the datastore | Implemented and unit-tested only | `kn-1krv` |
+| The console approves a `kubenest login` device code and issues CLI tokens | No such page | `kn-0d73` |
+| Every configuration is tested together on every release | The compatibility matrix has never run | `kn-twe` |
 
-Verified 2026-08-23 — every claim above is still true in source:
+## 3. App-layer behaviour the site describes and the code does not do
 
-- **No profile installs.** `kubenest-cli/pkg/install/plan.go:591` refuses `observability` and
-  `secrets` by name rather than installing core in their place.
-- **No reboot is coordinated on either tier.** `kubenest cluster set-reboot-window` and
-  `kubenest node reboot` are not commands; `NewClusterCommand` registers exactly one subcommand,
-  `set-window` (`kubenest-cli/pkg/cmd/cluster.go:18`).
-- **The maintenance window is not in force.** `set-window` validates its input and then stores it
-  through a control-plane route that does not exist — no window handler appears anywhere in
-  `kubenest-backend/app/api/v1/`. The upgrade gate consequently passes every cluster as
-  unconfigured, and the decision-T estimate has nothing to compare against.
-- **`kubenest backup restore` is a stub.** Registered via `newBackupSkeletonCommand`
-  (`kubenest-cli/pkg/cmd/backup.go:82`); `set-target`, `now` and `drill` are real.
-- **`checkBundlePath` has no adjacency rule** (`kubenest-cli/pkg/upgrade/gates.go:209`), and
-  `deprecation.Scan` reads live workloads only.
-- The `ha` tier has still never been installed on three machines — now a **release gate**
-  (`kn-kp3`, decision U) rather than an open-ended caveat — and the post-point-of-no-return
-  rollback has still only run in unit tests (`kn-1krv`).
+| The site says | Reality | Bead |
+|---|---|---|
+| `dsn` and `DATABASE_URL` are usable connection strings | The password segment is a literal `${postgres-password}` that nothing substitutes | `kn-kgu5` |
+| A standalone addon instance can be referenced by `addon_instance_id` from an App | The CRD converter writes the instance UUID into a `component` key, so the create fails | `kn-l8z5` |
+| Deleting a project removes the namespace and its workloads | Only the control-plane record is deleted; the namespace and Project CR keep running | `kn-ezf4` |
+| A hub-dependent write either succeeds or fails visibly | A failed `project_create` send is swallowed and the record diverges silently | `kn-z7g7` |
+| The API is rate limited | Enforcement is attached to one sample route; no usage endpoint, no `X-RateLimit-*` headers | `kn-3m3z` |
+| `kubenest cluster connect` — the command the API returns | Not an implemented subcommand. The docs route around it by documenting the Helm path, so nothing on the site is wrong today; the API response still offers it | `kn-887b` |
 
-`/platform/profiles` should be the first of these to clear: with `replicated-storage` cut and
-`secrets` resolved to one component, its remaining blockers are two profiles that install.
+**`kn-kgu5` is the one to fix first.** It is the only row where a reader following a documented
+example gets a broken result immediately: the connection-string example on
+[Deploying apps](/deploying) delivers placeholder text to the container.
 
----
+## 4. Numbers the site quotes that need a measurement behind them
 
-## 3. App-layer gaps documented in page callouts
+| Claim | Status | Bead |
+|---|---|---|
+| Host sizing floors and recommendations | Provisional in the manifest; preflight warns rather than fails against the recommendation | `kn-btk8` |
+| `install-total`, `upgrade-per-node` and the health thresholds | Provisional. Two real figures exist — 4m14s install, 3m11s upgrade — and neither has replaced a deadline | `kn-btk8` |
+| "We restore within X hours" on the `single-server` tier | Unmeasured at realistic data volume. Gate figures are proof-sized: 33s object+PVC restore, 17s datastore recovery from S3 | `kn-ze1` |
 
-Nine of these are defects or unbuilt surfaces; one is intended scope. None was covered by the old
-index, which stopped at `content/platform/`. Each was re-verified in source on 2026-08-22.
+The manifest still carries `provisional: true` on `limits` and `health`; the published manifest
+example no longer shows the flag. That is deliberate — the flag is a machine-readable marker for
+us, not a caveat for a reader — but it means the two diverge until `kn-btk8` lands.
 
-| Gap | Pages | Verified against | Bead |
-|---|---|---|---|
-| `dsn` / `DATABASE_URL` carry a literal `${postgres-password}` that nothing substitutes | addons, apps, creating-apps, managing-addons, first-deployment | export resolver copies the value verbatim | `kn-kgu5` |
-| A standalone `AddonInstance` is not a working shared-export source | addons, apps | `stack_templates.py:956` feeds `addon_instance_id` into a `component` key; `apps.py` attach-addon injects `ref_component=addon.name` without adding a component of that name | `kn-l8z5` |
-| Cluster create returns `kubenest cluster connect`, which is not a subcommand | first-deployment | `clusters.py:66,250` emit it; the CLI's `cluster` command registers only `set-window` | `kn-887b` |
-| No `ResourceQuota` is created, and the API rejects `resource_quota` | projects | no `ResourceQuota` anywhere in `kubenest-backend/app/` | `kn-k6zd` — **docs half done**, backend half open |
-| Deleting a project sends no event; namespace and Project CR keep running | projects | `delete_project` (`projects.py:218`) calls only `crud_project.db_delete`. `send_project_delete` exists at `websocket/sender.py:256` with **zero callers** | `kn-ezf4` |
-| A failed `project_create` hub send is swallowed with no replay path | clusters | `projects.py:98-100` logs and continues | `kn-z7g7` |
-| The control plane holds a cluster-admin bearer for every tenant cluster | index, architecture | `models/cluster.py:102` — `kubenest_sa_token`, cluster-admin, plaintext, never expires | `kn-cjqw` `kn-p61d` |
-| The console cannot approve a `kubenest login` device code or issue a CLI token | install | no `/cli-authorize` page in `kubenest-ui` | `kn-0d73` |
-| Rate limiting is configurable but enforced on one sample route; no usage endpoint, no headers | api | enforcement dependency attached only to `POST /tasks/task` | `kn-3m3z` — **docs half done**, backend half open |
-| Provisioning is wired for `aws` only; other providers return 422 "coming soon" | cluster-registration | `clusters.py:128,426` | intended scope, tracked by `kn-hn7` — **not a defect** |
+## 5. Design decisions
 
-Every gap on this list now names a bead on its page. `kn-k6zd` and `kn-3m3z` were both corrected by
-the pre-publication truth pass (`4ba3d49`) and their remaining work is backend-only; their bead
-text still quotes docs that no longer say what it quotes, and both carry a comment saying so.
-
----
-
-## 4. Not open items
-
-Roughly twenty warning callouts across the site are permanent operational warnings, not gaps
-waiting to close. They are listed here so a future consolidation pass does not mistake them for
-work and try to "resolve" them:
-
-Direct edits to KubeNest-managed Git state get overwritten · the cluster JWT is an SSH-key-grade
-credential · secure the install values file and delete it after Helm accepts · deleting a project
-or cluster needs the org admin role, and projects block cluster deletion with a 409 · a
-`components` PATCH replaces a component wholesale rather than merging fields · removing a
-component another `exportRef` depends on is a 409 · rolling back an addon or an App containing
-addons can force a Helm downgrade the chart never designed for · nothing lists an addon's
-dependents before you delete it · the API never returns export values, by design · the
-sealed-secrets sealing key is the most important thing in the cluster and is in the backup set ·
-the single-server datastore is the thing people forget · the drill's teardown is unconditional on
-purpose · convergence checks report the last state they saw and are not single samples (install
-and upgrade both) · advertised host size and kernel-reported host size are the same machine ·
-restoring the platform does not restore application data · a single-server control-plane reboot is
-recurring toil the `ha` tier does not have · KubeNest is self-hosted, with no SaaS to sign up for ·
-a cross-cluster App needs every target registered first · re-running an install without a profile
-is not a resume.
+All 43 `OQ-*` questions are decided. Decisions A–G (2026-08-20) and H–Y (2026-08-23) are recorded
+with their reasoning in `PLAN-BUILD-2026-08-20.md` §2 and §2a. Nothing on the docs site is waiting
+on a judgment call.
 
 ---
 
-## 5. What needs a decision from you
+## Site structure
 
-**Nothing.** Every `OQ-*` is decided. What is left is work, and all of it is on a bead:
-
-- **Measure the five numbers in §1c.** `kn-btk8` for the manifest's provisional limits, `kn-ze1`
-  for the restore duration at realistic volume. OQ-BACKUP-2 is the one with a customer promise
-  hanging off it.
-- **Build the nine decided-but-unbuilt items in §1d.** `kn-eewa` is the one with a release
-  blocker's weight: the CVE commitment is now written on a public page, and a commitment with no
-  advisory feed behind it is worse than none.
-- **Prove the `ha` tier on three hosts** (`kn-kp3`) — decision U made that a gate on 1.0, not a
-  caveat.
-- **Ship two profiles** (`kn-ynaq`, `kn-sev5`) and `/platform/profiles` stops being a
-  specification page.
-
----
-
-## Cross-page dependencies
-
-What is left unlocks along these lines.
+Fifteen pages, flat under `content/`, grouped by `_meta.global.tsx`:
 
 ```
-kn-nqj  (window + reboot + APT policy)
-   ├─→ kn-ght1     the window-fit estimate has something to compare against
-   └─→ upgrades.mdx and os-patching.mdx both stop being partly aspirational
-
-kn-btk8  (measurements replace the provisional limits)
-   └─→ kn-ght1     the estimate becomes a refusal rather than a warning
-
-kn-kp3  (three-node install, upgrade, restore — a 1.0 release gate)
-   └─→ ha.mdx, install.mdx, upgrades.mdx all lose their multi-node caveat
-
-kn-twe  (the matrix, five configurations)
-   ├─→ every profile's `provisional: true`
-   ├─→ needs kn-opj8's two agent-compatibility rows
-   └─→ needs kn-mtpf's supported transitions
-
-kn-eewa  (advisory feed + security-release runbook)
-   └─→ bundle.mdx's CVE commitment becomes a claim we can make
-
-kn-ze1  (restore at realistic volume)
-   └─→ OQ-BACKUP-2 → OQ-HA-2, the single-server promise
+Start     index · prerequisites · quickstart
+Install   install · connect-cluster
+Use       concepts · deploying · addons
+Operate   upgrades · backup-restore · ha · os-patching
+Reference bundle · architecture · api
 ```
 
-## Where else these live
-
-- **Decisions A–G, with reasoning:** `PLAN-BUILD-2026-08-20.md` §2.
-- **Decisions H–Y, with reasoning:** `PLAN-BUILD-2026-08-20.md` §2a.
-- **Publication boundaries, in full:** `src/lib/build-status.ts`, rendered by `<BuildStatus />`.
-  Edit there, never here.
-- **Gap callouts, in full:** inline on the page where the reader meets the gap. That is deliberate
-  — a reader hitting the `dsn` defect needs it next to the example, not in an index.
-- **Crest-dependent assumptions:** `STRATEGY-2026-08.md` §9.3, with what to unwind if wrong. Two
-  of its entries — OQ-INSTALL-9 and OQ-PROFILE-4 — no longer wait on Crest.
+`content/api/index.mdx` keeps its directory on purpose: the backend's
+`docs-route-compatibility.yml` workflow checks documented API routes against the live FastAPI route
+table by that exact path, and moving the file breaks that guard.

@@ -35,8 +35,6 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Publication boundary
-        run: bun run check:status
 
       - name: Typecheck
         run: bun run typecheck

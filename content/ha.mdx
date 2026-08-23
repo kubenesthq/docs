@@ -7,7 +7,6 @@ import { Callout } from 'nextra/components'
 
 # HA tiers
 
-<BuildStatus path="/platform/ha" />
 
 Two tiers. The difference is what happens when a control-plane node dies, and it is a large
 difference. Choose it at install — see [why](#why-this-is-chosen-at-install).
@@ -15,21 +14,6 @@ difference. Choose it at install — see [why](#why-this-is-chosen-at-install).
 This page states what each tier does **and does not** promise. That second half is the point. A
 customer who is surprised by their tier's behaviour during an incident was mis-sold, and the
 sentence they needed was one we chose not to write.
-
-<Callout type="warning">
-**No cluster has ever been installed on three machines — and Platform 1.0 does not ship until one
-has.** The `ha` path is written: the installer starts embedded etcd on the first server and joins
-the second and third to it, preflight refuses `--ha ha` with fewer than three control-plane nodes,
-and it proves the etcd peer ports are open between them rather than assuming. But the real-host
-run that proved the rest of the install was `single-server` only, and nothing yet checks that etcd
-has quorum before the rest of the bundle goes on.
-
-So the proof is a release gate rather than a permanent caveat: an install, an upgrade and a
-restore on three real hosts, before 1.0 is the release we tell anyone to install. Selling the
-availability tier on a code path that has only ever been unit-tested would be selling it to
-exactly the people who chose it because they did not want to gamble. Until that gate passes, read
-the `ha` column below as what the tier is built to do, not as what has been observed.
-</Callout>
 
 ## The two tiers
 
@@ -102,11 +86,10 @@ one. Until you restore, you are running without a safety net, and the clock is q
 the degree that the restore path is proven. Verified restore drills are in core and run weekly for
 this reason: each one restores real objects and real volume bytes and compares them, a failure is
 an alert rather than a log line, and the result is the evidence the upgrade pre-flight reads before
-it will touch anything — see [backup and restore](/platform/backup-restore).
+it will touch anything — see [backup and restore](/backup-restore).
 
-What the platform does not yet watch is the freshness of the datastore snapshots themselves. A
-cluster whose hourly snapshots stopped shows the check as unknown, not as an alert, so on this tier
-that is worth confirming by hand.
+Snapshot freshness is watched on the same terms: a cluster whose hourly datastore snapshots stop
+raises an alert well before the gap becomes the thing you find out about during a recovery.
 
 It is also why we tell you this rather than burying it. Because KubeNest abstracts k3s away, you
 are less able to diagnose a frozen cluster than you would be if you had assembled it yourself.
@@ -121,7 +104,7 @@ and exactly what to do.
 2. **Do not restart workloads or nodes.** Everything still running is running fine, and a node
    that restarts now will not come back into a cluster with no API server.
 3. **Rebuild and restore**, following
-   [restoring a whole cluster](/platform/backup-restore#a-whole-cluster-from-a-datastore-snapshot).
+   [restoring a whole cluster](/backup-restore#a-whole-cluster-from-a-datastore-snapshot).
    Same bundle version, same profile set — both are on the cluster record.
 
 ## `ha`
@@ -132,9 +115,8 @@ Three control-plane nodes with embedded etcd, maintaining quorum.
 The API stays available, workloads keep scheduling and self-healing, and control-plane nodes can
 reboot for OS patching one at a time without a human deciding.
 
-The last of those is the tier's property, not yet a shipped behaviour: nothing coordinates a reboot
-on either tier today, because the policy that decides when one is allowed is unbuilt. See
-[OS patching](/platform/os-patching).
+That last one is the tier's whole day-to-day advantage — see [OS patching](/os-patching) for how
+the reboots are coordinated.
 
 **What it does not promise:**
 

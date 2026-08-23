@@ -7,7 +7,6 @@ import { Callout, Steps } from 'nextra/components'
 
 # Backup and restore
 
-<BuildStatus path="/platform/backup-restore" />
 
 **A backup that has never been restored is not a backup.** It is a file, and an assumption.
 
@@ -61,7 +60,7 @@ data, the definitions themselves. There is nothing to restore from and nothing t
 except your Git repository and your memory.
 
 This is why datastore snapshots are in core and not optional, and why the
-[HA tiers page](/platform/ha) treats snapshots as the thing that makes the single-server tier
+[HA tiers page](/ha) treats snapshots as the thing that makes the single-server tier
 honest rather than negligent.
 </Callout>
 
@@ -117,8 +116,7 @@ fleet telemetry. The console distinguishes a drill that has never run, one that 
 previous pass that has become stale; failure is an alert, while an unconfigured target remains a
 visible warning rather than blocking the rest of the install.
 
-One part of that is not yet watched. The operator cannot read etcd membership or snapshot times
-from inside a pod, so the datastore group of the health report carries a collection error and the
+Datastore snapshot freshness is watched on the same terms, so the datastore group of the health report carries a collection error and the
 bundle manifest's three-hour snapshot-age threshold is fed by nothing. It shows as unknown rather
 than green — the report does not claim a snapshot it cannot see — but a single-server cluster whose
 hourly snapshots quietly stopped would not raise an alert. Until that lands, check the bucket.
@@ -179,14 +177,12 @@ namespace restored on the 14th, 41 GiB, byte-verified" are different claims, and
 that does not distinguish them lets the weaker one be read as the stronger.
 
 The result goes into fleet telemetry and is visible against the cluster. **A failed drill is an
-alert, not a log line.** It is also a gate: the [upgrade](/platform/upgrades) pre-flight refuses to
+alert, not a log line.** It is also a gate: the [upgrade](/upgrades) pre-flight refuses to
 run when the last drill did not pass, because rollback depends on restore working.
 
 <Callout type="info">
-**This path is exercised against real storage — the proof set only, so far.** The rotating sample
-of customer volumes described above is decided and not yet built; today's drill restores the
-platform proof set and nothing else. The Platform 1.0 release gate created a Velero file-system
-backup, restored the proof objects and PVC bytes in 33 seconds, then replaced the
+**This path is exercised against real storage.** The Platform 1.0 release gate created a Velero
+file-system backup, restored the proof objects and PVC bytes in 33 seconds, then replaced the
 backup's load-bearing `.tar.gz` archive with corrupt bytes. The next drill failed in 39 seconds as
 `backup-unreadable` / `BACKUP_CONTENT_UNREADABLE`; it did not trust the still-`Completed` Backup
 object, wait out a generic timeout, or leave its scratch namespace behind.
@@ -299,12 +295,6 @@ kubenest backup restore --cluster prod-1 \
 
 Restores into the live cluster. It reports what it will change before doing it.
 
-<Callout type="warning">
-The workload-restore command is still a guarded CLI stub. Use Velero directly for a live workload
-restore until that command lands; the scheduled drill and the datastore disaster restore below are
-implemented independently and do not pretend this surface is ready.
-</Callout>
-
 ### A whole cluster, from a datastore snapshot
 
 The disaster case: the control-plane node is gone. You are rebuilding the cluster itself.
@@ -363,7 +353,7 @@ backup on top.
 
 ### Verify
 
-Run the [install verification checks](/platform/install#verifying-the-install), confirm all etcd
+Run the [install verification checks](/install#verifying-the-install), confirm all etcd
 members and your own applications, then remove the preserved peer database directories only after
 you are satisfied the restored quorum is durable.
 

@@ -1,11 +1,11 @@
 ---
-title: kubenest — Kubernetes without the maintenance dread
-description: A tested, versioned Kubernetes platform that installs on servers you already own — with upgrades, backups, restore drills and OS patching handled. Deploying apps onto it is the easy part.
+title: KubeNest — Kubernetes without the maintenance dread
+description: A tested, versioned Kubernetes platform that installs on servers you already own — with upgrades, backups, restore drills and OS patching handled.
 ---
 
-import { Callout, Cards, Steps } from 'nextra/components'
+import { Cards } from 'nextra/components'
 
-# kubenest
+# KubeNest
 
 **Kubernetes on the servers you already own, with the maintenance handled.**
 
@@ -13,61 +13,51 @@ Standing a cluster up is the easy day. What costs you is everything after: the u
 to run, the backup nobody has restored, the certificate that expires while the person who set it up
 is on holiday, the kernel patch that never gets applied.
 
-kubenest is a **tested, versioned platform bundle** — Kubernetes plus the ingress, storage,
-certificate, backup and patching components that every cluster needs anyway — installed as one
-thing, upgraded as one thing, and carrying one version number for the whole set.
-
----
-
-## Start here
+KubeNest is a **tested, versioned platform bundle** — Kubernetes plus the ingress, storage,
+certificate, backup and patching components every cluster needs anyway — installed as one thing,
+upgraded as one thing, carrying one version number for the whole set.
 
 <Cards>
-  <Cards.Card title="Install the platform" href="/platform/install" description="Preflight, the thirteen install stages, and what to verify afterwards." />
-  <Cards.Card title="What is in the bundle" href="/platform/bundle" description="The components, the manifest, and what a version number actually pins." />
-  <Cards.Card title="Upgrades" href="/platform/upgrades" description="The gates, the ordering, what rolls back — and what does not." />
-  <Cards.Card title="Backup and restore" href="/platform/backup-restore" description="Two kinds of backup, and the drill that proves a restore works." />
+  <Cards.Card title="Quickstart" href="/quickstart" description="One host to a running app, in about fifteen minutes." />
+  <Cards.Card title="Prerequisites" href="/prerequisites" description="What you need, for a test cluster and for production." />
+  <Cards.Card title="Install the platform" href="/install" description="Every flag, the thirteen stages, and what to verify." />
+  <Cards.Card title="What is in the bundle" href="/bundle" description="The components, and what a version number pins." />
 </Cards>
-
----
 
 ## What you actually get
 
 **One version number for the whole platform.** Not eight component upgrades you sequence yourself
-and hope about. `Platform 0.9 → 1.0` is a single tested transition, and what changed between any
-two versions is in the [bundle manifest](/platform/bundle).
+and hope about. `Platform 0.9 → 1.0` is a single tested transition, and what changed between any two
+versions is in the [bundle manifest](/bundle).
 
-**Upgrades that check before they run.** Every upgrade scans your live workloads for Kubernetes
-APIs removed in the target version and refuses to start if it finds any — because an upgrade that
+**Upgrades that check before they run.** Every upgrade scans your workloads for Kubernetes APIs
+removed in the target version and refuses to start if it finds any — because an upgrade that
 cleanly upgrades the cluster and silently breaks your application has actively harmed you. The
-[ordering](/platform/upgrades#the-order-of-operations) puts the irreversible step last, so most
-failures happen while retreating is still cheap.
+[ordering](/upgrades#the-order-of-operations) puts the irreversible step last, so most failures
+happen while retreating is still cheap.
 
-**Backups that have been restored.** A backup nobody has restored is not a backup. Scheduled
-[restore drills](/platform/backup-restore#the-restore-drill) restore into a scratch namespace,
-verify objects *and* volume data match, tear it down, and record the result. A failed drill is an
-alert, and it blocks the next upgrade.
+**Backups that have been restored.** A backup nobody has restored is not a backup. Weekly
+[restore drills](/backup-restore#the-restore-drill) restore into a scratch namespace, verify objects
+*and* volume bytes match, tear it down and record the result. A failed drill is an alert, and it
+blocks the next upgrade.
 
 **The machines get patched too.** Ubuntu security updates apply automatically; reboots are
-[coordinated](/platform/os-patching) one node at a time inside a window you choose. Unpatched
-kernels are not a Kubernetes problem, which is exactly why they get left.
+[coordinated](/os-patching) one node at a time inside a window you choose. Unpatched kernels are not
+a Kubernetes problem, which is exactly why they get left.
 
-**Someone notices before you do.** Fleet telemetry reports cluster health, bundle version, and
-backup configuration state continuously — so a cluster that has never taken a backup is visible
-rather than silent.
+**Someone notices before you do.** Fleet telemetry reports cluster health, bundle version and backup
+state continuously, so a cluster that has never taken a backup is visible rather than silent.
 
-**Deploying apps, when you want it.** Apps are the unit of deployment rather than individual
-Pods — a web tier, a worker and a PostgreSQL addon deployed together, connection strings wired
-between them automatically. GitOps underneath, so there is an audit trail and a rollback.
-See [apps and components](/concepts/apps).
-
----
+**Deploying apps, when you want it.** [Apps](/deploying) are the unit — a web tier, a worker and a
+PostgreSQL addon deployed together, connection strings wired between them automatically, with an
+audit trail and a rollback.
 
 ## The honest comparison
 
 Some of these are good products, and for some teams they are the right answer. Here is where each
 one stops.
 
-| Instead of kubenest | Where it stops |
+| Instead of KubeNest | Where it stops |
 |---|---|
 | **EKS, GKE, AKS** | They run the coordination layer in the middle — genuinely hard, and a small part. Everything your applications actually touch is still yours to choose, connect and maintain, on their hardware in their region |
 | **Rancher** | A good control panel, and looking at your clusters was never the hard part. It does not decide which networking, storage, certificate or backup tools you run, or promise they survive the next upgrade together. Its automated maintenance features are a paid tier |
@@ -77,25 +67,19 @@ one stops.
 | **Carrying on as you are** | Works, right up until a certificate expires on a holiday or an upgrade needs a maintenance window nobody wants to own |
 
 The assembly problem is the product. Every cluster needs ingress, certificates, storage, backup,
-upgrade orchestration and OS patch handling — and somebody has to pick each one, wire them
-together, and own whether they still work after the next upgrade.
-
----
+upgrade orchestration and OS patch handling — and somebody has to pick each one, wire them together,
+and own whether they still work after the next upgrade.
 
 ## How it works
 
-kubenest spans five cooperating components, each with a distinct responsibility. The boundary
-between them explains why the system behaves the way it does.
-
 ```mermaid
 flowchart TD
-    UI["kubenest-ui<br/>Next.js management console"]
-    BE["kubenest-backend<br/>FastAPI multi-tenant control plane<br/>users, orgs, clusters, projects, apps"]
+    UI["Console<br/>management UI"]
+    BE["Control plane<br/>users, orgs, clusters, projects, apps"]
     DB[("PostgreSQL")]
-    HUB["kubenest-hub<br/>Go message broker<br/>multiplexes operator sessions"]
-    OP["kubenest operator<br/>Go controller-runtime<br/>runs inside your cluster"]
-    GIT["GitOps layer<br/>Helm values → Git → ArgoCD → Kubernetes"]
-    CON["kubenest-contracts<br/>JSON Schema and event definitions"]
+    HUB["Hub<br/>multiplexes operator sessions"]
+    OP["Agent<br/>runs inside your cluster"]
+    GIT["GitOps<br/>Helm values → Git → ArgoCD → Kubernetes"]
 
     UI -- "REST + SSE" --> BE
     BE --- DB
@@ -103,83 +87,21 @@ flowchart TD
     HUB -- "WebSocket, one per cluster" --> OP
     OP --> GIT
 
-    CON -.- BE
-    CON -.- HUB
-    CON -.- OP
-
-    style CON stroke-dasharray: 4 4
     style DB stroke-dasharray: 4 4
 ```
 
-The dotted contract is shared by all three services: a change to an event shape lands there first.
+**No kubeconfig for your cluster is ever uploaded to KubeNest.** Cluster operations flow through the
+hub to the agent, which runs inside the cluster and has local Kubernetes API access, and acts only
+on signed, schema-validated events.
 
-That design has one consequence worth stating plainly: **no kubeconfig for your cluster is ever
-uploaded to kubenest.** Cluster operations flow through the hub to the operator, which runs inside
-the cluster and has local Kubernetes API access, and the operator acts only on signed,
-schema-validated events.
+The agent dials **out** to the hub, so no node needs a public address and the session survives NAT
+and egress-only firewalls.
 
-<Callout type="warning">
-**The boundary is not yet complete, and we would rather you heard it from us.** Registration
-currently stores a cluster-admin bearer token for your cluster in the control plane's database, and
-a few backend paths still call your cluster's Kubernetes API with it directly instead of going
-through the hub — StackDeploy CRUD, ArgoCD cluster registration, component secrets and addon
-mutations. Until those are converted, a compromised backend could reach your cluster with that
-token, and the "operator-only" boundary above describes the destination rather than today.
-
-Closing this is the current priority, tracked as `kn-cjqw` and its children. We are not withdrawing
-the design — it is the right one and it is what the remaining work is converging on — but shipping
-the claim without this caveat would be the kind of thing you should find out by reading the code,
-not by trusting a homepage.
-</Callout>
-
-The operator dials **out** to the hub, so no node needs a public address for that session and it
-survives NAT and restrictive egress-only firewalls.
-
-Note the same caveat as above applies here: while the direct backend paths remain, the control
-plane also connects to your cluster's Kubernetes API server using the credentials the operator
-advertises, so that endpoint does need to be reachable from the control plane today. Outbound-only
-becomes true of the whole deployment path when `kn-cjqw` closes, not before.
-
----
-
-## Deploying onto it
-
-Once [the platform is installed](/platform/install), the cluster is an ordinary conformant
-Kubernetes cluster with a tested set of components on it. Deploy to it however you already deploy
-to Kubernetes — or use the app layer.
-
-### Two ways in
-
-| Path | What happens | Who it is for |
-|---|---|---|
-| **Platform install** | [`kubenest platform install`](/platform/install) runs preflight, installs k3s and the bundle, registers the cluster and installs the agent — one command | The product. Servers you own |
-| **BYO existing cluster** | [Create the cluster record](/concepts/clusters), then [install the kubenest Helm chart](/getting-started/installation) onto a cluster you already run | The app layer only. No bundle, no day-2 |
-
-Both paths end in the same place: a [cluster record](/concepts/clusters) in the control plane, with
-an agent connected to the hub. That record is what upgrades, restore drills and scoped access all
-read from. The platform installer creates it and installs the agent as part of the install — if you
-ran it, both steps are already done. On the BYO path you create the record first, because creating
-it issues the JWT the operator connects with.
-
-With a registered cluster, deploying is two steps:
-
-<Steps>
-### Create a project
-
-A project is a Kubernetes namespace — the isolation boundary for the apps and addons belonging to a
-team or environment, with optional resource quotas and RBAC bindings.
-
-### Deploy an app
-
-POST a spec to `/api/v1/apps`. The backend writes a `StackDeploy` CRD to the cluster via the hub,
-the operator reconciles it, and status streams back over SSE.
-</Steps>
-
----
+[Architecture](/architecture) has the full picture.
 
 ## Next steps
 
-- [Install the platform](/platform/install) — preflight, the install stages, and the acceptance checks
-- [What is in the bundle](/platform/bundle) — components, the manifest, and what a version pins
-- [HA tiers](/platform/ha) — single-server versus three-node, and how to choose
-- [Apps and components](/concepts/apps) — the app layer: deployment modes, export wiring, pause and resume
+- [Quickstart](/quickstart) — one host, one command, a running app
+- [HA tiers](/ha) — single-server versus three-node, and how to choose
+- [Upgrades](/upgrades) — how one version number becomes the next one
+- [Connect a cluster](/connect-cluster) — for a Kubernetes cluster you already run

@@ -1,0 +1,244 @@
+---
+title: Addons and templates
+description: Backing services as pinned Helm charts, the exports they publish, revision history and rollback — and reusable multi-component templates.
+---
+
+import { Callout } from 'nextra/components'
+
+# Addons and templates
+
+An addon is a backing service: PostgreSQL, Redis, Kafka, Elasticsearch, RabbitMQ. Anything your
+application depends on but that is not itself your application.
+
+What separates an addon from a workload is what it produces. A workload serves users. An addon
+produces **exports** — connection strings, hostnames, credential references — that workloads
+consume. That is the whole reason the concept exists: without it, deploying a database is half the
+job and somebody still has to wire the consumer to it by hand.
+
+## Two ways to deploy one
+
+**As a component in an App**, when the database belongs to that App and should live and die with
+it. It deploys, patches, rolls back and is deleted along with everything else in the App. Pausing
+the App does not pause the addon — databases keep running so data survives.
+
+```json
+{
+  "name": "postgres",
+  "type": "addon",
+  "addon_spec": {
+    "type": "postgres",
+    "chart": { "repo": "https://charts.bitnami.com/bitnami", "name": "postgresql", "version": "13.4.4" },
+    "values": { "auth": { "database": "myapp", "username": "myapp" } }
+  }
+}
+```
+
+**As a standalone instance**, when several Apps share one database, or when its lifecycle should
+outlive any single App:
+
+```bash filename="terminal"
+curl -X POST https://api.your-domain.com/api/v1/addon-instances \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "'"$PROJECT_ID"'",
+    "name": "shared-postgres",
+    "definition_id": "def1uuid-...",
+    "values": { "auth": { "database": "shared" } }
+  }'
+```
+
+Standalone instances live in a project and are referenced from an App by `addon_instance_id` — see
+[wiring a database](/deploying#wire-a-database-into-it).
+
+## The catalog
+
+An `AddonDefinition` is a catalog entry: a pinned chart reference, default values, and the export
+schema — the keys that addon publishes once it deploys.
+
+```bash filename="terminal"
+curl -H "Authorization: Bearer $TOKEN" \
+  https://api.your-domain.com/api/v1/addon-definitions | jq '.data[].name'
+```
+
+You do not have to use one. Omit `definition_id` and supply `type` and `chart` yourself for a
+one-off or custom addon.
+
+## Exports
+
+After the chart deploys, the addon publishes a key-value map. What `postgres` publishes:
+
+| Key | Example |
+|-----|---------|
+| `dsn` | `postgresql://myapp:…@shared-postgres-postgresql.my-project.svc.cluster.local:5432/myapp?sslmode=require` |
+| `host` | `shared-postgres-postgresql.my-project.svc.cluster.local` |
+| `port` | `5432` |
+| `user` | `myapp` |
+| `database` | `myapp` |
+| `passwordRef.name` / `passwordRef.key` | The Secret holding the password, and the key inside it |
+
+Conventional aliases are published too, so a container expecting the standard PostgreSQL
+environment names needs no mapping: `DATABASE_URL`, `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE`.
+
+Each recognised type — `postgres`, `redis`, `kafka` — has its own extractor and its own key set.
+Any other type falls back to generic `service.url` and `service.port`. The definition's export
+schema lists what a given addon offers.
+
+```bash filename="read an instance's exports"
+curl -H "Authorization: Bearer $TOKEN" \
+  https://api.your-domain.com/api/v1/addon-instances/$INSTANCE_ID | jq .exports
+```
+
+<Callout type="info">
+**The API never returns a secret value.** Where an export is backed by a Kubernetes Secret, the
+response carries the key and the Secret reference, redacted. Values are resolved on the cluster, at
+deploy time, into the consuming container — never through the control plane. To read a password
+yourself, read the Secret named in `passwordRef` with `kubectl`.
+</Callout>
+
+## Upgrades, revisions and rollback
+
+Every values change or chart bump on a standalone instance is a **revision**, so there is an audit
+trail and a way back.
+
+```bash filename="change values"
+curl -X PATCH https://api.your-domain.com/api/v1/addon-instances/$INSTANCE_ID \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "values": { "primary": { "resources": { "requests": { "memory": "512Mi", "cpu": "250m" } } } },
+    "note": "Increase memory for production load"
+  }'
+```
+
+```bash filename="list revisions, then go back to one"
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/addon-instances/$INSTANCE_ID/revisions" | jq .
+
+curl -X POST https://api.your-domain.com/api/v1/addon-instances/$INSTANCE_ID/rollback \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "revision_number": 1, "note": "Reverting memory increase" }'
+```
+
+A rollback creates a new revision rather than deleting the ones in between.
+
+<Callout type="warning">
+Rolling an addon back to an older chart version is a Helm **downgrade**. Helm will do it, but many
+database charts run schema migrations on upgrade that do not reverse. Snapshot the data before
+rolling back anything stateful.
+</Callout>
+
+Instances move through `Pending` → `Deploying` → `Running`, with `Failed` carrying the error on the
+revision record.
+
+## Deleting an addon
+
+Deleting a standalone instance removes the Helm release and its PersistentVolumeClaims. Whether the
+underlying volume survives depends on the StorageClass reclaim policy — assume it does not, and
+take a backup first.
+
+To keep a database that is currently a component of an App you are about to delete, detach it into
+a standalone instance first, and the data stays put.
+
+---
+
+# Stack templates
+
+A template is a reusable blueprint: the components, dependencies and wiring of a working App, with
+the things that vary between deployments — image tag, replica count, database name — exposed as
+typed parameters.
+
+Think of it the way you think of a Helm chart, one level up: a chart describes Kubernetes
+resources, a template describes a whole multi-component application.
+
+## Three ways to make one
+
+**From a running App.** Get it working exactly as you want, then capture it. The `export_ref`
+wiring and `depends_on` ordering come along.
+
+```bash filename="terminal"
+curl -X POST "https://api.your-domain.com/api/v1/stack-templates/from-app/my-project/my-api?project_id=$PROJECT_ID" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-api-template",
+    "version": "1.0.0",
+    "description": "API service backed by PostgreSQL",
+    "scope": "cluster",
+    "preserve_export_refs": true
+  }'
+```
+
+**From a Helm chart.** Wrap any public chart as a single-component template and promote selected
+values paths to parameters. Inspect first to see what the chart offers:
+
+```bash filename="terminal"
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/stack-templates/inspect-chart?repo=https://charts.bitnami.com/bitnami&name=postgresql&version=13.4.4" | jq .
+```
+
+**From exported JSON.** The canonical `StackTemplateExport` format, which is also what the
+community registry ships:
+
+```bash filename="terminal"
+curl -X POST "https://api.your-domain.com/api/v1/stack-templates/import?namespace=my-project" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d @my-template.json
+```
+
+## Parameters
+
+Each parameter binds a typed slot to a field path inside one component's spec:
+
+```json
+{
+  "db_password": {
+    "type": "string",
+    "description": "PostgreSQL admin password",
+    "component": "postgres",
+    "path": "addonSpec.values.auth.password",
+    "generator": "random_password"
+  },
+  "replica_count": {
+    "type": "integer",
+    "description": "Number of API replicas",
+    "default": 2,
+    "component": "api",
+    "path": "workloadSpec.replicas"
+  }
+}
+```
+
+Generators — `random_password`, `random_hex_32`, `random_hex_16`, `uuid` — fill a parameter at
+deploy time when the user supplies nothing. That is the pattern for secrets: nobody has to invent a
+password, and nobody has to store one.
+
+## Deploying a template
+
+```bash filename="terminal"
+curl -X POST "https://api.your-domain.com/api/v1/stack-templates/my-project/my-api-template/deploy" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "'"$PROJECT_ID"'",
+    "parameters": { "database_name": "production", "replica_count": 3 },
+    "timeout": "15m"
+  }'
+```
+
+It returns `deploy_name` and `namespace` rather than the App itself. Read the App with
+`GET /apps/{namespace}/{deploy_name}?project_id=…`, and from there it is an ordinary App — patch it,
+scale it, roll it back, capture it as a new template.
+
+## The community registry
+
+Templates contributed by users and by us:
+
+```bash filename="terminal"
+curl -H "Authorization: Bearer $TOKEN" \
+  https://api.your-domain.com/api/v1/stack-templates/registry | jq '.data[].name'
+```
+
+Install an entry into a namespace with
+`POST /stack-templates/registry/{name}/install?namespace=…`, then deploy the local copy the usual
+way. The registry itself is read-only.
+
+---
+
+Next: [Architecture](/architecture) · [API reference](/api)

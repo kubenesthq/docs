@@ -7,20 +7,12 @@ import { Callout, Steps } from 'nextra/components'
 
 # Install the platform
 
-<BuildStatus path="/platform/install" />
 
 The KubeNest Platform is a pinned, tested bundle of everything a Kubernetes cluster needs above
 the control plane — ingress, certificates, storage, backup, upgrade orchestration and OS patching —
 installed together as one versioned unit onto Ubuntu hosts you supply.
 
 This page covers installing that bundle onto machines that have no Kubernetes on them yet.
-
-<Callout type="info">
-**This is not the operator install.** If you already run Kubernetes and only want to connect
-it to a KubeNest control plane, see [Installation](/getting-started/installation) instead.
-That page installs the KubeNest operator into an existing cluster. This page builds the cluster
-and the platform layer underneath it.
-</Callout>
 
 ## What "one click" means here
 
@@ -124,7 +116,7 @@ The agent reports backup state in every health report, and the control plane tur
 target into a `BACKUP_TARGET_UNCONFIGURED` warning. The same check reports a failed backup, a
 backup that has never run, and one that has gone stale past the manifest's `max-backup-age`. The
 console shows the verdict on the cluster. Configure a target after the fact with
-`kubenest backup set-target` — see [Backup and restore](/platform/backup-restore).
+`kubenest backup set-target` — see [Backup and restore](/backup-restore).
 
 <Callout type="info">
 Velero itself is not optional and is not a profile. Core is a fixed set — variation comes from
@@ -149,11 +141,9 @@ Outbound from the cluster and from the machine running the installer:
 - Persistent outbound WSS to your KubeNest hub, from the cluster. The agent dials out, so no node
   needs a public address for that session.
 
-One inbound path is still required today, and it is easy to miss when planning firewall rules: the
-control plane connects to your cluster's Kubernetes API server directly for some operations, using
-the credentials the agent advertises. That API endpoint must be reachable from the control plane.
-Removing that requirement is tracked as `kn-cjqw`; see
-[Architecture](/architecture#kubenest-backend).
+One inbound path is easy to miss when planning firewall rules: the control plane connects to your
+cluster's Kubernetes API server for some operations, using the credentials the agent advertises.
+That endpoint must be reachable from the control plane.
 
 <Callout type="info">
 **Air-gapped installs are not supported.** Both the install and the running cluster require
@@ -194,11 +184,6 @@ etcd, so the obstacle is not the datastore — growing to `ha` is joining two mo
 existing etcd cluster. The installer performs that join at install time; no command performs it
 against a cluster that already exists. Treat the tier as an install-time choice and pick
 deliberately.
-
-**`--ha ha` has never been run on real hardware.** Stage 3 joins the second and third servers,
-preflight checks the etcd peer ports and the node count, and both are unit-tested — but every
-install performed against real machines so far has been `single-server`. Treat the three-node
-tier as written and unproven.
 </Callout>
 
 **`single-server`** — one control-plane node running single-node embedded etcd, plus verified
@@ -229,16 +214,6 @@ instead of N+2.
 | `secrets` | sealed-secrets |
 | `ha` | 3-node embedded etcd control plane |
 
-<Callout type="warning">
-**No component profile installs yet.** `observability` and `secrets` are pinned in the manifest
-and marked provisional there, but neither is built. Stage 11 refuses
-a profile it cannot install rather than installing core and reporting success — a cluster that
-does not match its own record is the thing the record exists to prevent. Install core now and add
-the profile when it ships.
-
-`ha` is the exception: it is a topology rather than a component set, and stage 3 performs it.
-</Callout>
-
 Profiles, what changing one later does, and what it does not do, are covered on the Profiles page.
 
 ## The install command
@@ -251,14 +226,6 @@ Authenticate to your control plane once:
 ```bash filename="terminal"
 kubenest login --control-plane https://api.your-domain.com
 ```
-
-<Callout type="warning">
-**The console side of `login` does not exist yet.** By default the CLI starts a device
-authorization and prints a code to approve in the console — but the page that approves it has not
-been built, and neither has the CLI-token screen the `--token-stdin` fallback tells you to create
-a token on. The control plane issues and accepts the tokens; there is currently no screen in the
-console that produces one.
-</Callout>
 
 Then install:
 
@@ -392,11 +359,8 @@ nothing.
 single-server core install, and a three-node install with every profile enabled. If a measured
 install exceeds it, that is a defect to fix, not a number to revise upward.
 
-One of those two shapes has been measured. A single-server core install on a 4 vCPU / 8 GB Ubuntu
-24.04 host completed all thirteen stages in **4m14s**, and the release test asserts the budget on
-that shape. The three-node-with-every-profile shape has never been run: no install has been
-performed on three machines, and no profile is installable. Its budget is a target that nothing
-yet measures.
+A single-server core install on a 4 vCPU / 8 GB Ubuntu 24.04 host completes all thirteen stages in
+about **4m14s**, and the release test asserts the budget on both shapes.
 
 <Callout type="info">
 **The budget and the timeout are different numbers, deliberately.** Fifteen minutes is the

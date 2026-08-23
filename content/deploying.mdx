@@ -1,0 +1,311 @@
+---
+title: Deploying apps
+description: Deploy, wire, update, scale, pause and roll back applications on a KubeNest cluster.
+---
+
+import { Callout } from 'nextra/components'
+
+# Deploying apps
+
+A KubeNest cluster is a standard Kubernetes cluster with a tested platform layer on it. You can
+deploy to it however you already deploy to Kubernetes — `kubectl`, `helm`, your own CI, Flux,
+someone else's ArgoCD. None of that needs KubeNest to be involved, and if your team is happy with
+its pipeline, keep it.
+
+What follows is the app layer, for teams who would rather not build one.
+
+## What the platform gives your workloads
+
+Worth knowing before you deploy anything, because it changes what you have to configure:
+
+| | What you get |
+|---|---|
+| **Ingress** | Traefik with Gateway API. Write `HTTPRoute`, not `Ingress` |
+| **TLS** | cert-manager issues and renews certificates. The install provides a cluster-local default; configure a public issuer for customer hostnames |
+| **Storage** | A default StorageClass backed by OpenEBS Local PV LVM. PVCs bind without configuration |
+| **Backup** | Velero, with weekly verified restore drills once you configure a target |
+
+**Local storage is node-local.** A pod using a Local PV LVM volume is bound to the node holding it;
+if that node is lost, restore the volume from backup. Workloads that need storage surviving node
+loss need an external storage system.
+
+## Deploy an app
+
+The simplest App is one workload component running a pre-built image.
+
+```bash filename="terminal"
+curl -X POST https://api.your-domain.com/api/v1/apps \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-app",
+    "project_id": "'"$PROJECT_ID"'",
+    "components": [
+      {
+        "name": "web",
+        "type": "workload",
+        "workload_spec": {
+          "build_mode": "image",
+          "image": "nginx:alpine",
+          "replicas": 2,
+          "port": 80,
+          "ingress": { "enabled": true, "host": "my-app.your-domain.com" }
+        }
+      }
+    ]
+  }'
+```
+
+The backend responds `Pending` and the operator reconciles asynchronously. Watch it:
+
+```bash filename="terminal"
+curl -N -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/events/stream?cluster_id=$CLUSTER_ID&resource_type=app"
+```
+
+Phases are `Pending` → `Deploying` → `Running`, with `Degraded` and `Failed` for the unhappy paths.
+Once `Running`, the ingress is live and cert-manager has issued its certificate.
+
+The event stream filters on `cluster_id`, `project_id`, `workload_id` and `resource_type`. There are
+no name or namespace filters, and app events carry the cluster ID — so filter on that.
+
+**Key `workload_spec` fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `build_mode` | `image` \| `dockerfile` \| `buildpack` | How to obtain the container image |
+| `image` | string | Full image reference, for `image` mode |
+| `replicas` | integer | Pod replicas, default 1 |
+| `port` | integer | Port the container listens on |
+| `ingress.enabled` / `ingress.host` | boolean / string | Whether to publish, and on what hostname |
+| `env` | array | Environment variables — plain values or an `export_ref` |
+| `command` | array | Override the container entrypoint |
+| `resources` | object | CPU and memory requests and limits |
+
+## Wire a database into it
+
+`export_ref` lets a workload consume values an addon generates at deploy time — hostnames,
+passwords, connection strings — without you seeing or hardcoding any of them.
+
+```bash filename="terminal"
+curl -X POST https://api.your-domain.com/api/v1/apps \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "my-api",
+    "project_id": "'"$PROJECT_ID"'",
+    "components": [
+      {
+        "name": "postgres",
+        "type": "addon",
+        "addon_spec": {
+          "type": "postgres",
+          "chart": { "repo": "https://charts.bitnami.com/bitnami", "name": "postgresql", "version": "13.4.4" },
+          "values": { "auth": { "database": "myapp", "username": "myapp" } }
+        }
+      },
+      {
+        "name": "api",
+        "type": "workload",
+        "depends_on": ["postgres"],
+        "workload_spec": {
+          "build_mode": "image",
+          "image": "myorg/my-api:v1.0.0",
+          "replicas": 2,
+          "port": 8000,
+          "env": [
+            { "name": "DATABASE_URL", "export_ref": { "component": "postgres", "export_key": "dsn" } },
+            { "name": "APP_ENV", "value": "production" }
+          ],
+          "ingress": { "enabled": true, "host": "api.your-domain.com" }
+        }
+      }
+    ],
+    "timeout": "15m"
+  }'
+```
+
+`depends_on` makes the operator deploy Postgres first, wait for its exports, then render the API
+workload with the resolved value. Without it both start concurrently — fine if your app tolerates a
+missing database at startup, otherwise a few restarts on first deploy.
+
+To wire a **shared** database that lives outside this App, reference the standalone instance
+instead of a sibling component:
+
+```json
+{ "name": "DATABASE_URL", "export_ref": { "addon_instance_id": "c3d4e5f6-...", "export_key": "dsn" } }
+```
+
+The instance must be in the same project. See [Addons](/addons) for what each addon type publishes.
+
+## Update an app
+
+`PATCH /api/v1/apps/{namespace}/{name}` carries three arrays, applied in a fixed order — remove,
+then patch, then add:
+
+| Field | Effect |
+|---|---|
+| `remove_component_names` | Names of existing components to drop |
+| `components` | Patch by name; each entry must name an existing component |
+| `add_components` | New components to append; names must not collide after removals |
+
+**Every day-2 call on an App needs the `project_id` query parameter**, which is how the backend
+finds the cluster. Omitting it returns `422`.
+
+```bash filename="change an image tag"
+curl -X PATCH "https://api.your-domain.com/api/v1/apps/my-project/my-api?project_id=$PROJECT_ID" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "components": [
+      {
+        "name": "api",
+        "type": "workload",
+        "workload_spec": {
+          "build_mode": "image",
+          "image": "myorg/my-api:v1.1.0",
+          "replicas": 2,
+          "port": 8000,
+          "env": [{ "name": "APP_ENV", "value": "production" }],
+          "ingress": { "enabled": true, "host": "api.your-domain.com" }
+        }
+      }
+    ]
+  }'
+```
+
+<Callout type="warning">
+**A `components` entry replaces that component wholesale — it is not a field-level merge.** Send the
+component's *complete* spec, including everything you are not changing.
+
+Omitted fields do not stay as they were; they take schema defaults. A patch carrying only `image`
+silently resets `replicas` to `1` and `port` to `8080`, and drops `env` and `ingress` entirely. Read
+the current spec first, change the one field, and send the whole component back.
+</Callout>
+
+Adding and removing components use the other two arrays:
+
+```bash filename="add a Redis addon"
+curl -X PATCH "https://api.your-domain.com/api/v1/apps/my-project/my-api?project_id=$PROJECT_ID" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "add_components": [
+      {
+        "name": "cache",
+        "type": "addon",
+        "addon_spec": {
+          "type": "redis",
+          "chart": { "repo": "https://charts.bitnami.com/bitnami", "name": "redis", "version": "19.6.4" },
+          "values": { "architecture": "standalone" }
+        }
+      }
+    ]
+  }'
+```
+
+```bash filename="remove a component"
+curl -X PATCH "https://api.your-domain.com/api/v1/apps/my-project/my-api?project_id=$PROJECT_ID" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "remove_component_names": ["cache"] }'
+```
+
+An App must keep at least one component.
+
+<Callout type="warning">
+Removing a component that another component's `export_ref` depends on is rejected with `409`. Patch
+the dependent component to drop the reference first, then remove the source in a second call.
+</Callout>
+
+## Scale
+
+Use the scale endpoint rather than a full patch — it touches one component's values and leaves the
+rest of the App alone.
+
+```bash filename="terminal"
+curl -X POST "https://api.your-domain.com/api/v1/apps/my-project/my-api/scale?project_id=$PROJECT_ID" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "component_name": "api", "replicas": 4 }'
+```
+
+## Pause and resume
+
+Pausing scales every workload component to zero and remembers what it was. Compute stops; the
+namespace, the Kubernetes resources and the addons stay — databases keep running so data survives.
+
+```bash filename="terminal"
+curl -X POST "https://api.your-domain.com/api/v1/apps/my-project/my-api/pause?project_id=$PROJECT_ID" \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -X POST "https://api.your-domain.com/api/v1/apps/my-project/my-api/resume?project_id=$PROJECT_ID" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Resume restores the *pre-pause* replica counts. Scaling while paused is discarded by resume — to
+change a count permanently, resume first, then scale.
+
+## Roll back
+
+Every state-changing operation records a deployment, with who made it and what changed.
+
+```bash filename="list history"
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/apps/my-project/my-api/deployments" \
+  | jq '.[] | {id, created_at, phase, message}'
+```
+
+```bash filename="roll back to one of them"
+curl -X POST "https://api.your-domain.com/api/v1/apps/my-project/my-api/rollback?project_id=$PROJECT_ID" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "deployment_id": "b3c4d5e6-..." }'
+```
+
+Or by relative revision, which is easier in automation — `-1` is one revision back, `-2` two:
+
+```bash filename="terminal"
+curl -X POST "https://api.your-domain.com/api/v1/apps/my-project/my-api/rollback?project_id=$PROJECT_ID" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "revision": -1 }'
+```
+
+A rollback is not a `git revert` — it is a new forward deployment to the earlier spec, so the audit
+trail stays linear.
+
+<Callout type="warning">
+Rolling back an App containing addons rolls back those addons' chart versions and values too. If the
+earlier spec pinned an older PostgreSQL chart, that is a Helm downgrade, which can be
+schema-incompatible. Check the deployment diff before rolling back an App with stateful addons.
+</Callout>
+
+## Place components on different clusters
+
+Components default to the project's cluster. Set `cluster_id` on a component to put it somewhere
+else — a web tier in one region, a data processor in another:
+
+```json
+{
+  "name": "data-processor",
+  "type": "workload",
+  "cluster_id": "f6g7h8i9-...",
+  "workload_spec": { "image": "myorg/data-processor:latest", "replicas": 4, "port": 9000 }
+}
+```
+
+Every target cluster must already be registered and connected; a cluster the control plane cannot
+reach returns `422 missing_cluster_registration` at create time rather than leaving a component
+pending forever.
+
+## Delete an app
+
+```bash filename="terminal"
+curl -X DELETE "https://api.your-domain.com/api/v1/apps/my-project/my-api?project_id=$PROJECT_ID" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+The delete is asynchronous: Helm uninstalls, ArgoCD Applications go, Git paths are removed, and the
+record disappears when the operator confirms. Deployment history is retained.
+
+Addon components are deleted with the App, **including their PersistentVolumeClaims**. To keep a
+database, detach it as a standalone instance first — see [Addons](/addons).
+
+---
+
+Next: [Addons and templates](/addons) · [Architecture](/architecture)

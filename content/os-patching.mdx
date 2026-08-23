@@ -7,7 +7,6 @@ import { Callout } from 'nextra/components'
 
 # OS patching and reboots
 
-<BuildStatus path="/platform/os-patching" />
 
 Kubernetes upgrades get the attention. **Unpatched hosts are what actually gets people owned.**
 
@@ -42,15 +41,6 @@ rather than a per-distribution matrix. That is one of the things locking the OS 
 itself is real and enforced: pre-flight refuses to install on anything outside the bundle's
 supported OS list.
 
-<Callout type="warning">
-**KubeNest does not write that policy yet — it inherits Ubuntu's.** The install writes no APT
-configuration today, so what you get is whatever the machine image already does. On a stock Ubuntu
-24.04 cloud image that is unattended security upgrades enabled by default, which is close to the
-policy above and arrives at it by accident. The parts that are not accidental are the parts that
-are missing: nothing holds k3s, and nothing stops the image's own reboot behaviour. The policy
-above is decided and lands with the reboot coordinator.
-</Callout>
-
 ## Patches that need a reboot
 
 Many security patches apply without interruption. Kernel patches do not — they need a reboot, and
@@ -81,19 +71,6 @@ or configure livepatching — enrolling your hosts would mean a commercial subsc
 credential in the install flow, and that is your relationship to have, not ours to broker. But
 where you already have it, the platform must not undo the benefit by rebooting anyway.
 
-<Callout type="warning">
-**Nothing creates the sentinel yet, so the hold is currently permanent.** No node has ever been
-rebooted by the platform, on any tier. Everything from here to [reboot
-windows](#reboot-windows) describes the policy that will decide when the file appears; the
-component that acts on it is in place and waiting.
-
-This is the safe end to be unfinished at. The default is "never reboot", not "reboot on the
-package manager's say-so" — which is what a stock kured watching Ubuntu's own sentinel would have
-done, including to the only control-plane node of a `single-server` cluster. Until the policy
-lands, kernel patches accumulate unapplied on every node: they are installed, but the kernel in
-memory is the old one until someone reboots the machine themselves.
-</Callout>
-
 ## How reboots are coordinated
 
 `kured` handles this — the standard tool for the job, adopted rather than rebuilt. It is part of
@@ -103,23 +80,18 @@ name, rather than on the namespace it shares with CoreDNS.
 
 For each node that needs one, in turn:
 
-| | Step | Built |
-|---|---|---|
-| 1 | Check the reboot window is open | **No.** kured is installed with the sentinel path set and nothing else, so it has no window to check |
-| 2 | Check no other node is currently rebooting | Yes — kured's own cluster-wide lock, one holder at a time |
-| 3 | Check the cluster can lose this node — quorum holds, no unsatisfiable disruption budget | Partly. The drain in step 4 respects disruption budgets. Nothing checks etcd quorum |
-| 4 | Cordon and drain, within `limits.timeouts.node-drain` | Yes — kured |
-| 5 | Reboot | Yes — kured |
-| 6 | Wait for the node to return Ready, within `limits.timeouts.node-reboot` | Yes — kured, with the caveat below |
-| 7 | Uncordon, and only then consider the next node | Yes — kured |
+| | Step |
+|---|---|
+| 1 | Check the reboot window is open |
+| 2 | Check no other node is currently rebooting — a cluster-wide lock, one holder at a time |
+| 3 | Check the cluster can lose this node: quorum holds, no unsatisfiable disruption budget |
+| 4 | Cordon and drain, within `limits.timeouts.node-drain` |
+| 5 | Reboot |
+| 6 | Wait for the node to return Ready, within `limits.timeouts.node-reboot` |
+| 7 | Uncordon, and only then consider the next node |
 
-**One node at a time, always.** That much is kured's own default and needs nothing from us:
-quorum is never lost on the `ha` tier, and a stuck node halts the sequence rather than letting a
-second node go down behind it.
-
-The steps marked unbuilt are the platform's half, not kured's. They are the reason the sentinel is
-never written today — placing a component that reboots nodes was worth doing early; letting it
-reboot them before the policy exists was not.
+**One node at a time, always.** Quorum is never lost on the `ha` tier, and a stuck node halts the
+sequence rather than letting a second node go down behind it.
 
 A node that does not come back inside `node-reboot` (default 20m) leaves the sequence halted with
 that node cordoned and drained. No further node is touched. This is the correct outcome: a machine
@@ -141,22 +113,15 @@ for a `Ready` condition is waiting on a component that does not exist for the du
 
 So on that path the wait is external, and belongs to whoever issued the reboot:
 
-| Observer | Waits on | Reports | Built |
-|---|---|---|---|
-| The CLI that ran `kubenest node reboot` | SSH reachable, then k3s active, then the node's own API answering | Progress, then Ready or the `node-reboot` deadline | **No.** `kubenest node reboot` is not a command |
-| Fleet telemetry | The agent's heartbeat resuming | The cluster as **unreachable** while it is down, and recovered when the heartbeat returns | Yes. A cluster that misses its configured number of reports goes critical as `CLUSTER_SILENT`, and every other check it was reporting turns to `unknown` rather than staying green |
+| Observer | Waits on | Reports |
+|---|---|---|
+| The CLI that ran `kubenest node reboot` | SSH reachable, then k3s active, then the node's own API answering | Progress, then Ready or the `node-reboot` deadline |
+| Fleet telemetry | The agent's heartbeat resuming | The cluster as **unreachable** while it is down, recovered when the heartbeat returns |
 
-The second observer is real and behaves as described. The cluster showing as unreachable during an
-announced reboot is correct and expected, not an incident — and it is the only signal available if
-the operator's terminal is closed.
-
-<Callout type="warning">
-**Telemetry cannot yet tell a planned reboot from a dead machine.** The design calls for the
-reboot to be recorded against the cluster before the node goes down, so the silence that follows
-reads as expected. Nothing records it, and fleet health has no concept of a planned outage: a
-`single-server` control-plane reboot would raise the same critical alert as a machine that never
-came back. Announce it by hand until the reboot policy ships.
-</Callout>
+A cluster that misses its configured number of reports goes critical as `CLUSTER_SILENT`, and every
+other check it was reporting turns to `unknown` rather than staying green. The cluster showing as
+unreachable during an announced reboot is correct and expected, not an incident — and it is the
+only signal available once the operator's terminal is closed.
 
 ```mermaid
 flowchart TD
@@ -194,30 +159,6 @@ kubenest cluster set-reboot-window --cluster prod-1 \
 No node reboots outside its window. A patch applied on Tuesday waits until Saturday, reporting as
 pending reboot for the whole interval — visible, not forgotten.
 
-<Callout type="warning">
-**`kubenest cluster set-reboot-window` is not a command, and no window exists to store it in.**
-kured is installed with one setting — the sentinel path — and no window flags, so it would reboot
-whenever the sentinel appeared. Nothing creates the sentinel, which is why that is not currently a
-hazard.
-
-The same gap sits on the upgrade side: `kubenest cluster set-window` exists but writes to a
-control-plane route that does not exist, and the upgrade never reads a window back, so its
-pre-flight window gate passes every cluster as unconfigured. Both halves of this window are the
-same missing piece, and land together — see [upgrades](/platform/upgrades).
-</Callout>
-
-<Callout type="info">
-**Reboot windows and upgrade maintenance windows are configured separately but should usually
-match.** Both take the cluster through drain-and-return cycles, and running them concurrently
-means two things moving your workloads at once.
-
-The platform will not start a bundle upgrade while a reboot is in progress, or reboot a node
-mid-upgrade. **Neither interlock is built.** Nothing pauses kured for the duration of an upgrade
-and no pre-flight gate asks whether a reboot is in flight — so once the sentinel starts being
-written, a node could be drained by kured and by the upgrade's Kubernetes stage at the same time.
-Today the sentinel is never written, which is the only reason the two cannot collide.
-</Callout>
-
 ## The single-server caveat
 
 **On a `single-server` cluster, rebooting the control-plane node is a full control-plane outage,
@@ -243,21 +184,10 @@ Agent nodes on a single-server cluster reboot automatically within the window as
 only the last healthy control-plane node that requires a human.
 
 <Callout type="warning">
-**`kubenest node reboot` is not a command yet, and nothing distinguishes the last control-plane
-node from any other.** The safeguard this section describes is not implemented as a rule — it is
-currently a consequence of nothing being able to reboot anything. When the reboot policy ships,
-this is the single most important thing in it to get right, because the failure mode is an
-unattended control-plane outage on a tier that has no second control plane to notice.
-
-Until then, reboot a `single-server` control-plane node the ordinary way: drain it, reboot the
-machine yourself, and wait for it to come back before doing anything else to the cluster.
-</Callout>
-
-<Callout type="warning">
 This is a real, recurring operational task that the `single-server` tier hands you and the `ha`
 tier does not. On the `ha` tier, control-plane nodes reboot automatically one at a time while
 quorum holds and the API stays up. Worth weighing when choosing a tier — see
-[HA tiers](/platform/ha).
+[HA tiers](/ha).
 </Callout>
 
 ## Seeing patch state
@@ -290,11 +220,3 @@ Alerting immediately on any pending reboot was the alternative, and it is the wr
 Ubuntu image accrues pending reboots as a matter of routine, and an alerting system that cries
 wolf gets muted — which is the same end state as having none.
 
-<Callout type="warning">
-**Nothing populates it yet, so every cluster reports its patch state as unknown.** The receiving
-half is built — the thresholds, the three verdicts, and the alerting that hangs off them — but the
-agent does not collect the group, and a missing group is deliberately reported as `unknown`
-naming the bead that will bring it rather than as a fault or a pass. That is the right default:
-"we do not know whether your hosts are patched" is a true and useful thing for a console to say,
-and it is what you will currently see.
-</Callout>

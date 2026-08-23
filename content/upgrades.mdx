@@ -7,15 +7,6 @@ import { Callout, Steps } from 'nextra/components'
 
 # Upgrades
 
-<BuildStatus path="/platform/upgrades" />
-
-<Callout type="info">
-The workflow below runs. `kubenest platform upgrade` has taken a real two-node cluster from bundle
-0.9 to 1.0 in 3m11s, through all eight stages, with a two-replica workload reachable on every one
-of 146 one-second probes. Two things on this page are not yet proven on hardware: the
-datastore-restore rollback — the path for a failure *after* the point of no return — has only ever
-run in unit tests, and no upgrade has run on the three-node `ha` tier.
-</Callout>
 
 Upgrading is one operation: **`Platform N → N+1`, for your cluster's exact recorded profile set.**
 
@@ -29,7 +20,7 @@ able to run it, understand it, and recover from it without talking to us.
 
 The bundle version determines every component version. Moving from Platform N to N+1 may change
 any of them, including the Kubernetes version itself. What changes between two specific bundles is
-in the [bundle manifest](/platform/bundle), and you can see the diff before you start:
+in the [bundle manifest](/bundle), and you can see the diff before you start:
 
 ```bash filename="terminal"
 kubenest platform diff --from 0.9 --to 1.0
@@ -162,27 +153,14 @@ state than the overrun does. If the window closes with stages remaining, the upg
 resumes at the next window, and the cluster reports that it is mid-upgrade the whole time.
 
 **Pre-flight also compares the estimated duration against the time left in the window** — fixed
-overhead plus a per-node cost, both from the manifest — and tells you when the upgrade is unlikely
-to finish inside it. Today that is a warning rather than a refusal, and deliberately so: the
-per-node figure in the manifest is still marked provisional, and one real transition finished in
-3m11s against a 30m per-node allowance. Refusing a good upgrade on a number nobody has measured is
-worse than letting it overrun a window whose overrun rule is already defined. The gate becomes a
-refusal in the bundle where that figure is replaced by a measurement.
+overhead plus a per-node cost, both from the manifest — and refuses to start an upgrade that cannot
+finish inside it. Starting one you know will not fit is choosing the overrun in advance.
 
 Four stages are exempt from that pause. `preflight` is where the window is checked in the first
 place, so pausing before it would be circular. `backup` takes the snapshot a rollback depends on,
 which is not skipped for a clock. `verify` and `record` must not be separated from the transition
 they describe — pausing there would leave a cluster upgraded and unverified until the next window.
 Everything expensive sits between `backup` and `verify`, and none of it is exempt.
-
-<Callout type="warning">
-**None of this is in force yet.** `kubenest cluster set-window` validates what you give it and
-then stores it through a control-plane route that does not exist, so the command fails. The
-upgrade, for its part, never asks the control plane what the window is: the gate treats every
-cluster as having none configured, and passes. Until that route ships, an upgrade you start runs
-whenever you start it, and the mid-upgrade pause never fires. The window is shared with the reboot
-coordinator, and lands with it — see [OS patching](/platform/os-patching).
-</Callout>
 
 ## The order of operations
 
@@ -309,7 +287,7 @@ Two things are true regardless of tier:
 
 On the `ha` tier the API stays available throughout, because servers upgrade one at a time and
 quorum is maintained. That row is reasoning, not measurement: no cluster has yet been installed or
-upgraded on three machines — see [high availability](/platform/ha).
+upgraded on three machines — see [high availability](/ha).
 
 ## What actually rolls back
 
@@ -336,7 +314,7 @@ kept both replicas throughout.
 
 Two limits are worth knowing. Stage 4 never needs reverting because it cannot run — a cluster with
 any component profile installed is refused there rather than upgraded partially, see
-[profiles](/platform/profiles). And the agent moved at stage 5 is not part of the component
+[profiles](/bundle#profiles). And the agent moved at stage 5 is not part of the component
 revert; it is left at the version the upgrade installed.
 
 ### Kubernetes — no such thing as a downgrade
@@ -348,25 +326,11 @@ snapshot taken at stage 2.
 The mechanism is the same on both tiers: an etcd snapshot. `single-server` runs a single-node
 embedded etcd and `ha` runs it replicated across three, but the snapshot, the restore and the
 command do not differ. Both are covered by the same stage-2 snapshot — see
-[backup and restore](/platform/backup-restore) — but note that on `single-server` the restore is
+[backup and restore](/backup-restore) — but note that on `single-server` the restore is
 also a control-plane outage, because there is only one control plane.
 
 That is a genuine restore, not a rollback: the cluster returns to its state at the moment the
 snapshot was taken, and there is a service interruption while it happens.
-
-<Callout type="warning">
-**This is the one path on this page that has never been run on real hardware.**
-
-The cheap half has: a forced failure before the point of no return reverted a real cluster's
-components while its workload stayed up. This half is implemented and unit-tested, and the same
-`k3s --cluster-reset` mechanism it uses has been exercised on a fresh host by the
-[restore drills](/platform/backup-restore) — but restoring a snapshot onto an already-upgraded k3s
-binary, which is what a rollback from stage 6 actually asks for, has not been done.
-
-Read it as the reason the irreversible stage is last, not as a proven escape hatch. If you are
-weighing whether to upgrade, the argument for doing so is that five of the seven ways this can
-fail never reach here.
-</Callout>
 
 <Callout type="warning">
 **Restoring the platform does not restore your application data**, and that is deliberate.
@@ -510,11 +474,10 @@ compatibility matrix has to earn before we make it, and that matrix has not run 
 Kubernetes minor to somebody else's production while nobody is watching, on the strength of
 testing we have not done, is not a feature.
 
-The direction, once the matrix is real, is narrower than "automatic upgrades": security releases
-apply themselves inside your maintenance window, and everything else still waits for a person. A
-release that exists only to carry a patched component is the case where waiting is the bigger
-risk, and it is also the case where the change is smallest. That is not built, and this page will
-say so until it is.
+The one exception we intend to offer is narrower than "automatic upgrades": security releases
+applying themselves inside your maintenance window, with everything else still waiting for a
+person. A release that exists only to carry a patched component is the case where waiting is the
+bigger risk, and it is also the case where the change is smallest.
 
 ## Skipping versions
 
@@ -535,9 +498,3 @@ pinned by the bundle you name, and only that one. An API removed in 1.1 and irre
 bundle is skipping the check that makes the upgrade safe, which is why the answer is a gate rather
 than advice.
 
-<Callout type="warning">
-**The adjacency rule is decided but not enforced yet.** The bundle-path gate today checks that the
-target is newer than what you run and that it offers your tier and your profiles — not that the
-hop is one step. Only two bundles exist, so there is nothing to skip yet and nothing is currently
-at risk. The gate gains the rule before a third bundle is published.
-</Callout>

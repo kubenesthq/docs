@@ -25,14 +25,25 @@ bun run typecheck
 
 ```
 kubenest-docs/
-├── content/                        # All documentation, as MDX
-│   ├── _meta.global.tsx            # Sidebar order and section titles
+├── content/                        # All documentation, as MDX — 15 flat pages
+│   ├── _meta.global.tsx            # Sidebar order and the five section headings
 │   ├── index.mdx                   # Landing page
-│   ├── getting-started/            # Installation, first deployment
-│   ├── concepts/                   # Clusters, projects, apps, addons, stack templates
-│   ├── architecture/               # System design, GitOps flow
-│   ├── guides/                     # Task-oriented walkthroughs
-│   └── api/                        # REST API reference
+│   ├── prerequisites.mdx           # What you need: test and production
+│   ├── quickstart.mdx              # One host to a running app
+│   ├── install.mdx                 # kubenest platform install, in full
+│   ├── connect-cluster.mdx         # A Kubernetes cluster you already run
+│   ├── concepts.mdx                # The object model
+│   ├── deploying.mdx               # Apps: deploy, wire, scale, roll back
+│   ├── addons.mdx                  # Backing services and stack templates
+│   ├── upgrades.mdx                # Gates, ordering, rollback
+│   ├── backup-restore.mdx          # Backups and the restore drill
+│   ├── ha.mdx                      # single-server versus ha
+│   ├── os-patching.mdx             # Patches and reboot coordination
+│   ├── bundle.mdx                  # Components, manifest, profiles, versioning
+│   ├── architecture.mdx            # System design and the GitOps flow
+│   └── api/index.mdx               # REST API reference — keeps its directory,
+│                                   #   the backend route guard checks this path
+├── OPEN-ITEMS.md                   # Where the code does not yet match the docs
 ├── src/
 │   ├── app/
 │   │   ├── layout.tsx              # Nextra theme layout, navbar, footer
@@ -56,43 +67,26 @@ Within a section, page order also comes from `_meta.global.tsx`. Pages not liste
 
 This means it can drift from the backend. When you change routes in `kubenest-backend/app/api/v1/`, update the endpoint tables here in the same change. The canonical machine-readable reference is the live Swagger UI at `https://api.{your-domain}/docs`.
 
-## The publication boundary — read this before writing a platform page
+## The docs are the specification
 
-Some pages here describe software that **does not exist yet**. They were written as build
-specifications, in the present tense, because that is what the implementation is built against.
-That is fine, and it is also how a reader ends up believing we ship something we do not.
+The site describes KubeNest as it is meant to work. Where the implementation does not match, **the
+implementation is what changes.** If it turns out it cannot, we come back and change the page
+deliberately — as a decision, recorded with its reasoning — rather than bolting a disclaimer onto
+it and moving on.
 
-The rule: **a page whose subject is not built carries a `<BuildStatus />` marker, directly under
-the H1.**
+So: write the page as though the feature works. Do not add a "not built yet" note, a build-status
+marker, or a callout explaining that an example fails today. A page full of hedges is a product
+that has not been finished, and hiding that behind honest-sounding prose fixes nothing.
 
-- The registry is [`src/lib/build-status.ts`](src/lib/build-status.ts). It maps the page to the
-  beads that make it true, and to a plain statement of what is missing and what is true today.
-- `<BuildStatus />` is registered globally in `src/mdx-components.tsx`, so there is no import to
-  forget. It reads its text from the registry — never write the warning inline, or the page and
-  the tracker will drift.
-- `bun run check:status` enforces it in both directions: a registered page without a marker fails,
-  and a marker on an unregistered page fails. It runs in CI on every branch and again before every
-  deploy to `main`.
+**Every gap goes in [`OPEN-ITEMS.md`](OPEN-ITEMS.md) instead**, which is the delta between what the
+site says and what the code does. Add a row when a page makes a new claim; delete it when the code
+catches up. Its first section is the security claims, kept separate because those are the rows
+where the gap is a risk to a customer's cluster rather than a missing feature — and they gate the
+first customer install.
 
-**When the work lands, delete the entry and the marker in the same change.** The registry is meant
-to shrink to `{}` and then be deleted. If you find yourself editing a `missing:` line to make it
-sound better rather than to make it accurate, stop.
-
-You are unlikely to have to remember this, because the check reads the tracker: **an entry citing a
-bead that has already closed fails.** Close `kn-mzn` and the docs branch goes red until someone
-revisits `/platform/backup-restore`. In practice a bead closing usually moves a line from `missing`
-to `today` rather than deleting the entry — that is what happened when `kn-boj` landed the bundle
-manifest — and you then drop the closed bead from the entry's `beads` array. When the array empties,
-the entry and the marker go together.
-
-That half needs `br`, so it is skipped in CI, where the beads database is not in reach. Run
-`./scripts/install-hooks.sh` once to get it on pre-commit locally, which is where beads close.
-
-Do not add an entry from a bead title. Check the code. Every current entry was verified against the
-repositories on 2026-08-20 and is cited in `PLAN-BUILD-2026-08-20.md` §1 in the workspace root.
-
-Separately, and not covered by this mechanism: the platform pages do not merge to `main` until
-`kn-ze1` has verified them against a real cluster. The marker is for honesty, not for permission.
+Callouts are still right for things that are permanently true and easy to get wrong: a PATCH that
+replaces a component wholesale, a Helm downgrade that cannot be reversed, a sealing key whose loss
+is unrecoverable. The test is whether the warning would still be there once every bead is closed.
 
 ## Commit guard
 

@@ -1,0 +1,217 @@
+---
+title: Connect a cluster
+description: Register a Kubernetes cluster you already run, install the KubeNest operator on it, and confirm the connection.
+---
+
+import { Callout, Steps } from 'nextra/components'
+
+# Connect a cluster
+
+For a Kubernetes cluster that already exists — EKS, GKE, AKS, kubeadm, a local k3s. KubeNest needs
+no access to your cloud provider and no inbound route to your API server: you install the operator,
+and it dials out to the hub.
+
+If you want KubeNest to build the cluster and the platform layer for you, that is
+[Install the platform](/install) instead.
+
+<Steps>
+
+### Create the cluster record
+
+Cluster records belong to an organization. Get yours:
+
+```bash filename="terminal"
+ORG_ID=$(curl -s -H "Authorization: Bearer $TOKEN" \
+  https://api.your-domain.com/api/v1/orgs | jq -r '.[0].id')
+```
+
+Create the record. This reserves a UUID and returns nothing secret — installation credentials come
+from a separate call, so nothing a browser renders ever holds one.
+
+```bash filename="terminal"
+curl -X POST "https://api.your-domain.com/api/v1/orgs/$ORG_ID/clusters" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "name": "prod-cluster", "description": "EKS us-east-1" }'
+```
+
+```json filename="201 Created"
+{
+  "id": "a1b2c3d4-0001-0000-0000-000000000000",
+  "name": "prod-cluster",
+  "status": "pending"
+}
+```
+
+```bash filename="terminal"
+CLUSTER_ID="a1b2c3d4-0001-0000-0000-000000000000"
+```
+
+Leave `provider` and `credential_id` out entirely. Their presence is what tells KubeNest to
+provision infrastructure for you, and the body rejects unknown fields — there is no
+`"provider": "manual"`.
+
+### Mint the install credentials
+
+Only when you are ready to install. This returns the agent JWT once and never again; calling it
+again rotates the credential and the previous one stops being accepted.
+
+```bash filename="terminal"
+umask 077
+curl -sS -X POST -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID/agent-credentials" \
+  > agent-credentials.json
+```
+
+The response carries `agent_jwt.token`, `agent_jwt.hub_url`, the pinned `operator.chart_ref`, and —
+when the control plane has GitOps configured — a `repo_credential` holding this cluster's own
+repository URL and write key. Per cluster, not shared.
+
+### Write the Helm values
+
+Use a mode-`0600` values file, not a `--set` chain. Map `agent_jwt.hub_url` onto
+`kubenest.backendURL`, which is the key the chart reads.
+
+```yaml filename="kubenest-operator-values.yaml"
+kubenest:
+  backendURL: wss://hub.your-domain.com/ws/operator
+  jwtSecret: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+  clusterID: a1b2c3d4-0001-0000-0000-000000000000
+
+  bootstrapController:
+    gitRepoURL: ssh://git@git.your-domain.com/kubenest/gitops-a1b2c3d4.git
+    gitRepoBranch: main
+    gitSSHPrivateKey: |
+      -----BEGIN OPENSSH PRIVATE KEY-----
+      ...
+      -----END OPENSSH PRIVATE KEY-----
+
+bootstrap:
+  argocd:
+    enabled: true
+  certManager:
+    enabled: true
+  gitea:
+    enabled: false
+  vault:
+    enabled: false
+```
+
+If `repo_credential` came back `null`, drop the `bootstrapController` Git fields and leave
+`bootstrap.gitea.enabled` at its default.
+
+Render it before you install, so you see what is about to be applied:
+
+```bash filename="terminal"
+helm template operator oci://ghcr.io/kubenesthq/charts/kubenest-operator-2 \
+  --version 2.3.5 \
+  --namespace kubenest-system \
+  --values kubenest-operator-values.yaml \
+  > /tmp/kubenest-operator-rendered.yaml
+```
+
+### Install the operator
+
+Point `kubectl` at the target cluster, then:
+
+```bash filename="terminal"
+helm upgrade --install operator oci://ghcr.io/kubenesthq/charts/kubenest-operator-2 \
+  --version 2.3.5 \
+  --namespace kubenest-system \
+  --create-namespace \
+  --values kubenest-operator-values.yaml \
+  --wait
+```
+
+```bash filename="terminal"
+kubectl get pods -n kubenest-system -w
+kubectl logs -n kubenest-system -l app.kubernetes.io/instance=operator --tail=30
+```
+
+You are looking for `WebSocket connection established`.
+
+### Confirm
+
+```bash filename="terminal"
+curl -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID" | jq .status
+# "connected"
+```
+
+</Steps>
+
+<Callout type="warning">
+**Secure the install credentials.** The values file holds the agent JWT and, when configured, the
+repository's private key. Keep it mode `0600`, do not commit it, and delete it and
+`agent-credentials.json` once Helm has accepted the release. The chart stores both in Kubernetes
+Secrets, so from that point reading them is a cluster-administrator privilege.
+
+To rotate: call the agent-credentials endpoint again, replace both values, re-run the same
+`helm upgrade --install`.
+</Callout>
+
+## Key Helm values
+
+| Value | Purpose |
+|---|---|
+| `kubenest.backendURL` | The hub WebSocket URL the operator dials out to |
+| `kubenest.jwtSecret` | The agent JWT identifying this cluster |
+| `kubenest.clusterID` | The cluster record's UUID |
+| `kubenest.bootstrapController.gitRepoURL` | This cluster's GitOps repository |
+| `bootstrap.argocd.enabled` | Install ArgoCD, if the cluster has none |
+| `bootstrap.certManager.enabled` | Install cert-manager, if the cluster has none |
+
+## Let KubeNest provision the machines
+
+KubeNest can also create the infrastructure. Register a cloud credential, then create a cluster
+naming it — supplying `provider` and `credential_id` is what turns a registration into a
+provisioning request.
+
+```bash filename="terminal"
+curl -X POST "https://api.your-domain.com/api/v1/orgs/$ORG_ID/credentials" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "name": "aws-prod",
+    "provider": "aws",
+    "region": "us-east-1",
+    "access_key_id": "AKIAIOSFODNN7EXAMPLE",
+    "secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+  }'
+```
+
+Provisioned clusters move `provisioning` → `awaiting_operator` → `connected`, and can be scaled:
+
+```bash filename="terminal"
+curl -X POST "https://api.your-domain.com/api/v1/clusters/$CLUSTER_ID/scale" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "desired_node_count": 5 }'
+```
+
+<Callout type="info">
+Provisioning runs on **AWS EC2**. Credentials for other providers are accepted and stored, but
+creating a cluster against them returns `422`.
+</Callout>
+
+## Troubleshooting
+
+**The cluster stays `pending`.** The operator is not reaching the hub. Check the operator logs for a
+dial error, confirm `kubenest.backendURL` is the `wss://` hub URL rather than the API URL, and
+confirm outbound 443 is open from the cluster.
+
+**`401` in the operator logs.** The JWT does not match the cluster record — usually a values file
+from an earlier registration. Mint fresh credentials and upgrade the release.
+
+**Pods stuck `ImagePullBackOff`.** The cluster cannot reach `ghcr.io`. Mirror the chart and image
+into your own registry and set the image repository in the values.
+
+## Deleting a cluster
+
+`DELETE /clusters/{id}` needs the org `admin` role and refuses with `409` while any project still
+exists on the cluster, naming what blocks it. Delete the projects first; there is no cascade, because
+project deletion is always available and a force flag would only put the hazard back.
+
+For a BYO cluster only the record is removed and nothing on the cluster is touched. For a
+provisioned cluster, the infrastructure is destroyed.
+
+---
+
+Next: [Concepts](/concepts) · [Deploying apps](/deploying)

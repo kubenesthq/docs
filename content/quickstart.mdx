@@ -1,0 +1,117 @@
+---
+title: Quickstart
+description: One Ubuntu host to a running application on a tested Kubernetes platform, in about fifteen minutes.
+---
+
+import { Callout, Steps } from 'nextra/components'
+
+# Quickstart
+
+One Ubuntu machine, one command, a complete platform. Then an application on top of it.
+
+You need a single Ubuntu 24.04 host with 2 vCPU, 4 GB RAM, 40 GB disk, SSH access and passwordless
+sudo. Any cloud's cheapest usable box is fine. Full detail is in
+[Prerequisites](/prerequisites); the short version is the sentence above.
+
+<Steps>
+
+### Install the CLI
+
+```bash filename="terminal"
+curl -fsSL https://get.kubenest.io | sh
+kubenest login --control-plane https://api.your-domain.com
+```
+
+### Install the platform
+
+```bash filename="terminal"
+kubenest platform install \
+  --bundle 1.0 \
+  --name demo \
+  --server 10.0.1.10 \
+  --ha single-server \
+  --ssh-user ubuntu \
+  --ssh-key ~/.ssh/id_ed25519
+```
+
+Thirteen stages, naming each as it goes. On a clean host this finishes in about four minutes and
+ends with five acceptance checks: every node Ready, every core component Running, a real volume
+provisioned, the cluster reporting in, and the running cluster matching the manifest it was built
+from.
+
+What you now have: k3s with embedded etcd, Traefik with Gateway API, cert-manager, OpenEBS Local PV
+LVM, Velero, and the KubeNest agent — pinned together at one version that was tested as a unit.
+
+If a stage fails it names the stage, the component and what to do. Fix it and re-run the identical
+command: completed stages are skipped from the journal, so a re-run takes seconds rather than
+starting over.
+
+### Create a project
+
+A project is a namespace with KubeNest metadata on it. Everything you deploy lives in one.
+
+```bash filename="terminal"
+PROJECT_ID=$(curl -s -X POST https://api.your-domain.com/api/v1/projects \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{ "name": "hello", "cluster_id": "'"$CLUSTER_ID"'" }' | jq -r .id)
+```
+
+### Deploy an app
+
+```bash filename="terminal"
+curl -X POST https://api.your-domain.com/api/v1/apps \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "name": "hello-web",
+    "project_id": "'"$PROJECT_ID"'",
+    "components": [
+      {
+        "name": "web",
+        "type": "workload",
+        "workload_spec": {
+          "build_mode": "image",
+          "image": "nginx:1.25-alpine",
+          "replicas": 1,
+          "port": 80,
+          "ingress": { "enabled": true, "host": "hello.your-domain.com" }
+        }
+      }
+    ]
+  }'
+```
+
+### Watch it come up
+
+```bash filename="terminal"
+curl -N -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/events/stream?cluster_id=$CLUSTER_ID&resource_type=app"
+```
+
+`Pending` → `Deploying` → `Running`. Then:
+
+```bash filename="terminal"
+curl -I https://hello.your-domain.com
+```
+
+</Steps>
+
+## What just happened
+
+You installed a Kubernetes distribution, an ingress controller, a certificate manager, a storage
+provisioner and a backup system — as one tested set at one version — and deployed an application
+onto it, without choosing a single component or reconciling a single compatibility matrix.
+
+That is the product. The version number is the unit: one number describes what you run, one command
+moves you to the next one, and the components inside it were tested together before they reached
+you.
+
+## Where to go next
+
+**Before real traffic**, three things: a DNS name and a public certificate issuer, an S3 backup
+target, and a maintenance window. All three are in
+[Prerequisites](/prerequisites#before-a-production-install).
+
+- [Install the platform](/install) — every flag, all thirteen stages, HA tiers, what to do when one fails
+- [Deploying apps](/deploying) — addons, wiring, scaling, rollback
+- [Backup and restore](/backup-restore) — the drills that make the restore promise real
+- [Upgrades](/upgrades) — how one number becomes the next one
