@@ -1,0 +1,167 @@
+---
+title: Day 2
+description: What the platform does after the install — upgrades, verified restores, patching and fleet health — and what it stops you having to own.
+---
+
+import { Callout } from 'nextra/components'
+
+# Day 2
+
+Installing a cluster is a solved problem. Anyone can do it, several tools do it well, and the day
+you do it is the day everything works.
+
+**Day 2 is the rest of the cluster's life**, and it is where Kubernetes gets expensive. Not in
+money — in the specific, recurring dread of being responsible for something you no longer fully
+understand.
+
+## The four things that actually cost you
+
+**The upgrade nobody wants to run.** Kubernetes cuts a minor release every few months and supports
+roughly a year of them. So you are never done. Each upgrade means checking whether your ingress
+controller, your CSI driver, your certificate manager and your service mesh all still work together
+afterwards — a compatibility matrix somebody has to assemble by reading release notes. Skipping it
+is easier, and skipping it is how clusters end up four versions behind and genuinely stuck.
+
+**The backup nobody has restored.** Everyone has backups. Far fewer have ever restored one, and a
+backup that has never been restored is a hypothesis. The failure is discovered in the worst hour of
+the worst day, and by then the question is not whether the backup ran but whether the thing it wrote
+can be turned back into a working cluster.
+
+**The certificate that expires on a holiday.** Certificates renew automatically right up until the
+issuer changes, a DNS record moves, or a renewal fails quietly for six weeks. Nobody watches the
+thing that is supposed to be automatic.
+
+**The kernel CVE that sits unpatched.** Applying the patch is easy. *Rebooting the node* is the
+frightening part, because it means moving workloads, and because on a single control-plane cluster
+it means an outage. So it waits. Unpatched kernels are not a Kubernetes problem, which is exactly
+why they are nobody's job.
+
+Each of these is individually manageable and none of them is interesting. Together they are the
+reason platform engineering is a role.
+
+## What runs without you
+
+Once the cluster is installed, this happens whether or not anyone is paying attention:
+
+| | What happens | Where |
+|---|---|---|
+| **Hourly** | The datastore is snapshotted to object storage. On a single-node control plane this is the gap between a dead disk and a rebuilt cluster | [Backup](/backup-restore) |
+| **Daily** | Workloads and volumes are backed up | [Backup](/backup-restore) |
+| **Weekly** | A **verified restore drill**: the most recent backup is restored into a scratch namespace, objects and volume bytes are compared, the scratch is torn down, and the result is recorded and alerted on | [The drill](/backup-restore#the-restore-drill) |
+| **Continuously** | Ubuntu security patches apply. Reboots are held until your window, then taken one node at a time | [OS patching](/os-patching) |
+| **Continuously** | The agent reports node health, certificate expiry, backup state, datastore freshness and bundle drift to your control plane | below |
+| **Per release** | A new bundle is cut, tested as a unit, and offered to your cluster. Nothing applies itself | [Upgrades](/upgrades) |
+
+## One version number
+
+A cluster is at exactly one bundle version plus a recorded profile set. That number pins every
+component: Kubernetes, ingress, certificates, storage, backup, the agent.
+
+This is the difference between *"we run Kubernetes 1.35, Traefik 41, cert-manager 1.21, OpenEBS 1.10
+and Velero 12, and I think those work together"* and *"we run Platform 1.0"*. The first is a
+statement you have to defend every time anything moves. The second is a statement somebody else
+tested.
+
+Upgrading is `Platform N → N+1` for your exact recorded set, and what changed between any two
+versions is a diff you can read before you start:
+
+```bash filename="terminal"
+kubenest platform diff --cluster prod-1 --to 1.1
+```
+
+## Upgrades that check before they run
+
+Seven pre-flight gates, and any failure stops the upgrade with nothing changed.
+
+The one that matters most scans your workloads — live objects and the Git desired state — for APIs
+removed in the target Kubernetes version, and **refuses to start if it finds any**. An upgrade that
+cleanly upgrades the cluster and silently breaks your application has actively harmed you; it is
+worse than no upgrade at all.
+
+The others check the things that make a failure recoverable: the last restore drill passed and
+passed recently, every node is Ready and has been, there is disk headroom, no disruption budget will
+stall a drain, you are inside your maintenance window, and the target is a bundle you can actually
+reach from here.
+
+Then the [ordering](/upgrades#the-order-of-operations) puts the irreversible step last. Components
+first, Kubernetes last, so most failures happen while retreating is still cheap — and a failure
+before that point reverts on its own in seconds.
+
+## Backups that have been restored
+
+The drill is the part worth paying for. Weekly, without anyone asking, the cluster restores its most
+recent backup into an isolated namespace, compares the objects **and the volume bytes**, requires
+every volume restore to complete, tears the scratch down, and records what it verified.
+
+A failed drill is an alert, not a log line. It is also a gate: the upgrade pre-flight refuses to run
+when the last drill did not pass, because rollback depends on restore working.
+
+That turns "we have backups" into a claim with a date on it.
+
+## The machines get patched
+
+Security updates apply under a policy the installer writes — security pocket only, and the
+platform's own pinned packages held so nothing outside the bundle can move what the bundle pins.
+
+Reboots are the hard half, and they are held until your window and then taken **one node at a time**:
+check the window, take a cluster-wide lock, confirm the cluster can lose this node, cordon, drain,
+reboot, wait for Ready, uncordon, and only then consider the next one. A node that does not come back
+halts the sequence rather than taking a second one down behind it.
+
+On the `ha` tier this is invisible: quorum holds and the API stays up throughout. On `single-server`
+it is a real outage you schedule — which is one of the honest reasons to
+[choose a tier](/ha) deliberately.
+
+## Someone notices before you do
+
+Every cluster reports continuously, and the control plane turns those facts into verdicts:
+
+- Nodes not Ready past their grace period
+- Certificates inside 30 days, then inside 7
+- Backups missing, failed or stale
+- A restore drill that failed, or has never run, or has gone stale
+- Datastore snapshots that stopped arriving
+- The running cluster drifting from the bundle it is supposed to be
+- A cluster that has gone silent entirely
+
+```bash filename="terminal"
+kubenest health
+```
+
+```ansi filename="output"
+prod-1     Platform 1.0   single-server   ok         drill passed 2d ago
+prod-2     Platform 1.0   ha              warning    certificate expires in 19d
+staging    Platform 0.9   single-server   critical   no backup target configured
+eu-west-1  Platform 1.0   ha              unknown    silent for 14m
+```
+
+A check the agent could not collect reports `unknown`, ordered above `ok` rather than folded into
+it. A fleet view showing forty green and two grey is the truth; one showing forty-two green is the
+failure this exists to prevent.
+
+## What you still do
+
+Being honest about the boundary is part of the product:
+
+- **You choose when to upgrade.** Nothing applies a bundle to your cluster on its own. Fleet health
+  tells you when a cluster is behind; a person still runs the command.
+- **You set the windows.** Maintenance and reboot windows are yours to pick, in your timezone.
+- **You own your applications.** The platform does not know whether your migration is safe.
+- **You supply the machines.** And the network, and the disks — see [Why](/why#why-bring-your-own-infrastructure).
+- **You configure a backup target.** Once. Until you do, the cluster says so continuously rather
+  than pretending.
+
+## What this replaces
+
+| Instead of | You have |
+|---|---|
+| A compatibility matrix assembled from release notes | A version number somebody tested |
+| "We have backups" | A restore that ran on a date you can name |
+| An upgrade nobody wants to own | Seven gates, an ordering, and a rollback |
+| Kernel patches that wait for courage | A window, and one node at a time |
+| Finding out from a customer | Finding out from a fleet view |
+| Hiring for this | Not hiring for this |
+
+---
+
+Next: [Upgrades](/upgrades) · [Backup and restore](/backup-restore) · [HA tiers](/ha) · [OS patching](/os-patching)

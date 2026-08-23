@@ -16,24 +16,11 @@ That last point is the whole reason the bundle exists. Without it, an upgrade is
 component version bumps whose interactions nobody has tried. With it, an upgrade is
 `Platform 1.0 → 1.1`: one transition, tested before it reached you.
 
-## Why a bundle at all
+A bundle is the unit of test, of support and of upgrade. A cluster is at exactly one bundle version
+plus a recorded profile set, and that number pins every component on it.
 
-Kubernetes gives you a control plane. It does not give you a platform. Every cluster still needs
-ingress, certificates, storage, backup, upgrade orchestration and OS patch handling — and
-somebody has to pick each one, wire them together, and own whether they still work after the next
-upgrade.
-
-Managed Kubernetes does not solve this. EKS, GKE and AKS manage the control plane; the layer above
-it is still yours, and reaching it usually means Terraform modules and a permanent specialist to
-maintain them. You did not buy less operational work, you bought different operational work plus a
-new dependency.
-
-Rancher does not solve it either. Rancher solved the *console* — it gives you an excellent view of
-clusters and a catalogue to install things from. You still choose your own ingress, CSI, cert
-manager and backup, and you still own whether they survive the next upgrade together.
-
-**That assembly problem is what the bundle is.** It is a smaller claim than "manages your
-Kubernetes" and a much more testable one.
+The reasoning behind each choice below — why k3s, why Traefik, why one component per slot — is on
+[Why these choices](/why). This page is what a bundle contains.
 
 ## Core
 
@@ -49,46 +36,6 @@ Always installed. Never optional. Every component here is present on every KubeN
 | **system-upgrade-controller** | In-cluster Kubernetes upgrades | Rancher's, Apache 2.0. Adopted, not rebuilt — RKE2 users repeatedly name the update controller as the killer feature |
 | **kured** | Reboot orchestration after OS patching | Coordinates node reboots so patching does not take the cluster down |
 | **KubeNest agent** | Control-plane connection and fleet health telemetry | Dials out to the hub. Reports cluster health so problems are known before they are reported |
-
-### Why these and not the alternatives
-
-The reasoning is the same as the sales argument, so it is written out rather than assumed.
-
-**One choice per slot.** One ingress, one CSI, one backup tool. Offering choices inside a slot
-multiplies the test matrix and puts you back to assembling components yourself — which is what
-Rancher already does, for free. The narrowness *is* the product.
-
-**Adopt, do not rebuild.** `system-upgrade-controller`, `kured`, Velero, cert-manager and Traefik
-are all mature, permissively licensed, and better than anything we would write. Building our own
-would add maintenance we sell against.
-
-**Tightly-coupled things live in core together.** Storage and backup interact. Ingress and
-certificates interact. Splitting either pair across a profile boundary would mean shipping
-combinations nobody tested.
-
-Explicitly considered and skipped:
-
-- **k0s** — a peer to k3s. Changing buys nothing.
-- **Cluster API** — the standards-based default, and we should expect the objection. It is
-  assembly-required, and its shape suits fleets of similar clusters rather than one cluster per
-  client. Sidero themselves moved away from it for on-prem reasons.
-- **Epinio** — the app-layer play. We already have more, and the market has spoken on it.
-- **kube-prometheus-stack in core** — installing a full observability stack on every cluster by
-  default recreates the exact weight complaint we exist to answer. It is a
-  [profile](/bundle#profiles), and a lighter one.
-- **cStor and Jiva** — deprecated OpenEBS engines. Do not inherit someone else's end-of-life.
-
-### Why not ingress-nginx
-
-`kubernetes/ingress-nginx` reached **end of life on 24 March 2026**. The repository is read-only:
-no features, no fixes, and **no CVE patches**. That followed four HIGH-severity CVEs disclosed
-together in February 2026, and the IngressNightmare unauthenticated RCE (CVE-2025-1974) before
-them. Its intended successor, InGate, never matured and was itself retired.
-
-Reportedly around half of all cloud-native environments are affected.
-
-If you are running it today, `ingress2gateway` converts existing Ingress resources to Gateway API.
-That is a separate migration, not part of installing the bundle.
 
 ## Profiles
 

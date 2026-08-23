@@ -1,0 +1,221 @@
+---
+title: Why these choices
+description: Why bring your own infrastructure, why k3s, why Traefik and Gateway API, why ArgoCD — and what we deliberately did not build.
+---
+
+import { Callout } from 'nextra/components'
+
+# Why these choices
+
+Every component in the bundle is a choice, and every choice closes a door. This page is the
+reasoning, written out rather than assumed, because the argument for the product *is* the argument
+for the components.
+
+## Why a bundle at all
+
+Kubernetes gives you a control plane. It does not give you a platform. Every cluster still needs
+ingress, certificates, storage, backup, upgrade orchestration and OS patch handling — and somebody
+has to pick each one, wire them together, and own whether they still work after the next upgrade.
+
+Managed Kubernetes does not solve this. EKS, GKE and AKS manage the control plane; the layer above
+it is still yours, and reaching it usually means Terraform modules and a permanent specialist to
+maintain them. You did not buy less operational work, you bought different operational work plus a
+new dependency.
+
+Rancher does not solve it either. Rancher solved the *console* — an excellent view of your clusters
+and a catalogue to install things from. You still choose your own ingress, CSI, cert manager and
+backup, and you still own whether they survive the next upgrade together.
+
+**That assembly problem is the product.** It is a smaller claim than "manages your Kubernetes", and
+a much more testable one.
+
+## Why bring your own infrastructure
+
+KubeNest installs onto machines you supply. It does not create them, and it is not a cloud.
+
+**Because the machines are not the hard part.** Provisioning a server is a solved problem you
+already have a way to do — a cloud console, Terraform, a hardware order. Nobody churns off a
+platform because provisioning was awkward. They churn because upgrades are frightening.
+
+**Because it keeps you portable.** Hetzner, a rack in your own building, EC2, a client's existing
+estate. The platform is identical on all of them, and moving between them is not a migration
+project. A product that also owns the infrastructure has quietly become the thing you cannot leave.
+
+**Because your data stays where you put it.** Regulated clients, on-premise requirements and
+sovereignty rules are not edge cases in this market — they are frequently the reason the customer
+is not on EKS in the first place.
+
+**Because it is honest about the boundary.** We can be excellent at the platform layer, tested and
+supportable, without also claiming to run your hardware. Owning both would mean an on-call rotation
+for someone else's disks, and a much larger promise than the one we can keep.
+
+The cost is real and worth stating: you supply the hosts, the network and the disks, and if a
+machine dies at 3am that is your machine. What the platform does is make sure the *cluster* on top
+of it can be rebuilt, because the restore path has been drilled.
+
+## Why k3s
+
+**Lightweight, single binary, CNCF-conformant.** Not a fork and not a subset: workloads that run on
+Kubernetes run on k3s.
+
+Heavy distributions are the thing customers churn *from*. The recurring complaint about the
+enterprise distributions is sprawl and eventful upgrades, not missing features — a control plane
+with more moving parts has more ways to go wrong during exactly the operation people already dread.
+
+k3s also brings embedded etcd, which is what lets `single-server` and `ha` be the same product with
+a different node count rather than two different datastores with two different backup stories.
+
+**Considered and skipped:**
+
+- **k0s** — a genuine peer. Changing buys nothing.
+- **kubeadm** — the reference way to assemble a cluster, and assembly is the problem we are solving.
+- **Talos and Omni** — well-built, and they require their own operating system on your machines.
+  If you run Ubuntu today that is a migration project before you see any benefit.
+- **Cluster API** — the standards-based answer, and we should expect the objection. It is
+  assembly-required, and its shape suits fleets of similar clusters rather than one cluster per
+  client. Sidero themselves moved away from it for on-premise reasons.
+
+## Why Ubuntu, and only Ubuntu
+
+Locking the operating system is what makes the bundle testable. A known kernel and a deterministic
+LVM layout are preconditions for the storage and patching components — and "we tested this" cannot
+mean anything if the substrate is a matrix of distributions.
+
+Ubuntu 24.04 LTS specifically, because it is what the target customers already run and because its
+unattended-upgrades machinery is the one we build the patching policy on.
+
+The installer refuses anything else rather than half-installing on it.
+
+## Why Traefik and Gateway API
+
+Traefik is already the k3s default, so it is the lightest possible choice — nothing to remove and
+nothing to add. It speaks Gateway API natively, which is where the ecosystem has landed.
+
+### Why not ingress-nginx
+
+`kubernetes/ingress-nginx` reached **end of life on 24 March 2026**. The repository is read-only: no
+features, no fixes, and **no CVE patches**. That followed four HIGH-severity CVEs disclosed together
+in February 2026, and the IngressNightmare unauthenticated RCE (CVE-2025-1974) before them. Its
+intended successor, InGate, never matured and was itself retired.
+
+Reportedly around half of all cloud-native environments are affected.
+
+This is also the clearest illustration of what we are selling. A component reaching end of life is
+not an emergency if somebody is watching for it, tests the replacement, and ships the transition as
+a version bump. It is a crisis if it is your job and you find out from a CVE feed.
+
+If you run it today, `ingress2gateway` converts existing Ingress resources. That is a separate
+migration, not part of installing the bundle.
+
+## Why cert-manager
+
+The de facto standard, and an expired certificate is a total, user-visible outage. Nobody should be
+renewing certificates by hand, and nobody should be writing their own ACME client to avoid it.
+
+## Why OpenEBS Local PV LVM in core
+
+Local LVM volumes are simple, fast, and fail in ways an operator can reason about: the volume lives
+on that node, and if the node is gone the volume is gone. That is a sentence you can act on.
+
+Replicated block storage is deliberately **not** core. It is itself a source of operational dread,
+its failure modes are subtle, and its failures become our pages. Durability in the default
+configuration comes from backups that have been proven to restore, plus application-level
+replication where a workload needs it.
+
+**Considered and skipped:** cStor and Jiva, both deprecated OpenEBS engines. Do not inherit someone
+else's end-of-life.
+
+## Why Velero, and why the drill
+
+Velero is the standard, permissively licensed, and better than anything we would write.
+
+The interesting choice is not Velero — it is the **verified restore drill**. A backup that has never
+been restored is a hypothesis, and the industry norm is to discover that in the worst hour of the
+worst day. Running the restore weekly, comparing volume bytes rather than just object counts, and
+alerting on failure is what converts "we have backups" into a claim with a date on it.
+
+It is also why the drill result gates upgrades: rollback depends on restore, so an untested restore
+is not a rollback plan.
+
+## Why ArgoCD and GitOps
+
+**Because the alternative is a control plane with a credential to your cluster and a lot of trust.**
+GitOps inverts that: the cluster pulls its own desired state and reconciles toward it, continuously,
+whether or not anything is watching.
+
+Three properties fall out of that and each one matters on day 2:
+
+- **Drift correction is continuous.** Someone `kubectl edit`s a Deployment at 2am; the reconciler
+  puts it back. Without this, a cluster's real state and its intended state diverge silently over
+  months.
+- **The desired state is reviewable.** For addons it is files in a repository, with a commit history
+  and an author.
+- **Rollback is a forward operation.** Deploy an earlier spec rather than trying to undo a later
+  one, so history stays linear and auditable.
+
+ArgoCD specifically because it is mature, it is what the ecosystem knows, and — like everything else
+here — adopting it is better than building a worse one.
+
+<Callout type="info">
+**Workload history is in the database, not in Git.** Workload ArgoCD Applications carry inline Helm
+values, so a `git log` is not the audit trail for a workload deploy — the deploy history is. Addon
+state is the part that lives in Git. [Architecture](/architecture#gitops) has the full picture, and
+it is worth knowing before you go looking for something in the wrong place.
+</Callout>
+
+### Why not Kargo
+
+[Kargo](https://kargo.io) is Akuity's promotion orchestrator — the Argo team's own layer for moving
+freight through stages, dev to staging to production, as a GitOps-native alternative to CI scripts
+doing the promoting. It is good, and it is solving a different problem.
+
+Kargo's shape assumes **one application progressing through several environments**. Ours is **one
+cluster per client**, where the interesting movement is a platform version advancing under a
+workload that stays where it is. A promotion orchestrator does not help with a cluster that needs
+its kernel patched.
+
+If we are wrong about that, the honest place for it is a profile or an app-layer feature rather than
+core — the same treatment as any other tool that some customers need and most do not. Nothing here
+is incompatible with running Kargo yourself on top.
+
+## Why one component per slot
+
+One ingress, one CSI, one backup tool. Offering a choice inside a slot multiplies the test matrix
+and puts you back to assembling components yourself — which is what Rancher already does, for free.
+
+**The narrowness is the product.** "N+2 tested configurations" only means something while N is
+small, and every option added to a slot is a configuration nobody ran.
+
+Where two genuinely different answers are both worth offering, they become two
+[profiles](/bundle#profiles), not one profile with a switch.
+
+## Why tightly-coupled things live in core together
+
+Storage and backup interact. Ingress and certificates interact. Splitting either pair across a
+profile boundary would mean shipping combinations nobody tested — which is the failure the bundle
+exists to prevent, reintroduced through the back door.
+
+## Why not a full observability stack in core
+
+Installing kube-prometheus-stack on every cluster by default recreates the exact weight complaint we
+exist to answer. Most clusters do not need it, and the ones that do can say so.
+
+It is the [`observability` profile](/bundle#observability), and a lighter one —
+VictoriaMetrics rather than vanilla Prometheus, for the same query surface at meaningfully less
+weight.
+
+## Why the installer is a CLI
+
+Day 1 is a CLI and day 2 is the product.
+
+Installing needs SSH to your machines with your keys. Those keys stay on your workstation, are never
+uploaded to the control plane, and are never written to logs — which is only true if the thing
+holding them runs on your machine. A browser-driven installer would mean handing us credentials to
+your hosts, for the one operation that least needs a UI.
+
+Everything after the install is the console's: the fleet view, the bundle and profile record,
+upgrades, restore drills and scoped access. That is where a UI earns its place.
+
+---
+
+Next: [What is in the bundle](/bundle) · [Day 2](/day-2) · [Architecture](/architecture)

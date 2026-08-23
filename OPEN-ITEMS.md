@@ -34,7 +34,26 @@ There is no live control plane and no customer cluster today, so nothing is expo
 is the reason this was an acceptable trade to make, and it is also the thing that stops being true
 the moment a control plane runs for someone else.
 
-## 2. Platform behaviour the site describes and the code does not do
+## 2. The app layer the docs now specify
+
+The 2026-08-23 pass replaced every `curl` example with a CLI, and specified a file format that does
+not exist. This is the largest single gap on the list, and it is deliberate: the docs are the
+design, and the design is what gets built against.
+
+| The site says | Reality | Bead |
+|---|---|---|
+| `kubenest.yaml` describes an app; `kubenest deploy` applies it; `${component.export}` wires values and implies deploy order | No file format, no `deploy`, no interpolation. The CLI has `login`, `platform *`, `cluster set-window` and `backup *` and nothing else | `kn-xrxs` |
+| `status`, `logs`, `open`, `exec`, `scale`, `pause`, `resume`, `deploys`, `rollback`, `diff`, `destroy`, `secret`, `project`, `addon`, `template` | None exist. The REST endpoints behind most of them do | `kn-xrxs` |
+| `expose: true` yields a working HTTPS URL with no domain and no DNS configuration | Nothing generates a hostname; ingress requires a hostname you own | `kn-18c3` |
+| `kubenest cluster set-domain` moves every exposed component and reissues certificates | Not a command | `kn-18c3` |
+| `kubenest cluster connect` creates the record, mints the credential, installs the agent and waits | Not a command. The backend returns the string in cluster-create responses regardless | `kn-2mif`, `kn-887b` |
+| `kubenest health` prints the fleet view | Not a command. The data and the verdicts exist behind the API | `kn-9pgx` |
+
+**`kn-xrxs` and `kn-18c3` together are the quickstart.** Neither the file nor the generated hostname
+exists, so the page a first-time reader lands on is entirely specification today. They are the two
+to build first, and `kn-xrxs` needs splitting before anyone starts.
+
+## 3. Platform behaviour the site describes and the code does not do
 
 | The site says | Reality | Bead |
 |---|---|---|
@@ -58,7 +77,7 @@ the moment a control plane runs for someone else.
 | The console approves a `kubenest login` device code and issues CLI tokens | No such page | `kn-0d73` |
 | Every configuration is tested together on every release | The compatibility matrix has never run | `kn-twe` |
 
-## 3. App-layer behaviour the site describes and the code does not do
+## 4. App-layer behaviour the site describes and the code does not do
 
 | The site says | Reality | Bead |
 |---|---|---|
@@ -73,7 +92,7 @@ the moment a control plane runs for someone else.
 example gets a broken result immediately: the connection-string example on
 [Deploying apps](/deploying) delivers placeholder text to the container.
 
-## 4. Numbers the site quotes that need a measurement behind them
+## 5. Numbers the site quotes that need a measurement behind them
 
 | Claim | Status | Bead |
 |---|---|---|
@@ -85,7 +104,7 @@ The manifest still carries `provisional: true` on `limits` and `health`; the pub
 example no longer shows the flag. That is deliberate — the flag is a machine-readable marker for
 us, not a caveat for a reader — but it means the two diverge until `kn-btk8` lands.
 
-## 5. Design decisions
+## 6. Design decisions
 
 All 43 `OQ-*` questions are decided. Decisions A–G (2026-08-20) and H–Y (2026-08-23) are recorded
 with their reasoning in `PLAN-BUILD-2026-08-20.md` §2 and §2a. Nothing on the docs site is waiting
@@ -95,15 +114,19 @@ on a judgment call.
 
 ## Site structure
 
-Fifteen pages, flat under `content/`, grouped by `_meta.global.tsx`:
+Seventeen pages, flat under `content/`, grouped by `_meta.global.tsx`:
 
 ```
-Start     index · prerequisites · quickstart
+Start     index · why · prerequisites · quickstart
 Install   install · connect-cluster
 Use       concepts · deploying · addons
-Operate   upgrades · backup-restore · ha · os-patching
+Operate   day-2 · upgrades · backup-restore · ha · os-patching
 Reference bundle · architecture · api
 ```
+
+`day-2` is the page the product is actually sold on; the quickstart hands off to it explicitly,
+because installing a cluster is the easy day. `why` carries the component rationale that used to be
+buried in `bundle`, including why we are not using Kargo.
 
 `content/api/index.mdx` keeps its directory on purpose: the backend's
 `docs-route-compatibility.yml` workflow checks documented API routes against the live FastAPI route

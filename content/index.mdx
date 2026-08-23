@@ -18,10 +18,10 @@ certificate, backup and patching components every cluster needs anyway — insta
 upgraded as one thing, carrying one version number for the whole set.
 
 <Cards>
-  <Cards.Card title="Quickstart" href="/quickstart" description="One host to a running app, in about fifteen minutes." />
+  <Cards.Card title="Quickstart" href="/quickstart" description="One host to a running app on HTTPS, in about fifteen minutes. No domain needed." />
+  <Cards.Card title="Day 2" href="/day-2" description="What the platform does for the next two years. This is the product." />
+  <Cards.Card title="Why these choices" href="/why" description="Why bring your own infrastructure, why k3s, why Traefik, why GitOps." />
   <Cards.Card title="Prerequisites" href="/prerequisites" description="What you need, for a test cluster and for production." />
-  <Cards.Card title="Install the platform" href="/install" description="Every flag, the thirteen stages, and what to verify." />
-  <Cards.Card title="What is in the bundle" href="/bundle" description="The components, and what a version number pins." />
 </Cards>
 
 ## What you actually get
@@ -48,9 +48,21 @@ a Kubernetes problem, which is exactly why they get left.
 **Someone notices before you do.** Fleet telemetry reports cluster health, bundle version and backup
 state continuously, so a cluster that has never taken a backup is visible rather than silent.
 
-**Deploying apps, when you want it.** [Apps](/deploying) are the unit — a web tier, a worker and a
-PostgreSQL addon deployed together, connection strings wired between them automatically, with an
-audit trail and a rollback.
+**Deploying apps, when you want it.** [One file](/deploying) describes a web tier, a worker and a
+PostgreSQL addon; `kubenest deploy` puts them up with the connection strings already wired, on a URL
+with a real certificate, with an audit trail and a rollback.
+
+```yaml
+components:
+  api:
+    image: myorg/api:v1.2.0
+    port: 8000
+    expose: api.acme.com
+    env:
+      DATABASE_URL: ${postgres.dsn}
+  postgres:
+    addon: postgres@16
+```
 
 ## The honest comparison
 
@@ -94,14 +106,15 @@ flowchart TD
 hub to the agent, which runs inside the cluster and has local Kubernetes API access, and acts only
 on signed, schema-validated events.
 
-The agent dials **out** to the hub, so no node needs a public address and the session survives NAT
-and egress-only firewalls.
+The agent dials **out** to the hub, so that session needs no inbound rule at all and survives NAT
+and egress-only firewalls. (Serving your own traffic is separate — that needs 80 and 443 open, like
+anything else on the internet.)
 
 [Architecture](/architecture) has the full picture.
 
 ## Next steps
 
 - [Quickstart](/quickstart) — one host, one command, a running app
-- [HA tiers](/ha) — single-server versus three-node, and how to choose
-- [Upgrades](/upgrades) — how one version number becomes the next one
+- [Day 2](/day-2) — the upgrades, drills and patching that are the reason to run this
+- [Why these choices](/why) — and what we deliberately did not build
 - [Connect a cluster](/connect-cluster) — for a Kubernetes cluster you already run

@@ -2,6 +2,7 @@ import type { MetaRecord } from 'nextra'
 
 const meta: MetaRecord = {
   index: 'KubeNest',
+  why: 'Why these choices',
   prerequisites: 'Prerequisites',
   quickstart: 'Quickstart',
 
@@ -15,6 +16,7 @@ const meta: MetaRecord = {
   addons: 'Addons and templates',
 
   '-- operate': { type: 'separator', title: 'Operate it' },
+  'day-2': 'Day 2',
   upgrades: 'Upgrades',
   'backup-restore': 'Backup and restore',
   ha: 'HA tiers',

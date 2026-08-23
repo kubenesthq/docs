@@ -21,6 +21,7 @@ components.
 | | Test | Production |
 |---|---|---|
 | Machines | 1 | 3 control plane, plus agents for your workloads |
+| Public IP | Needed for generated hostnames and TLS | Yes |
 | Tier | `single-server` | `ha` |
 | vCPU per node | 2 | 4 |
 | RAM per node | 3.7 GiB | 7.4 GiB |
@@ -73,6 +74,13 @@ Between cluster nodes:
 | 10250 | TCP | all ↔ all | Kubelet metrics |
 | 2379–2380 | TCP | server ↔ server | etcd peer replication — `ha` tier only |
 
+Inbound to the cluster, if anything is to be reachable from the internet:
+
+| Port | Purpose |
+|---|---|
+| 80 | HTTP, and the Let's Encrypt HTTP-01 challenge that issues your certificates |
+| 443 | HTTPS |
+
 Outbound, from the cluster and from the machine you run the installer on:
 
 - HTTPS to container registries and Helm repositories, for the duration of the install
@@ -101,9 +109,16 @@ cloud host it needs nothing from you.
 
 None of these block an evaluation. All of them matter before real traffic.
 
-**A DNS name and a certificate issuer.** The install gives you a cluster-local issuer, which is
-enough to prove ingress works and not enough for anyone's browser. Point a hostname at the cluster
-and configure a public issuer for it.
+**A domain, if you want one.** You do not need one to run KubeNest, and you do not need one to serve
+real HTTPS: a component with `expose: true` gets a hostname derived from the node's IP, resolved by
+a public wildcard resolver, with a Let's Encrypt certificate issued over HTTP-01. It works, and it
+is not a name you would put in front of customers. When you have a domain, point it at the cluster
+and run `kubenest cluster set-domain` once — every exposed component moves and certificates
+reissue.
+
+For that to work the node needs a **public IP and inbound 80 and 443**. Behind NAT with no
+port-forward, generated hostnames cannot be issued certificates and you will need a domain with
+DNS-01 instead.
 
 **An S3-compatible backup target.** Supply it with `--backup-target` at install and Velero is
 configured and the schedule starts. Without one Velero is installed but protecting nothing, and the
@@ -121,4 +136,4 @@ it. Easy to miss when planning firewall rules.
 
 ---
 
-Next: [Quickstart](/quickstart) · [Install the platform](/install)
+Next: [Quickstart](/quickstart) · [Install the platform](/install) · [Why these choices](/why)

@@ -1,17 +1,18 @@
 ---
 title: Quickstart
-description: One Ubuntu host to a running application on a tested Kubernetes platform, in about fifteen minutes.
+description: One Ubuntu host to a running application on HTTPS, in about fifteen minutes. No domain required.
 ---
 
 import { Callout, Steps } from 'nextra/components'
 
 # Quickstart
 
-One Ubuntu machine, one command, a complete platform. Then an application on top of it.
+One Ubuntu machine, one command, a complete platform. Then an application on top of it, on real
+HTTPS, without owning a domain.
 
-You need a single Ubuntu 24.04 host with 2 vCPU, 4 GB RAM, 40 GB disk, SSH access and passwordless
-sudo. Any cloud's cheapest usable box is fine. Full detail is in
-[Prerequisites](/prerequisites); the short version is the sentence above.
+You need a single Ubuntu 24.04 host with 2 vCPU, 4 GB RAM, 40 GB disk, a public IP, SSH access and
+passwordless sudo. Any cloud's cheapest usable box. Full detail is in
+[Prerequisites](/prerequisites).
 
 <Steps>
 
@@ -19,7 +20,7 @@ sudo. Any cloud's cheapest usable box is fine. Full detail is in
 
 ```bash filename="terminal"
 curl -fsSL https://get.kubenest.io | sh
-kubenest login --control-plane https://api.your-domain.com
+kubenest login
 ```
 
 ### Install the platform
@@ -28,90 +29,106 @@ kubenest login --control-plane https://api.your-domain.com
 kubenest platform install \
   --bundle 1.0 \
   --name demo \
-  --server 10.0.1.10 \
-  --ha single-server \
-  --ssh-user ubuntu \
-  --ssh-key ~/.ssh/id_ed25519
+  --server 203.0.113.10 \
+  --ssh-user ubuntu
 ```
 
-Thirteen stages, naming each as it goes. On a clean host this finishes in about four minutes and
-ends with five acceptance checks: every node Ready, every core component Running, a real volume
-provisioned, the cluster reporting in, and the running cluster matching the manifest it was built
-from.
+```ansi filename="output"
+preflight        ubuntu 24.04, 4 vCPU, 7.6 GiB, 74.8 GiB free    ok
+k3s              v1.35.7+k3s1, embedded etcd                     ok   38s
+gateway-api      v1.6.1                                          ok    4s
+traefik          41.2.0                                          ok   22s
+cert-manager     v1.21.1                                         ok   31s
+storage          openebs-lvm-localpv 1.10.0, vg kubenest-vg      ok   19s
+velero           12.1.0  (no target configured)                  ok   26s
+patching         system-upgrade-controller, kured                ok   11s
+agent            kubenest-agent 2.3.5                            ok   14s
+register         cluster demo → connected                        ok    3s
+verify           5 checks                                        ok   21s
 
-What you now have: k3s with embedded etcd, Traefik with Gateway API, cert-manager, OpenEBS Local PV
-LVM, Velero, and the KubeNest agent — pinned together at one version that was tested as a unit.
+cluster demo ready · Platform 1.0 · single-server · 4m14s
+apps deploy to *.demo.203-0-113-10.sslip.io
+```
+
+Thirteen stages, each named as it runs. On a clean host this takes about four minutes and ends with
+five acceptance checks: every node Ready, every core component Running, a real volume provisioned,
+the cluster reporting in, and the running cluster matching the manifest it was built from.
 
 If a stage fails it names the stage, the component and what to do. Fix it and re-run the identical
-command: completed stages are skipped from the journal, so a re-run takes seconds rather than
-starting over.
+command — completed stages are skipped from the journal, so a re-run takes seconds.
 
-### Create a project
-
-A project is a namespace with KubeNest metadata on it. Everything you deploy lives in one.
+### Describe your app
 
 ```bash filename="terminal"
-PROJECT_ID=$(curl -s -X POST https://api.your-domain.com/api/v1/projects \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{ "name": "hello", "cluster_id": "'"$CLUSTER_ID"'" }' | jq -r .id)
+kubenest init
 ```
 
-### Deploy an app
+That writes a `kubenest.yaml` you can edit. For a first deploy, this is the whole file:
 
-```bash filename="terminal"
-curl -X POST https://api.your-domain.com/api/v1/apps \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{
-    "name": "hello-web",
-    "project_id": "'"$PROJECT_ID"'",
-    "components": [
-      {
-        "name": "web",
-        "type": "workload",
-        "workload_spec": {
-          "build_mode": "image",
-          "image": "nginx:1.25-alpine",
-          "replicas": 1,
-          "port": 80,
-          "ingress": { "enabled": true, "host": "hello.your-domain.com" }
-        }
-      }
-    ]
-  }'
+```yaml filename="kubenest.yaml"
+name: hello
+
+components:
+  web:
+    image: nginx:1.25-alpine
+    port: 80
+    expose: true
 ```
 
-### Watch it come up
+### Deploy it
 
 ```bash filename="terminal"
-curl -N -H "Authorization: Bearer $TOKEN" \
-  "https://api.your-domain.com/api/v1/events/stream?cluster_id=$CLUSTER_ID&resource_type=app"
+kubenest deploy
 ```
 
-`Pending` → `Deploying` → `Running`. Then:
+```ansi filename="output"
+project hello on cluster demo
+
+web   workload   nginx:1.25-alpine   deploying → running   ok   19s
+
+web   https://web.hello.203-0-113-10.sslip.io
+
+deployed in 19s · deploy 1 · `kubenest rollback` to undo
+```
 
 ```bash filename="terminal"
-curl -I https://hello.your-domain.com
+kubenest open web
 ```
 
 </Steps>
 
-## What just happened
+## Where the URL came from
 
-You installed a Kubernetes distribution, an ingress controller, a certificate manager, a storage
-provisioner and a backup system — as one tested set at one version — and deployed an application
-onto it, without choosing a single component or reconciling a single compatibility matrix.
+You did not configure DNS, and you did not configure a certificate.
 
-That is the product. The version number is the unit: one number describes what you run, one command
-moves you to the next one, and the components inside it were tested together before they reached
-you.
+`expose: true` asked the platform for a public URL. With no domain configured, it assigns one
+derived from the node's own IP — `203.0.113.10` becomes `203-0-113-10.sslip.io`, which resolves
+through a public wildcard resolver that needs nothing from you or from us. cert-manager then issues
+a real Let's Encrypt certificate against that name over HTTP-01.
 
-## Where to go next
+It is a working URL with valid TLS, and it is not a name you would put on a business card. When you
+have a domain, point it at the cluster and say so once:
 
-**Before real traffic**, three things: a DNS name and a public certificate issuer, an S3 backup
-target, and a maintenance window. All three are in
-[Prerequisites](/prerequisites#before-a-production-install).
+```bash filename="terminal"
+kubenest cluster set-domain --cluster demo acme.com
+```
 
-- [Install the platform](/install) — every flag, all thirteen stages, HA tiers, what to do when one fails
-- [Deploying apps](/deploying) — addons, wiring, scaling, rollback
-- [Backup and restore](/backup-restore) — the drills that make the restore promise real
-- [Upgrades](/upgrades) — how one number becomes the next one
+Every exposed component moves to `<component>.<app>.acme.com`, certificates reissue, and the
+sslip.io names keep working so nothing breaks while DNS propagates.
+
+## This was the easy day
+
+You now have a Kubernetes distribution, an ingress controller, a certificate manager, a storage
+provisioner and a backup system — installed as one tested set, at one version — with an application
+on it. That took about fifteen minutes and it is the part everyone can do.
+
+**The reason to run KubeNest is the next two years.** The upgrade nobody wants to own, the backup
+nobody has restored, the certificate that expires on a holiday, the kernel CVE that sits unpatched
+because rebooting nodes is frightening. That is [day 2](/day-2), and it is the actual product.
+
+## Next
+
+- [Day 2](/day-2) — what the platform does after the install, and what it stops you having to do
+- [Deploying apps](/deploying) — the full `kubenest.yaml`, addons, wiring, rollback
+- [Prerequisites](/prerequisites#before-a-production-install) — the three things to sort before real traffic
+- [Why these components](/why) — k3s, Traefik, ArgoCD, and what we deliberately did not build
