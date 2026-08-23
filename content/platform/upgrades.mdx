@@ -55,7 +55,7 @@ hitting the next is the tool failing you rather than your cluster.
 | **Disk headroom** | Every node has at least `limits.resources.upgrade-headroom.disk` free (default 10 GiB) on the filesystem holding `/var/lib/rancher` | Running out of disk mid-upgrade is a hard failure at the worst moment. The new images land beside the old ones, so the requirement is free space, not total size |
 | **Pod disruption budgets** | No PDB would block a drain for longer than `limits.timeouts.node-drain` | A PDB that permits zero disruption stalls the upgrade forever, holding the cluster mid-transition. The gate is *"would this drain finish in the window"*, which is answerable in advance, not *"is this PDB reasonable"*, which is not |
 | **Maintenance window** | Now is inside the cluster's configured window | See [maintenance windows](#maintenance-windows), including what this gate does *not* do today |
-| **Bundle path** | The target is a newer bundle than the one you are running, and offers this cluster's HA tier and every profile it has installed | Kubernetes does not downgrade, so a backward move is refused here rather than discovered at the point of no return — that was found on a real cluster. And a profile set does not change during an upgrade, so a bundle that drops one cannot be a target for this cluster |
+| **Bundle path** | The target is the next bundle after the one you are running, and offers this cluster's HA tier and every profile it has installed | Kubernetes does not downgrade, so a backward move is refused here rather than discovered at the point of no return — that was found on a real cluster. A profile set does not change during an upgrade, so a bundle that drops one cannot be a target. And a target more than one bundle ahead skips a scan, not just a release — see [skipping versions](#skipping-versions) |
 
 The fresh backup most people expect to find in that table is not a gate: it is stage 2, the first
 thing that runs once the gates pass. A failure there still leaves nothing changed, and it is still
@@ -77,6 +77,18 @@ It is worse than no upgrade at all.
 So before anything else, KubeNest scans your live workloads for API versions removed or deprecated
 in the target Kubernetes version. **If it finds any, the upgrade is blocked** and the report names
 the resource, its namespace, the API version it uses, and the version it should move to.
+
+**The scan covers your Git desired state as well as the live cluster, and the two are treated
+differently.** A live object using a removed API breaks during the upgrade, so it blocks. A
+manifest in Git that is not applied yet breaks at the next ArgoCD sync — soon, but not during the
+upgrade — so it warns, loudly, naming the file and the ref. The distinction is deliberate: a live
+finding is our upgrade breaking your product, while a Git finding is your repository about to. If
+Git findings blocked, a stale branch nobody has touched in a year could hold up a security patch
+in a repository your platform team may not even own.
+
+Scanning only the live cluster would leave the hole where the upgrade succeeds, ArgoCD syncs
+minutes later, the removed API comes back from Git, and the customer blames the upgrade —
+correctly, because we said we had checked.
 
 ```
 BLOCKED: 3 resource(s) use APIs removed in Kubernetes v1.36.0.
@@ -148,6 +160,14 @@ means the window crosses midnight.
 finishes.** Abandoning a half-completed stage to respect a clock leaves the cluster in a worse
 state than the overrun does. If the window closes with stages remaining, the upgrade pauses and
 resumes at the next window, and the cluster reports that it is mid-upgrade the whole time.
+
+**Pre-flight also compares the estimated duration against the time left in the window** — fixed
+overhead plus a per-node cost, both from the manifest — and tells you when the upgrade is unlikely
+to finish inside it. Today that is a warning rather than a refusal, and deliberately so: the
+per-node figure in the manifest is still marked provisional, and one real transition finished in
+3m11s against a 30m per-node allowance. Refusing a good upgrade on a number nobody has measured is
+worse than letting it overrun a window whose overrun rule is already defined. The gate becomes a
+refusal in the bundle where that figure is replaced by a measurement.
 
 Four stages are exempt from that pause. `preflight` is where the window is checked in the first
 place, so pausing before it would be circular. `backup` takes the snapshot a rollback depends on,
@@ -295,6 +315,13 @@ upgraded on three machines — see [high availability](/platform/ha).
 
 "Rollback" means two different things depending on which stage failed, and conflating them is how
 people end up surprised.
+
+**One of them happens on its own and the other waits for you.** A failure before the point of no
+return reverts automatically: it is a Helm-level revert, it takes seconds, it is proven, and there
+is nothing for a human to weigh. A failure after it does not. Recovering from there is a datastore
+restore, which rolls *all* cluster state back to the pre-upgrade snapshot and discards anything
+else that happened on the cluster in between — that is a judgement about your cluster, not a retry
+policy, so the upgrade stops, names the stage, and waits for you to run the rollback command.
 
 ### Platform components — genuine rollback
 
@@ -472,15 +499,45 @@ Stage 8 records the new bundle version against the cluster only after all five p
 that completed but failed verification leaves the cluster on N+1 and the record on N, which is the
 honest state and the one you want to see.
 
+## Who starts an upgrade
+
+You do. Every upgrade is started by a person running a command, on every tier, for as long as
+Platform 1.x is current.
+
+Fleet health tells you when a cluster has fallen behind, and the console shows how far — but
+nothing applies a bundle to your cluster on its own. Automatic upgrades are a promise the
+compatibility matrix has to earn before we make it, and that matrix has not run yet. Applying a
+Kubernetes minor to somebody else's production while nobody is watching, on the strength of
+testing we have not done, is not a feature.
+
+The direction, once the matrix is real, is narrower than "automatic upgrades": security releases
+apply themselves inside your maintenance window, and everything else still waits for a person. A
+release that exists only to carry a patched component is the case where waiting is the bigger
+risk, and it is also the case where the change is smallest. That is not built, and this page will
+say so until it is.
+
 ## Skipping versions
 
-**Step through one bundle at a time.**
+**Step through one bundle at a time. The gate refuses a longer hop.**
 
-Nothing currently refuses a target more than one bundle ahead. The bundle-path gate checks that
-the target is newer than what you run and that it offers your tier and your profiles — not that
-the hop from your version to it is one we have tested. Only two bundles exist so far, so there is
-nothing to skip yet, but the gate will not stop you when there is.
+A target more than one bundle ahead of what you run is refused at pre-flight, naming the bundle to
+step through first. Two bundles are supported at any time — the current one and the one before it
+— so falling one release behind is normal and supported, and falling two means one extra hop
+rather than an unsupported cluster.
 
-The reason to step is the deprecated-API scan. It runs against the Kubernetes version pinned by
-the bundle you name, and only that one. An API removed in 1.1 and irrelevant again by 1.3 still
-breaks your workloads at 1.1, and a 1.0 → 1.3 jump would never scan for it.
+A security release does not count against that window. If a bundle exists only because a component
+needed patching, the release before it stays supported: you did not choose to skip it, we chose to
+issue it, and the support promise should not shrink because we shipped a fix.
+
+The reason to step at all is the deprecated-API scan. It runs against the Kubernetes version
+pinned by the bundle you name, and only that one. An API removed in 1.1 and irrelevant again by
+1.3 still breaks your workloads at 1.1, and a 1.0 → 1.3 jump would never scan for it. Skipping a
+bundle is skipping the check that makes the upgrade safe, which is why the answer is a gate rather
+than advice.
+
+<Callout type="warning">
+**The adjacency rule is decided but not enforced yet.** The bundle-path gate today checks that the
+target is newer than what you run and that it offers your tier and your profiles — not that the
+hop is one step. Only two bundles exist, so there is nothing to skip yet and nothing is currently
+at risk. The gate gains the rule before a third bundle is published.
+</Callout>

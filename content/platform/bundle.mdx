@@ -204,7 +204,6 @@ profiles:
   # compatibility matrix has run it against core.
   observability:      { provisional: true, components: { ... } }
   secrets:            { provisional: true, components: { ... } }
-  replicated-storage: { provisional: true, components: { ... } }
   ha:                 { components: {} }   # a topology, not a component set
 ```
 
@@ -281,15 +280,59 @@ it and the filename repeats it, and the control plane refuses to load a manifest
 disagree or where either is not two numbers. A release nobody can name unambiguously is not a
 release.
 
-A new bundle is cut when k3s cuts a minor. The platform tracks upstream k3s stable minus one
-minor, pinned to that minor's current patch, so the cadence follows Kubernetes rather than our
-own calendar. Lagging deliberately by one minor is a policy that can be defended to a customer;
-drifting is not — falling behind on Kubernetes versions is a documented reason teams leave the
-alternatives.
+A new bundle is cut when k3s cuts a minor, and when a component needs a security patch before
+then. The platform tracks upstream k3s stable minus one minor, pinned to that minor's current
+patch, so the ordinary cadence follows Kubernetes rather than our own calendar. Lagging
+deliberately by one minor is a policy that can be defended to a customer; drifting is not —
+falling behind on Kubernetes versions is a documented reason teams leave the alternatives.
 
-What separates a major bump from a minor one is not settled. Until it is, read the number as an
-identity — the thing you run, that we test, and that an upgrade moves you off — rather than as a
-promise about the size of the change.
+**A major bump means the upgrade asks something of you.** A profile removed, a default changed
+under you, an API version dropped — anything that needs a decision, a migration, or a change on
+your side before or after the transition. Everything else is a minor, Kubernetes minors included:
+a k3s minor is a large change to us and, done properly, no change at all to you.
+
+That makes the number answer the only question anyone asks it: *will this cost me a maintenance
+window, or a project?* A scheme where every Kubernetes minor burned a major would be easier to
+administer and would tell you nothing.
+
+### When a CVE lands between releases
+
+A vulnerability in a component we ship does not wait for the Kubernetes calendar. **It gets its
+own release**: the next minor, containing the patched pin and nothing else.
+
+- **A published assessment within two business days.** Which component, whether a KubeNest cluster
+  is actually exposed, and what to do in the meantime. Often the answer is that you are not
+  exposed, and that is worth saying quickly rather than accurately-but-next-month.
+- **A patched bundle within seven days** of an upstream fix existing, for anything critical or
+  high in a core component. Medium and low ride the next scheduled bundle.
+- **The version still means one thing.** A security release consumes a minor number — 1.0 → 1.1 —
+  rather than introducing a third digit. One number identifies what you run, and that rule is
+  worth more than making security releases visually distinct.
+- **It does not shorten your support window.** Two bundles are supported at a time, and a release
+  we issued because *we* needed to patch something does not push the release before it out of
+  support. You skipped nothing.
+
+The honest part: the seven-day clock is for shipping a patched pin we have tested, not for
+inventing a fix upstream has not written. When the wait is upstream's, the assessment says so and
+names what we are waiting on.
+
+This exists because the alternative is what we criticise. We tell you ingress-nginx's move to
+maintenance mode — no features, no fixes, no CVE patches — is a reason to leave it. A vendor who
+makes that argument and cannot describe their own response has not made an argument.
+
+### Agent and control plane
+
+The bundle pins the agent. Your control plane upgrades on its own schedule, so the two versions
+are not locked together, and something has to say how far apart they may drift.
+
+**The control plane accepts agents from the current bundle and the one before it** — the same
+two-release window as bundles themselves. A control-plane change that cannot be made compatible
+with an in-window agent waits for a bundle that moves the agent pin. An agent outside the window
+is refused with an error naming the bundle to upgrade to, rather than failing in some subtler way
+later.
+
+Without a stated window, the first control-plane upgrade quietly breaks every cluster still on an
+older bundle, which is exactly the class of failure the version number exists to prevent.
 
 **Platform 1.0 is the current release, and the one to install.** The catalog also carries Platform
 0.9, the release 1.0 succeeds. It exists because an upgrade cannot be built or tested against a

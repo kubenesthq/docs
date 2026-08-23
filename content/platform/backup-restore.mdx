@@ -158,13 +158,35 @@ reads, and its readiness probe fails unless the bytes already restored from obje
 the independently restored ConfigMap value. This is deliberately a data assertion, not a check
 that PVC metadata exists.
 
+### What a drill covers
+
+The proof set proves the mechanism. **It does not prove your data**, and a drill that only ever
+restores the same synthetic Pod is answering an easier question than the one you are paying it to
+answer.
+
+So the weekly drill also restores a **rotating sample of your own volumes**, and the result names
+exactly which ones it verified. Coverage accumulates: a different slice each week rather than the
+same proof every week, so over a month the drill has restored real data from most of the cluster
+instead of proving the same thing four times. A full-cluster drill — every volume, on demand — is
+a command to run before a migration or a risky upgrade, not a weekly default.
+
+Every volume, every week, was the alternative. On a cluster with terabytes of PVCs it stops being
+weekly and becomes continuous, and the most likely reason a drill fails is that the cluster is
+already short of resources — which restoring everything every week makes considerably more likely.
+
+Whichever it verified, **the result says so**. "The restore path works" and "your `invoices`
+namespace restored on the 14th, 41 GiB, byte-verified" are different claims, and a drill result
+that does not distinguish them lets the weaker one be read as the stronger.
+
 The result goes into fleet telemetry and is visible against the cluster. **A failed drill is an
 alert, not a log line.** It is also a gate: the [upgrade](/platform/upgrades) pre-flight refuses to
 run when the last drill did not pass, because rollback depends on restore working.
 
 <Callout type="info">
-**This path is exercised against real storage.** The Platform 1.0 release gate created a Velero
-file-system backup, restored the proof objects and PVC bytes in 33 seconds, then replaced the
+**This path is exercised against real storage — the proof set only, so far.** The rotating sample
+of customer volumes described above is decided and not yet built; today's drill restores the
+platform proof set and nothing else. The Platform 1.0 release gate created a Velero file-system
+backup, restored the proof objects and PVC bytes in 33 seconds, then replaced the
 backup's load-bearing `.tar.gz` archive with corrupt bytes. The next drill failed in 39 seconds as
 `backup-unreadable` / `BACKUP_CONTENT_UNREADABLE`; it did not trust the still-`Completed` Backup
 object, wait out a generic timeout, or leave its scratch namespace behind.

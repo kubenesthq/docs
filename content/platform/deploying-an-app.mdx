@@ -75,5 +75,5 @@ resources can be converted with `ingress2gateway`; that is a separate migration.
 
 **Local storage is node-local.** A pod using a Local PV LVM volume is bound to the node holding
 it, and if that node is lost the volume is gone — restore it from backup. Workloads needing
-storage that survives node loss need a replicated or external storage system. The documented
-[`replicated-storage` profile](/platform/profiles#replicated-storage) is not installable yet.
+storage that survives node loss need an external storage system: replicated block storage is
+[not a profile in Platform 1.x](/platform/profiles#replicated-storage-is-not-a-profile-today).

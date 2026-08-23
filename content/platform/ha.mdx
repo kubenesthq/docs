@@ -17,12 +17,18 @@ customer who is surprised by their tier's behaviour during an incident was mis-s
 sentence they needed was one we chose not to write.
 
 <Callout type="warning">
-**No cluster has ever been installed on three machines.** The `ha` path is written: the installer
-starts embedded etcd on the first server and joins the second and third to it, preflight refuses
-`--ha ha` with fewer than three control-plane nodes, and it proves the etcd peer ports are open
-between them rather than assuming. But the real-host run that proved the rest of the install was
-`single-server` only, and nothing yet checks that etcd has quorum before the rest of the bundle
-goes on. Read the `ha` column below as what the tier is built to do, not as what has been observed.
+**No cluster has ever been installed on three machines — and Platform 1.0 does not ship until one
+has.** The `ha` path is written: the installer starts embedded etcd on the first server and joins
+the second and third to it, preflight refuses `--ha ha` with fewer than three control-plane nodes,
+and it proves the etcd peer ports are open between them rather than assuming. But the real-host
+run that proved the rest of the install was `single-server` only, and nothing yet checks that etcd
+has quorum before the rest of the bundle goes on.
+
+So the proof is a release gate rather than a permanent caveat: an install, an upgrade and a
+restore on three real hosts, before 1.0 is the release we tell anyone to install. Selling the
+availability tier on a code path that has only ever been unit-tested would be selling it to
+exactly the people who chose it because they did not want to gamble. Until that gate passes, read
+the `ha` column below as what the tier is built to do, not as what has been observed.
 </Callout>
 
 ## The two tiers

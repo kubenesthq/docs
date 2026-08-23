@@ -226,13 +226,12 @@ instead of N+2.
 | Profile | Contents |
 |---|---|
 | `observability` | VictoriaMetrics, Grafana, Loki |
-| `secrets` | sealed-secrets, or external-secrets against Vault or a cloud secret store |
-| `replicated-storage` | Mayastor or Longhorn |
+| `secrets` | sealed-secrets |
 | `ha` | 3-node embedded etcd control plane |
 
 <Callout type="warning">
-**No component profile installs yet.** `observability`, `secrets` and `replicated-storage` are
-pinned in the manifest and marked provisional there, but none of them is built. Stage 11 refuses
+**No component profile installs yet.** `observability` and `secrets` are pinned in the manifest
+and marked provisional there, but neither is built. Stage 11 refuses
 a profile it cannot install rather than installing core and reporting success — a cluster that
 does not match its own record is the thing the record exists to prevent. Install core now and add
 the profile when it ships.

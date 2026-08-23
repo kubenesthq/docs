@@ -17,11 +17,25 @@ does. It is squarely inside what you are paying for.
 
 ## What gets patched
 
-Ubuntu security updates are applied automatically on every node via `unattended-upgrades`.
+Ubuntu security updates are applied automatically on every node via `unattended-upgrades`, under
+a policy the installer writes rather than one the machine image happened to have.
 
 **Security updates only.** Feature and version updates are not applied automatically — an
 unexpected package upgrade on a node running production workloads is its own kind of dread, and it
 is not one we are asked to solve.
+
+**The platform's own packages are held.** k3s and the container runtime are pinned by the bundle,
+and an APT upgrade that moved either of them would make the manifest's central claim false: the
+recorded version would no longer be the running version, and the next upgrade would be planned
+against a cluster that is not the one you have. Nothing outside the bundle changes what the bundle
+pins.
+
+**Reboots are never APT's decision.** `unattended-upgrades` is configured not to reboot, because
+the reboot coordinator below owns that entirely.
+
+Writing the policy rather than inheriting one is the difference between a patching behaviour we
+chose, versioned and can vary per release, and whatever a given machine image does. Two customers
+on two images would otherwise get two answers, and neither would be ours.
 
 Because the operating system is locked to Ubuntu LTS, this is a single, deterministic policy
 rather than a per-distribution matrix. That is one of the things locking the OS buys. The lock
@@ -29,12 +43,12 @@ itself is real and enforced: pre-flight refuses to install on anything outside t
 supported OS list.
 
 <Callout type="warning">
-**KubeNest does not configure `unattended-upgrades` today — it inherits Ubuntu's.** The install
-writes no APT policy, so what you get is whatever the machine image already does. On a stock
-Ubuntu 24.04 cloud image that is unattended security upgrades enabled by default, which is close
-to the policy above but is not one we set, version in the bundle manifest, or can vary per
-cluster. Which origins are included, which packages are held, and what happens when a patch fails
-to apply are all the image's answers, not ours.
+**KubeNest does not write that policy yet — it inherits Ubuntu's.** The install writes no APT
+configuration today, so what you get is whatever the machine image already does. On a stock Ubuntu
+24.04 cloud image that is unattended security upgrades enabled by default, which is close to the
+policy above and arrives at it by accident. The parts that are not accidental are the parts that
+are missing: nothing holds k3s, and nothing stops the image's own reboot behaviour. The policy
+above is decided and lands with the reboot coordinator.
 </Callout>
 
 ## Patches that need a reboot
@@ -59,6 +73,13 @@ the default state rather than something the policy has to remember to do.
 
 **That redirection is shipped.** kured is installed pointing at the KubeNest sentinel, not
 Ubuntu's, on every cluster today.
+
+**If your hosts have kernel livepatching, it is respected.** A node whose kernel was patched live
+and therefore no longer needs a reboot does not get rebooted for that patch: the reboot decision
+reads the node's actual patch state, not merely whether some file exists. We do not sell, require
+or configure livepatching — enrolling your hosts would mean a commercial subscription and a
+credential in the install flow, and that is your relationship to have, not ours to broker. But
+where you already have it, the platform must not undo the benefit by rebooting anyway.
 
 <Callout type="warning">
 **Nothing creates the sentinel yet, so the hold is currently permanent.** No node has ever been
@@ -254,6 +275,20 @@ situation the product is sold to prevent.
 Patch state is one of the health groups the fleet report is built from, alongside the ones for
 backup, nodes and the control plane. When it is populated, it distinguishes three cases:
 security updates available and unapplied, nodes applied but awaiting a reboot, and hosts current.
+
+**A pending reboot warns after seven days and goes critical after fourteen** — the same
+warning-then-critical shape the bundle already uses for expiring certificates, and both numbers
+live in the manifest so a release can retune them without shipping a backend. Seven days is a
+missed window; fourteen is a pattern.
+
+**A reboot required by a critical kernel vulnerability does not wait for that clock.** It
+escalates when it arrives and is scheduled for the next window rather than the one after the
+threshold expires. A routine library update and an unauthenticated kernel RCE are not the same
+event, and an alert that cannot tell you which one you have is not doing the job.
+
+Alerting immediately on any pending reboot was the alternative, and it is the wrong one: a stock
+Ubuntu image accrues pending reboots as a matter of routine, and an alerting system that cries
+wolf gets muted — which is the same end state as having none.
 
 <Callout type="warning">
 **Nothing populates it yet, so every cluster reports its patch state as unknown.** The receiving

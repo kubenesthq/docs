@@ -1,6 +1,6 @@
 ---
 title: Profiles
-description: Core versus the observability, secrets, replicated-storage and ha profiles — how to choose at install, what gets recorded, and what changing one later does.
+description: Core versus the observability, secrets and ha profiles — how to choose at install, what gets recorded, and what changing one later does.
 ---
 
 import { Callout } from 'nextra/components'
@@ -19,8 +19,8 @@ upgrade.
 
 Core installs. No component profile does.
 
-Ask for one — `--profile observability`, `--profile secrets`, `--profile replicated-storage` — and
-the installer refuses at stage 11 rather than installing core in its place. Core is on the machines
+Ask for one — `--profile observability`, `--profile secrets` — and the installer refuses at
+stage 11 rather than installing core in its place. Core is on the machines
 by then: the cluster is marked `install-failed` in the control plane with `profiles` as the failing
 stage, and the failure prints the same two exits every other stage does.
 
@@ -39,25 +39,24 @@ The `ha` tier is not affected by any of this. It is chosen with `--ha`, built by
 reaches stage 11 — what has and has not been run there is on [HA tiers](/platform/ha).
 
 So today: install core, and take the profile you want when it ships. The rest of this page is the
-design the three component profiles are being built to.
+design the two component profiles are being built to.
 
 ## Why profiles and not options
 
 Because *N* independent on/off switches means 2<sup>N</sup> configurations, and nobody has tested
 2<sup>N</sup> of anything.
 
-Four switches would be sixteen combinations per release. Four profiles are **six**:
+Three switches would be eight combinations per release. Three profiles are **five**:
 
 | # | Configuration |
 |---|---|
 | 1 | core alone |
 | 2 | core + `observability` |
 | 3 | core + `secrets` |
-| 4 | core + `replicated-storage` |
-| 5 | core + `ha` |
-| 6 | core + all profiles |
+| 4 | core + `ha` |
+| 5 | core + all profiles |
 
-N+2, not 2<sup>N</sup>. The intent is that every one of the six is tested on every bundle release,
+N+2, not 2<sup>N</sup>. The intent is that every one of the five is tested on every bundle release,
 and it is the recurring cost of this entire strategy. A "tested bundle" that is not actually tested
 in CI is a spreadsheet, not a product — which is why it is worth saying plainly that **the matrix
 has not run yet**. No configuration has been through install, workload, backup, restore drill and
@@ -67,6 +66,19 @@ than a claim.
 The arrangement only holds because profiles are **largely orthogonal**: observability does not
 interact with secrets. Anything that genuinely interacts belongs inside core *together* — which is
 why storage and backup are both core, and why ingress and certificates are both core.
+
+One place the orthogonality is not free is backup. A profile brings data with it — metrics and
+logs for `observability`, the sealing key for `secrets` — and core's Velero is what would have to
+protect it. So **each profile declares its own backup set**: the namespaces and labels that must
+be captured, and anything, like a sealing key, whose loss is unrecoverable. The restore drill
+covers what the profile declared, and its result names which profile's data it verified. That
+makes orthogonality a property the drill tests rather than an assumption the matrix rests on.
+
+**A profile name resolves to exactly one component set.** A slot that offered a choice — take
+`secrets`, then pick either of two controllers — would mean the matrix could not say what
+"core + `secrets`" was without picking one, and the count above would stop being a count. Where
+two genuinely different answers are both worth offering, they are two profiles, not one profile
+with a switch.
 
 ## The profiles
 
@@ -91,10 +103,14 @@ your own workloads. Different data, different audience. Neither replaces the oth
 
 Encrypted secrets in Git, so the GitOps flow works without plaintext credentials in a repository.
 
-The default is **sealed-secrets**: self-contained, no external dependency, and it composes with
-the ArgoCD flow already in the product. For clients who already run Vault or a cloud secret
-manager, **external-secrets** integrates with what they have rather than forcing a second secrets
-system alongside it.
+`secrets` is **sealed-secrets**, and only sealed-secrets: self-contained, no external dependency,
+and it composes with the ArgoCD flow already in the product.
+
+Clients who already run Vault or a cloud secret manager want external-secrets instead, which
+integrates with what they have rather than forcing a second secrets system alongside it. That is
+a second profile, `secrets-external`, and it is **not in the bundle today** — it lands, pinned and
+tested, when a client who needs it arrives. One slot offering two controllers would make
+"core + `secrets`" ambiguous in exactly the place the matrix has to be precise.
 
 Vault is deliberately **not** offered as a default. It is a heavy operational commitment, and
 precisely the kind of thing you are paying us to avoid.
@@ -104,15 +120,6 @@ precisely the kind of thing you are paying us to avoid.
 is unrecoverable. It is in the backup set for that reason. Key rotation and key backup are
 documented on the backup and restore page.
 </Callout>
-
-### `replicated-storage`
-
-Block storage replicated across nodes, for clusters that genuinely need it.
-
-Deliberately **not** the default. Replicated block storage is itself a source of operational
-dread, and its failures become our pages. Core uses OpenEBS Local PV LVM, and durability comes
-from verified backups plus application-level replication. Take this profile when a workload
-genuinely cannot tolerate node-local storage — not by default.
 
 ### `ha`
 
@@ -131,7 +138,6 @@ Not all profiles are equal here, and the differences are not cosmetic — two of
 |---|---|---|
 | `observability` | Yes | Yes — you lose collected history, nothing else |
 | `secrets` | Yes | **No.** Removing it leaves every sealed secret undecryptable |
-| `replicated-storage` | Yes, but only new volumes use it | Only when no volume is using it |
 | `ha` | **No** — not supported today | **No** |
 
 **`observability`** is genuinely reversible. Add it, remove it, add it again. Removing deletes the
@@ -141,12 +147,6 @@ metrics and logs it collected; nothing else in the cluster notices.
 that holds the sealing key, and every `SealedSecret` in your Git repository becomes permanently
 undecryptable. To genuinely stop using it you must first convert every sealed secret back to
 another mechanism, and only then remove the profile.
-
-**`replicated-storage`** is add-only in effect. Adding it installs the engine and a new
-StorageClass. **Volumes that already exist stay on Local PV LVM** — adding the profile does not
-migrate them, and there is no supported in-place migration. Moving an existing workload onto
-replicated storage means a new volume and a data copy, at a time you choose. Removing the profile
-requires that nothing is using its StorageClass.
 
 **`ha`** is chosen at install and cannot be changed afterwards today.
 
@@ -159,6 +159,28 @@ resumed, and it is not something to attempt by hand on a cluster you care about.
 
 So: choose the tier you want at install. Growing into `ha` later is not something the platform
 offers today.
+
+**Adding a component profile is an upgrade.** When that path is built it runs through the upgrade
+machinery rather than beside it: the same pre-flight gates, the same journal, the same rollback,
+the same maintenance window, the same stage reporting to your console. Which gates apply is a
+function of what the change actually does — an additive profile install moves no Kubernetes
+version, so there is nothing for a deprecated-API scan to find — but the guarantees are the ones
+you already have for an upgrade, because there is one code path rather than two that drift.
+
+## Replicated storage is not a profile today
+
+Block storage replicated across nodes was going to be a fourth profile. It is not in Platform 1.x.
+
+No engine had been tested against core, no client had asked for one, and it was the lowest
+priority of the four. Carrying a pinned engine nobody had run would have meant the bundle claiming
+to have tested something it had not, which is the one claim everything else here rests on. So the
+pin came out rather than shipping with a caveat attached to it.
+
+Until it returns, storage durability comes from Local PV LVM in core plus backups that are
+restore-tested weekly, and from application-level replication where a workload needs it. A
+workload that genuinely cannot tolerate node-local storage needs an external storage system today.
+If that is you, say so — a client who needs it is what brings the profile back, with an engine
+chosen and tested rather than pinned in advance.
 
 ## What gets recorded
 
