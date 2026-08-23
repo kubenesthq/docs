@@ -14,6 +14,7 @@ const meta: MetaRecord = {
   concepts: 'Concepts',
   deploying: 'Deploying apps',
   addons: 'Addons and templates',
+  console: 'Console',
 
   '-- operate': { type: 'separator', title: 'Operate it' },
   'day-2': 'Day 2',

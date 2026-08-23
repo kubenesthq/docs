@@ -1,0 +1,83 @@
+---
+title: Console
+description: The web console — the fleet view, day-2 operations, and everything the CLI can do to an app.
+---
+
+import { Callout } from 'nextra/components'
+
+# Console
+
+The console and the CLI are peers. Anything you can do to an app from a terminal you can do from a
+browser: create it, deploy it, scale it, read its logs, roll it back, promote it. Neither is the
+real interface with the other bolted on.
+
+They drive the same [API](/api), so a team can mix them freely — someone deploys from CI, someone
+else scales a component from a phone during an incident, and the deploy history records both the
+same way.
+
+## What it is better at
+
+**Looking at more than one thing.** The fleet view is every cluster at once: bundle version, HA
+tier, health verdict, when its last restore drill passed. A terminal shows you one cluster well; a
+screen shows you forty and which two need attention.
+
+**History with shape.** Deploys, upgrades, drill results and access changes over time, with who did
+what. `kubenest deploys` prints a list; the console shows the same list next to the health graph it
+moved.
+
+**People without a terminal.** The person who needs to pause an app, approve a maintenance window,
+or check whether last night's backup drill passed is not always the person with the CLI installed
+and a token in their shell.
+
+## What the CLI is better at
+
+**Anything that belongs in a repository.** `kubenest.yaml` is reviewable in a pull request and
+revertable with a commit. A form is neither.
+
+**Anything a machine does.** CI deploys, scheduled jobs, scripts, `--output json` piped into
+something else.
+
+**Working on one thing, quickly.** `kubenest logs api -f` is faster than finding the app, the
+component and the tab.
+
+## The fleet view
+
+Every cluster the control plane knows about, worst first:
+
+| | |
+|---|---|
+| **Cluster** | Name, bundle version, HA tier, node count |
+| **Health** | The verdict, and the check that produced it |
+| **Backup** | Target configured, last backup, last drill and whether it passed |
+| **Version** | Which bundle, whether a newer one is available, and the diff to it |
+| **Access** | Who can reach this cluster, and at what role |
+
+A check the agent could not collect shows as `unknown`, ordered above `ok` and rendered distinctly.
+Forty green and two grey is the truth; forty-two green is the failure the whole health system exists
+to prevent.
+
+## Day-2 operations
+
+The [day-2](/day-2) work has a home here rather than only in a terminal:
+
+- **Upgrades** — see what a bundle would change, run the pre-flight gates and watch the stages
+- **Restore drills** — the result of every drill, what it verified, and the alert when one fails
+- **Maintenance and reboot windows** — set per cluster, in your timezone
+- **Backup targets** — configure, and see immediately that a cluster has none
+
+## Apps
+
+Everything in [Deploying apps](/deploying), through a screen: create an app, edit its components,
+wire an addon export into a workload, set a secret, scale, pause, read logs, roll back to a numbered
+deploy, and promote a deploy from staging to production with the diff in front of you.
+
+<Callout type="info">
+**An app created in the console is the same object as one deployed from a file.** There is no
+console-managed and CLI-managed distinction to trip over — `kubenest status` sees an app someone
+created in a browser, and the console shows an app deployed from CI. You can export any app to a
+`kubenest.yaml` and start committing it whenever you decide you want to.
+</Callout>
+
+---
+
+Next: [Deploying apps](/deploying) · [Day 2](/day-2)

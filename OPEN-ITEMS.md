@@ -48,6 +48,16 @@ design, and the design is what gets built against.
 | `kubenest cluster set-domain` moves every exposed component and reissues certificates | Not a command | `kn-18c3` |
 | `kubenest cluster connect` creates the record, mints the credential, installs the agent and waits | Not a command. The backend returns the string in cluster-create responses regardless | `kn-2mif`, `kn-887b` |
 | `kubenest health` prints the fleet view | Not a command. The data and the verdicts exist behind the API | `kn-9pgx` |
+| A component with a `port` gets a readiness probe and a rolling update that waits; `healthcheck:` overrides it | No probe is generated. A crash-looping image rolls out as a success | `kn-xrxs` (AA) |
+| `${secret:NAME}` in the file, set by `kubenest secret set` through the hub | Component secrets exist in the API; there is no CLI verb and no reference syntax | `kn-xrxs` (AD) |
+| `kubenest promote --from staging --to prod` moves the tested spec by digest | No such command. Nothing pins or carries a digest between projects | `kn-xrxs` (AC) |
+| `kubenest login --token` and a `kubenest/deploy-action@v1` | `login` is device-flow only; no action is published. `kn-odqp` landed the revocable token behind it | `kn-xrxs` (Z) |
+| The console can create, deploy, scale, roll back and promote — at parity with the CLI | The UI has app create, detail and deploys against the old API shapes; nothing speaks the new model, and promote has no screen | `kn-sb8z` (AE) |
+
+One row went the other way. Per-component `cluster:` targeting was published as fact on
+2026-08-23 and **withdrawn the same day** by decision AF: the docs now say an app is one cluster,
+and `kn-u82w` removes the half-built backend path rather than finishing it. That is the spec-first
+loop working as intended — the page forced the question, and the answer was to shrink the claim.
 
 **`kn-xrxs` and `kn-18c3` together are the quickstart.** Neither the file nor the generated hostname
 exists, so the page a first-time reader lands on is entirely specification today. They are the two
@@ -106,20 +116,27 @@ us, not a caveat for a reader — but it means the two diverge until `kn-btk8` l
 
 ## 6. Design decisions
 
-All 43 `OQ-*` questions are decided. Decisions A–G (2026-08-20) and H–Y (2026-08-23) are recorded
-with their reasoning in `PLAN-BUILD-2026-08-20.md` §2 and §2a. Nothing on the docs site is waiting
-on a judgment call.
+All 43 `OQ-*` questions are decided, and so is the app layer the docs specify.
+`PLAN-BUILD-2026-08-20.md` carries the reasoning: §2 for A–G, §2a for H–Y, §2b for Z–AF. Nothing on
+the docs site is waiting on a judgment call.
+
+§2b also writes out the `kubenest.yaml` diff explicitly, so whoever builds `kn-xrxs` does not have
+to re-derive the format from prose.
+
+**Not in 1.x, decided rather than forgotten:** image building (`build_mode` in every form —
+Shipwright is the named path when it returns, decision AB), per-component cluster targeting
+(decision AF), replicated storage (decision N), and the `secrets-external` profile (decision M).
 
 ---
 
 ## Site structure
 
-Seventeen pages, flat under `content/`, grouped by `_meta.global.tsx`:
+Eighteen pages, flat under `content/`, grouped by `_meta.global.tsx`:
 
 ```
 Start     index · why · prerequisites · quickstart
 Install   install · connect-cluster
-Use       concepts · deploying · addons
+Use       concepts · deploying · addons · console
 Operate   day-2 · upgrades · backup-restore · ha · os-patching
 Reference bundle · architecture · api
 ```

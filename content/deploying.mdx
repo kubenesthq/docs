@@ -47,6 +47,7 @@ components:
     env:
       APP_ENV: production
       DATABASE_URL: ${postgres.dsn}
+      STRIPE_KEY: ${secret:STRIPE_KEY}
     resources:
       cpu: 500m
       memory: 512Mi
@@ -140,6 +141,32 @@ env:
   DATABASE_URL: ${addon:shared-postgres.dsn}
 ```
 
+And `${secret:NAME}` reads a value you set out of band — see [Secrets](#secrets).
+
+## Health checks
+
+A component that declares a `port` gets a readiness probe on it, and a rolling update that waits for
+ready before moving on. You do not have to write anything: a container that starts and immediately
+crashes will not replace the pods that are serving.
+
+When the default guess is wrong — a slow boot, a health endpoint that is not `/` — say so:
+
+```yaml
+components:
+  api:
+    image: myorg/my-api:v1.2.0
+    port: 8000
+    healthcheck:
+      path: /healthz
+      interval: 10s
+      timeout: 2s
+      start_period: 30s
+      retries: 3
+```
+
+`start_period` is the grace before failures count, which is the one people usually need: a service
+that takes forty seconds to warm its cache is not unhealthy at second five.
+
 ## File reference
 
 | Key | Meaning |
@@ -148,16 +175,15 @@ env:
 | `project` | Which project to deploy into. `--project` overrides it |
 | `cluster` | Pin the whole app to a cluster. Defaults to the project's |
 | `components.<name>.image` | A prebuilt image |
-| `components.<name>.build` | A path or Git ref to build from instead of `image` |
 | `components.<name>.addon` | `type@version` from the catalog — makes this an addon, not a workload |
-| `components.<name>.port` | The port the container listens on |
+| `components.<name>.port` | The port the container listens on. Implies a readiness probe |
 | `components.<name>.expose` | `true` for a generated hostname, or a hostname you own |
 | `components.<name>.replicas` | Default 1 |
-| `components.<name>.env` | Literals, or `${component.export}` references |
+| `components.<name>.env` | Literals, or `${component.export}` / `${addon:name.export}` / `${secret:NAME}` references |
 | `components.<name>.command` / `args` | Override the entrypoint |
 | `components.<name>.resources` | `cpu` and `memory` requests |
 | `components.<name>.storage` | Volume size, for addons and stateful workloads |
-| `components.<name>.cluster` | Place this one component on a different cluster |
+| `components.<name>.healthcheck` | Override the probe: `path`, `interval`, `timeout`, `start_period`, `retries` |
 
 ## Day to day
 
@@ -226,38 +252,119 @@ kubenest secret set api STRIPE_KEY=sk_live_...
 kubenest secret list api
 ```
 
-They are stored against the component and injected as environment variables. The API never returns
-a secret value once set — `list` shows names only.
+The value goes through the hub to the agent, which writes a Kubernetes Secret in the project's
+namespace. It is never in your repository, never in the file, and never returned by the API —
+`list` shows names only.
 
-Addon-generated credentials never need this. They are resolved on the cluster through
+Reference one from the file:
+
+```yaml
+env:
+  STRIPE_KEY: ${secret:STRIPE_KEY}
+```
+
+Addon-generated credentials never need any of this. They are resolved on the cluster through
 `${postgres.dsn}` and are never typed by anyone.
 
-## Projects and clusters
+<Callout type="info">
+**This is not the `secrets` profile.** That profile installs sealed-secrets, for teams who keep
+their *own* Kubernetes manifests in Git and need encrypted values in them. If KubeNest is deploying
+your app, you do not need it — and the sealing key it makes so important stays optional.
+</Callout>
 
-A project is a namespace with KubeNest metadata. Everything you deploy lives in one.
+## Projects
+
+A project is a namespace with KubeNest metadata. Everything you deploy lives in one, and an app
+belongs to exactly one project on exactly one cluster.
 
 ```bash filename="terminal"
 kubenest project create acme-prod --cluster prod-1
 kubenest project list
 ```
 
-Components default to the project's cluster. Pin one elsewhere to split a workload across regions:
+Splitting a workload across clusters is two apps, in two projects, with two files. There is no
+per-component cluster targeting: a value produced on one cluster cannot be wired into a container on
+another, and pretending otherwise would mean a control-plane path we deliberately do not have.
 
-```yaml
-components:
-  data-processor:
-    image: myorg/processor:latest
-    cluster: eu-west-1
+## Environments and promotion
+
+Staging and production are two projects, usually on two clusters.
+
+You deploy to staging from the file. **You do not deploy to production from a file** — you promote
+what passed:
+
+```bash filename="terminal"
+kubenest deploy --project acme-staging
 ```
 
-Every target cluster must already be connected. One that the control plane cannot reach fails at
-deploy time rather than leaving a component pending forever.
+```ansi filename="output"
+api   workload   myorg/my-api:v1.2.0   deploying → running   ok   31s
+api   https://api.staging.acme.com
+deployed in 31s · deploy 12
+```
 
-## Working without the file
+Then, once you believe it:
 
-Everything above has an API behind it, and the CLI is not privileged — see the
-[API reference](/api). The file is the recommended interface because it is the one you can review,
-commit and revert.
+```bash filename="terminal"
+kubenest promote --from acme-staging --to acme-prod
+```
+
+```ansi filename="output"
+promoting deploy 12 from acme-staging
+
+api        myorg/my-api@sha256:9f2c1e…    unchanged from staging
+postgres   postgres@16                    unchanged from staging
+worker     myorg/my-api@sha256:9f2c1e…    unchanged from staging
+
+promoted · deploy 34 on acme-prod · `kubenest rollback` to undo
+```
+
+The difference matters more than it looks. A promotion moves the **exact spec that ran** — image
+digests, resolved configuration, the lot — rather than re-rendering the file. So production runs the
+artefact you tested, not whatever `myorg/my-api:v1.2.0` happens to point at by the time you get
+there, and not whatever the file says after someone merged to main in between.
+
+Per-environment differences that are genuinely different — replica counts, resource limits, a
+staging database that is smaller — are set on the target project and survive promotion:
+
+```bash filename="terminal"
+kubenest scale api=6 --project acme-prod
+```
+
+`kubenest diff --from acme-staging --to acme-prod` shows what promoting would change, before it
+changes it.
+
+## From CI
+
+`kubenest login` is interactive. In a pipeline, use a token instead — revocable, and scoped to a
+project:
+
+```yaml filename=".github/workflows/deploy.yml"
+- uses: kubenest/deploy-action@v1
+  with:
+    token: ${{ secrets.KUBENEST_TOKEN }}
+    project: acme-staging
+```
+
+Or without the action, anywhere that can run a binary:
+
+```bash filename="terminal"
+kubenest login --token "$KUBENEST_TOKEN"
+kubenest deploy --project acme-staging --wait
+```
+
+Your CI keeps doing what it already does — build, test, push an image. Deploying is the last step,
+and `--wait` makes the job fail when the deploy does.
+
+## Without the file
+
+Everything here is also in the [console](/console) — creating apps, deploying, scaling, logs,
+rollback, promotion. The two are peers, not a tool and its lesser sibling, and both drive the same
+[API](/api).
+
+The file is what we recommend, because it is the one you can review in a pull request, commit
+alongside the code it deploys, and revert. The console is better when you are looking rather than
+changing, and better when the person who needs to do something does not have a terminal.
 
 ---
 
