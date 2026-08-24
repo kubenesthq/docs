@@ -42,6 +42,7 @@ design, and the design is what gets built against.
 
 | The site says | Reality | Bead |
 |---|---|---|
+| `curl -fsSL https://get.kubenest.io \| sh` installs the CLI | The host does not resolve. The newest published release (v1.0.6, 2025-06-03) predates every documented `platform` command, so even the GitHub download gives a CLI without them | `kn-s9ck` |
 | `kubenest.yaml` describes an app; `kubenest deploy` applies it; `${component.export}` wires values and implies deploy order | No file format, no `deploy`, no interpolation. The CLI has `login`, `platform *`, `cluster set-window` and `backup *` and nothing else | `kn-xrxs` |
 | `status`, `logs`, `open`, `exec`, `scale`, `pause`, `resume`, `deploys`, `rollback`, `diff`, `destroy`, `secret`, `project`, `addon`, `template` | None exist. The REST endpoints behind most of them do | `kn-xrxs` |
 | `expose: true` yields a working HTTPS URL with no domain and no DNS configuration | Nothing generates a hostname; ingress requires a hostname you own | `kn-18c3` |
@@ -58,6 +59,10 @@ One row went the other way. Per-component `cluster:` targeting was published as 
 2026-08-23 and **withdrawn the same day** by decision AF: the docs now say an app is one cluster,
 and `kn-u82w` removes the half-built backend path rather than finishing it. That is the spec-first
 loop working as intended — the page forced the question, and the answer was to shrink the claim.
+
+**`kn-s9ck` comes before either of them.** The quickstart's *first* command fails at DNS, so a
+reader never reaches the parts that are merely unbuilt. It is also the smallest item in this
+section by a wide margin.
 
 **`kn-xrxs` and `kn-18c3` together are the quickstart.** Neither the file nor the generated hostname
 exists, so the page a first-time reader lands on is entirely specification today. They are the two

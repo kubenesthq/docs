@@ -220,6 +220,12 @@ kubenest enforces isolation at four levels, each reinforcing the others.
 ArgoCD is the common reconciliation layer. Git is the source of truth for addons, and not for
 workloads — a distinction worth knowing before you go looking for something in the wrong place.
 
+<img
+  src="/diagrams/gitops-flow.svg"
+  alt="Workloads are created by the backend as ArgoCD Applications with inline Helm values and no Git commit, with history in PostgreSQL. Addons are reconciled by the in-cluster addon controller, which commits Chart.yaml and values.yaml under the cluster's addon directory and points an ArgoCD Application at that Git path."
+  style={{ width: '100%', height: 'auto', margin: '2rem 0' }}
+/>
+
 **Workload history lives in PostgreSQL.** Every App operation is a `Deployment` row, and the ones
 that support rollback store the prior `StackDeploy` snapshot alongside. Workload ArgoCD
 Applications carry inline Helm values, so a `git log` is not the audit trail for a workload deploy,

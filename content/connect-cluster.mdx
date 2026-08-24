@@ -38,6 +38,32 @@ connect      websocket established                       ok    2s
 cluster prod-cluster connected
 ```
 
+What those five lines actually do — note that every arrow crossing into your cluster is one your
+side opened:
+
+```mermaid
+sequenceDiagram
+    participant CLI as kubenest CLI
+    participant BE as Control plane
+    participant K8s as Your cluster
+    participant AG as kubenest-agent
+    participant HUB as Hub
+
+    CLI->>BE: create cluster record
+    BE-->>CLI: cluster id
+    CLI->>BE: mint agent credential
+    BE-->>CLI: one-time JWT
+    CLI->>K8s: install chart into kubenest-system
+    Note over K8s,AG: credential lands in a Kubernetes Secret
+    AG->>HUB: outbound WSS, presents JWT
+    HUB->>BE: agent authenticated
+    BE-->>CLI: connected
+```
+
+Nothing in that sequence opens a port on your cluster or hands KubeNest a kubeconfig. The agent
+dials out; the control plane never dials in. See [Architecture](/architecture) for what rides that
+connection afterwards.
+
 Use a different context, or a different kubeconfig, with the usual flags:
 
 ```bash filename="terminal"
