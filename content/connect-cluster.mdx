@@ -32,7 +32,7 @@ cluster your current kubectl context points at, and waits for it to report in.
 context      arn:aws:eks:us-east-1:…:cluster/prod        ok
 record       prod-cluster created                        ok
 credentials  minted, one-time                            ok
-agent        kubenest-agent 2.3.5 → kubenest-system      ok   24s
+agent        kubenest-agent 2.4.1 → kubenest-system      ok   24s
 connect      websocket established                       ok    2s
 
 cluster prod-cluster connected
@@ -98,7 +98,7 @@ The underlying chart is public, if you would rather drive Helm directly:
 
 ```bash filename="terminal"
 helm upgrade --install agent oci://ghcr.io/kubenesthq/charts/kubenest-operator-2 \
-  --version 2.3.5 \
+  --version 2.4.1 \
   --namespace kubenest-system --create-namespace \
   --values kubenest-agent-values.yaml --wait
 ```
