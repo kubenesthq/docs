@@ -1,18 +1,19 @@
 ---
 title: Quickstart
-description: One Ubuntu host to a running application on HTTPS, in about fifteen minutes. No domain required.
+description: Install a complete KubeNest platform on one Ubuntu host — no hosted control plane or login required.
 ---
 
-import { Callout, Steps } from 'nextra/components'
+import { Steps } from 'nextra/components'
 
 # Quickstart
 
-One Ubuntu machine, one command, a complete platform. Then an application on top of it, on real
-HTTPS, without owning a domain.
+One Ubuntu machine, one command, a complete platform. KubeNest does not host a control plane for
+you, and the first cluster does not need one: the documented path is a standalone install with no
+login and no hub connection.
 
-You need a single Ubuntu 24.04 host with 2 vCPU, 4 GB RAM, 40 GB disk, a public IP, SSH access and
-passwordless sudo. Any cloud's cheapest usable box. Full detail is in
-[Prerequisites](/prerequisites).
+You need a single Ubuntu 24.04 host with 2 vCPU, 4 GB RAM, 40 GB disk, SSH access and passwordless
+sudo. You also need either a pre-created `kubenest-vg` volume group or a blank device you are
+willing to give to the installer. The [install guide](/install) covers those choices.
 
 <Steps>
 
@@ -20,115 +21,53 @@ passwordless sudo. Any cloud's cheapest usable box. Full detail is in
 
 ```bash filename="terminal"
 curl -fsSL https://get.kubenest.io | sh
-kubenest login
 ```
+
+There is no `kubenest login` step. The installer served at `get.kubenest.io` installs the CLI; if
+its destination is not writable, follow its printed remedy: `re-run with --install-dir ~/.local/bin`.
 
 ### Install the platform
 
+Replace the example address and storage device with your host and a **blank** device. The
+`--storage-device` flag is deliberate: the installer refuses a device that already carries data.
+
 ```bash filename="terminal"
 kubenest platform install \
+  --standalone \
   --bundle 1.0 \
   --name demo \
+  --ha single-server \
   --server 203.0.113.10 \
-  --ssh-user ubuntu
+  --ssh-user ubuntu \
+  --storage-device /dev/nvme1n1
 ```
 
 ```ansi filename="output"
-preflight        ubuntu 24.04, 4 vCPU, 7.6 GiB, 74.8 GiB free    ok
-k3s              v1.35.7+k3s1, embedded etcd                     ok   38s
-gateway-api      v1.6.1                                          ok    4s
-traefik          41.4.0                                          ok   22s
-cert-manager     v1.21.1                                         ok   31s
-storage          openebs-lvm-localpv 1.10.0, vg kubenest-vg      ok   19s
-velero           12.1.0  (no target configured)                  ok   26s
-patching         system-upgrade-controller, kured                ok   11s
-agent            kubenest-agent 2.4.1                            ok   14s
-register         cluster demo → connected                        ok    3s
-verify           5 checks                                        ok   21s
+[10/13] kubenest-agent ok
+[13/13] verify ok
+agent-reconciles: pass (1s)
 
-cluster demo ready · Platform 1.0 · single-server · 4m14s
-apps deploy to *.demo.203-0-113-10.sslip.io
+Installed in 4m56s.
 ```
 
-Thirteen stages, each named as it runs. On a clean host this takes about four minutes and ends with
-five acceptance checks: every node Ready, every core component Running, a real volume provisioned,
-the cluster reporting in, and the running cluster matching the manifest it was built from.
-
-If a stage fails it names the stage, the component and what to do. Fix it and re-run the identical
-command — completed stages are skipped from the journal, so a re-run takes seconds.
-
-### Describe your app
-
-```bash filename="terminal"
-kubenest init
-```
-
-That writes a `kubenest.yaml` you can edit. For a first deploy, this is the whole file:
-
-```yaml filename="kubenest.yaml"
-name: hello
-
-components:
-  web:
-    image: nginx:1.25-alpine
-    port: 80
-    expose: true
-```
-
-### Deploy it
-
-```bash filename="terminal"
-kubenest deploy
-```
-
-```ansi filename="output"
-project hello on cluster demo
-
-web   workload   nginx:1.25-alpine   deploying → running   ok   19s
-
-web   https://web.hello.203-0-113-10.sslip.io
-
-deployed in 19s · deploy 1 · `kubenest rollback` to undo
-```
-
-```bash filename="terminal"
-kubenest open web
-```
+The standalone acceptance run used that shape on a clean Ubuntu 24.04 host. All thirteen stages
+passed in 4m56s. The agent deployment became Ready, had no backend URL or bearer token, did not
+dial a hub, and reconciled a Project to `Ready`. This is a complete platform, not a degraded one.
 
 </Steps>
 
-## Where the URL came from
+## What standalone means
 
-You did not configure DNS, and you did not configure a certificate.
+The cluster registers with nothing. It has no fleet view and no `kubenest cluster` commands against
+a control plane. Instead, stage 12 records the installed bundle, profile set, HA tier and storage
+ownership in the cluster's own ConfigMap:
+`kubenest-system/kubenest-cluster-record`.
 
-`expose: true` asked the platform for a public URL. With no domain configured, it assigns one
-derived from the node's own IP — `203.0.113.10` becomes `203-0-113-10.sslip.io`, which resolves
-through a public wildcard resolver that needs nothing from you or from us. cert-manager then issues
-a real Let's Encrypt certificate against that name over HTTP-01.
-
-It is a working URL with valid TLS, and it is not a name you would put on a business card. When you
-have a domain, point it at the cluster and say so once:
-
-```bash filename="terminal"
-kubenest cluster set-domain --cluster demo acme.com
-```
-
-Every exposed component moves to `<component>.<app>.acme.com`, certificates reissue, and the
-sslip.io names keep working so nothing breaks while DNS propagates.
-
-## This was the easy day
-
-You now have a Kubernetes distribution, an ingress controller, a certificate manager, a storage
-provisioner and a backup system — installed as one tested set, at one version — with an application
-on it. That took about fifteen minutes and it is the part everyone can do.
-
-**The reason to run KubeNest is the next two years.** The upgrade nobody wants to own, the backup
-nobody has restored, the certificate that expires on a holiday, the kernel CVE that sits unpatched
-because rebooting nodes is frightening. That is [day 2](/day-2), and it is the actual product.
+This proof covers the standalone install only. It does not establish a hosted service, a login
+flow, a hub connection, an application deployment, or an HTTPS endpoint, so this quickstart does
+not present any of those as a completed next step.
 
 ## Next
 
-- [Day 2](/day-2) — what the platform does after the install, and what it stops you having to do
-- [Deploying apps](/deploying) — the full `kubenest.yaml`, addons, wiring, rollback
-- [Prerequisites](/prerequisites#before-a-production-install) — the three things to sort before real traffic
+- [Install the platform](/install) — host preparation, storage choices, the thirteen stages and recovery
 - [Why these components](/why) — k3s, Traefik, ArgoCD, and what we deliberately did not build
