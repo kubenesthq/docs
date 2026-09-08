@@ -83,10 +83,14 @@ What `postgres` publishes:
 
 | Key | Example |
 |-----|---------|
-| `dsn` | `postgresql://myapp:…@shared-postgres.acme-prod.svc.cluster.local:5432/myapp?sslmode=require` |
+| `dsn` | `postgresql://myapp:…@shared-postgres.acme-prod.svc.cluster.local:5432/myapp?sslmode=disable` |
 | `host` | `shared-postgres.acme-prod.svc.cluster.local` |
 | `port` | `5432` |
 | `user`, `database` | `myapp` |
+
+The default PostgreSQL chart serves plaintext inside the cluster, so its `dsn`
+states `sslmode=disable` explicitly. If you configure the chart with
+`tls.enabled=true`, the exported `dsn` instead uses `sslmode=require`.
 
 Conventional aliases come too, so a container expecting the standard PostgreSQL environment names
 needs no mapping: `DATABASE_URL`, `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE`.
