@@ -36,7 +36,7 @@ The operator is a Go controller-runtime application that runs inside each regist
 - **Workload controller** — tracks individual workload components within a StackDeploy: watches the ArgoCD Application's health, reports the cluster's ingress IP, and collects exports once a component is running. It does not render manifests or create the Application — the backend does both. See [GitOps](/architecture#gitops).
 - **Addon controller** — same as Workload but for Helm-chart backing services; also handles export discovery after a successful install.
 - **BuildRequest controller** — manages image build jobs (Kaniko or Cloud Native Buildpacks) for Dockerfile and buildpack deployment modes.
-- **Project controller** — ensures the Kubernetes namespace exists and has the correct resource quotas and RBAC bindings before any app is deployed into it.
+- **Project controller** — ensures the Kubernetes namespace exists and synchronizes an optional project registry secret before any app is deployed into it. It does not manage resource quotas or RBAC bindings.
 
 There is exactly one operator instance per cluster. The operator has local Kubernetes API access and uses that access exclusively — it never routes Kubernetes calls through the hub or the backend.
 
@@ -211,7 +211,7 @@ kubenest enforces isolation at four levels, each reinforcing the others.
 
 **Cluster level (routing).** A cluster's operator session in the hub is keyed by `cluster_id`. The backend can only dispatch events to clusters that belong to the authenticated user's organization. The hub enforces this routing — you cannot send a command event to a cluster you do not own by constructing a crafted WebSocket message, because the hub validates the sender's `org_id` claim against the target cluster's registration.
 
-**Project level (Kubernetes).** Each project maps to a Kubernetes namespace. The operator creates the namespace with a standard set of RBAC bindings before deploying any application into it. Workloads in project A's namespace cannot access Kubernetes Secrets in project B's namespace, even on the same cluster.
+**Project level (Kubernetes).** Each project maps to a Kubernetes namespace. The operator creates that namespace before deploying any application into it. Namespace scoping keeps objects in project A separate from project B; KubeNest does not currently manage resource quotas or RBAC bindings for those namespaces.
 
 **Namespace boundary (operator).** The operator's Project controller enforces namespace boundaries on all reconcile operations. A StackDeploy that specifies a target namespace outside its registered project is rejected by the operator with a validation error that propagates back through the hub to the backend.
 
