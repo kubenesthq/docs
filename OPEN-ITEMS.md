@@ -17,6 +17,34 @@ Update it whenever a page makes a new claim, and delete a row when the code catc
 
 ---
 
+## 0. The gap this list cannot see: the install path needs a control plane that will never exist
+
+**Decided 2026-08-26 by Lakshmi: nothing is hosted by us.** No multi-tenant KubeNest control
+plane, not now and not as a prerequisite for anything — standing one up "is the trap which froze
+us previously." That decision is settled; do not design around a future hosted environment.
+
+Every row below compares a published page against code in a repository. That comparison cannot
+detect this one, because here the docs and the code agree and the product still does not work:
+`kubenest platform install` refuses to install anything without a control plane. Stage 2 of 13 is
+unconditional — `register` is `AlwaysRun`, and its first act is
+`if s.API == nil { return "no control plane configured: run kubenest login first" }`
+(`kubenest-cli/pkg/install/plan.go:219,344`). It then mints the agent JWT and the GitOps
+credential against a control-plane API, and stage 10 consumes them.
+
+So with nothing hosted, the quickstart dies at its second command. `quickstart.mdx` promises "one
+Ubuntu machine, one command, a complete platform" in fifteen minutes and never mentions a control
+plane at all — which is only honest if a first cluster needs none.
+
+| The site says | Reality | Bead |
+|---|---|---|
+| One host, one command, a complete platform — no control plane mentioned | Install stage 2 refuses without one, and none is hosted | `kn-l827` |
+| `kubenest login` (quickstart) / `kubenest login --control-plane https://api.your-domain.com` (install) | The CLI has no default, so the bare form exits non-zero. The two pages describe a hosted and a self-hosted product one page apart | `kn-sxhf` |
+
+`kn-l827` carries the design: a cluster must install standalone, with credentials generated
+locally, and the control plane becomes the *fleet* product you add for a second cluster rather
+than a prerequisite for the first. That is a working assumption under active pressure-test, not a
+settled shape — read the bead before building against it.
+
 ## 1. Security claims the site now makes as fact
 
 These are called out separately because they are the rows where the gap is a **risk to a customer's
@@ -27,7 +55,7 @@ these must close **before the first customer install**, not merely before someon
 |---|---|---|
 | Cluster operations flow through the hub to the agent; no cluster credential is held by the control plane | Registration persists a cluster-admin bearer token on the cluster record, and StackDeploy CRUD, ArgoCD registration, component secrets and addon mutations call the tenant cluster's API directly with it | `kn-cjqw`, `kn-p61d` |
 | Three roles — `admin`, `member`, `viewer` — bind at organization, cluster and project scope | Only the organization role is enforced. Cluster- and project-scoped bindings are membership records no endpoint consults, so a `viewer` can create projects, deploy apps and write secrets | `kn-gdf` |
-| Rotating the agent credential means the previous one stops being accepted | The hub validates the signature only, so a leaked 365-day JWT stays usable for its full lifetime | `kn-i3c` |
+| The operator presents the cluster JWT in an `Authorization: Bearer` header | It is passed as a URL query parameter, so the credential lands in access, proxy and APM logs | `kn-ws-token-in-query-param-nahc` |
 | The control plane never renders a credential into a browser | Fixed for the install command (`kn-kvc3`); the remaining phases of the per-tenant credential broker are in flight | `kn-rnyl` |
 
 There is no live control plane and no customer cluster today, so nothing is exposed right now. That
