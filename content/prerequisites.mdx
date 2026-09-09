@@ -1,139 +1,58 @@
 ---
 title: Prerequisites
-description: What you need before installing KubeNest — hosts, disks, network and access — for an evaluation and for production.
+description: What the proven standalone KubeNest install needs — and what belongs only to a separately operated control-plane path.
 ---
 
 import { Callout } from 'nextra/components'
 
 # Prerequisites
 
-Two columns throughout: what a **test** cluster needs, and what a **production** cluster needs.
-The test column is deliberately cheap — one machine, and you can be running in the time it takes to
-provision it.
+KubeNest hosts no control plane for you. The proven starting path is a standalone install: one
+clean Ubuntu 24.04 host, no login, no control plane and no hub connection.
 
-## Hosts
+## The proven standalone path
 
-**Ubuntu 24.04 LTS.** That is the release the bundle is tested on, and the installer refuses
-anything else rather than half-installing on it. Locking the OS is what makes the bundle testable:
-a known kernel and a deterministic LVM layout are preconditions for the storage and patching
-components.
+The real-host acceptance used:
 
-| | Test | Production |
-|---|---|---|
-| Machines | 1 | 3 control plane, plus agents for your workloads |
-| Public IP | Needed for generated hostnames and TLS | Yes |
-| Tier | `single-server` | `ha` |
-| vCPU per node | 2 | 4 |
-| RAM per node | 3.7 GiB | 7.4 GiB |
-| Disk per node | 36 GiB | 92 GiB |
-| Buy a machine advertised as | 4 GB / 40 GB | 8 GB / 100 GB |
+- a clean Ubuntu 24.04 host;
+- SSH access from the machine running the CLI, with passwordless `sudo` on the host;
+- a blank storage device supplied with `--storage-device`; and
+- normal outbound access to retrieve container images and Helm charts.
 
-Preflight **fails** below the test figures and **warns** below the production ones. The thresholds
-live in the bundle manifest under `limits.resources`, so they are versioned with the release rather
-than compiled into the installer.
+It ran `kubenest platform install --standalone --bundle 1.0` with one `--server` and
+`--ha single-server`. All thirteen stages passed in 4m56s. The agent became Ready without a
+backend URL, bearer token or hub connection, then reconciled a verification `Project` to `Ready`.
 
-<Callout type="warning">
-**The last column is the same machine as the others.** It is what a vendor advertises; the rest is
-what the kernel reports once you own it. A host sold as 8 GB gives `/proc/meminfo` 7.57 GiB; sold as
-80 GB it leaves roughly 74.8 GiB on the root filesystem. Preflight compares against the GiB figures,
-because comparing a "4 GB" floor against `MemTotal` as though it were GiB refuses machines that
-actually meet the specification.
-</Callout>
-
-**The hosts must be empty of Kubernetes.** Preflight refuses any node where k3s, RKE2, kubelet or
-containerd is already present. Adopting an existing cluster means inheriting whatever ingress, CSI
-and certificate manager are on it — the untested component combination the bundle exists to
-eliminate. If you have a cluster already and want to keep it, [connect it](/connect-cluster)
-instead.
-
-## Disks
-
-Persistent volumes come from OpenEBS Local PV LVM, which provisions out of an LVM volume group on
-each node that holds data. Two supported ways to get one:
-
-**You create it (default).** A volume group named `kubenest-vg` on each data-bearing node before
-you install. Preflight checks it exists and has free extents; the installer never touches your block
-devices. `lvm2` is already on the stock Ubuntu cloud image, so `pvcreate` and `vgcreate` are there.
-
-**The installer creates it.** Name a blank device: `--storage-device /dev/nvme1n1`. Preflight
-refuses a device holding a partition table, a filesystem or an existing volume group, so this cannot
-silently overwrite anything. The flag is required — there is no auto-detection, because guessing
-which disk is disposable on someone else's infrastructure is not a risk worth taking.
-
-Which one you used is recorded against the cluster, because it decides what an uninstall is allowed
-to remove.
-
-## Network
-
-Between cluster nodes:
-
-| Port | Protocol | Direction | Purpose |
-|---|---|---|---|
-| 6443 | TCP | agents → server | Kubernetes API |
-| 8472 | UDP | all ↔ all | Flannel VXLAN overlay |
-| 10250 | TCP | all ↔ all | Kubelet metrics |
-| 2379–2380 | TCP | server ↔ server | etcd peer replication — `ha` tier only |
-
-Inbound to the cluster, if anything is to be reachable from the internet:
-
-| Port | Purpose |
-|---|---|
-| 80 | HTTP, and the Let's Encrypt HTTP-01 challenge that issues your certificates |
-| 443 | HTTPS |
-
-Outbound, from the cluster and from the machine you run the installer on:
-
-- HTTPS to container registries and Helm repositories, for the duration of the install
-- HTTPS to your KubeNest control plane, from the installer
-- Persistent outbound WSS to your KubeNest hub, from the cluster — the agent dials out, so no node
-  needs a public address
+The standalone command needs neither `kubenest login` nor a route to a KubeNest control plane or
+hub. Stage 12 keeps the installed bundle, profile set, HA tier and storage ownership in the local
+ConfigMap `kubenest-system/kubenest-cluster-record`. A standalone cluster is a complete platform,
+not a degraded one.
 
 <Callout type="info">
-**Air-gapped installs are not supported.** The install and the running cluster both need outbound
-internet.
+**This is not an air-gapped claim.** The acceptance host had normal egress to retrieve the bundle
+components. It proves that a control plane and hub are not prerequisites; it does not prove an
+air-gapped installation.
 </Callout>
 
-## Access
+## A separately operated control-plane path
 
-SSH from the machine you run the installer on to every node, with **passwordless sudo** on each.
+KubeNest does not provide this service. If you operate your own control plane and choose an install
+*without* `--standalone`, that separate path has different requirements:
 
-The installer uses your existing SSH setup — `~/.ssh/config`, `ssh-agent`, or a key named with
-`--ssh-key`. Key material stays on your machine: never uploaded to the control plane, never stored
-by KubeNest, never written to the installer's logs.
+- the machine running the CLI needs HTTPS access to **your** control plane to authenticate and read
+  the bundle manifest;
+- the installed agent needs persistent outbound WSS access to **your** hub; and
+- the control plane needs reachability to the cluster Kubernetes API for its connected-cluster
+  operations.
 
-Preflight runs `sudo -n true` on each node and fails with the exact remediation if it does not
-succeed. The default `ubuntu` user on official Ubuntu cloud images already has this, so on a stock
-cloud host it needs nothing from you.
+That path is present in the CLI, but it was not exercised by the kn-sf17 real-host acceptance. It
+is not a prerequisite for the standalone command above.
 
-## Before a production install
+## What this page does not establish
 
-None of these block an evaluation. All of them matter before real traffic.
+The standalone proof did not exercise a public IP, DNS, an HTTPS endpoint, an application
+deployment, a backup target or completed backup, a maintenance window, a three-node topology, or
+another host size. Those are not presented here as standalone prerequisites.
 
-**A domain, if you want one.** You do not need one to run KubeNest, and you do not need one to serve
-real HTTPS: a component with `expose: true` gets a hostname derived from the node's IP, resolved by
-a public wildcard resolver, with a Let's Encrypt certificate issued over HTTP-01. It works, and it
-is not a name you would put in front of customers. When you have a domain, point it at the cluster
-and run `kubenest cluster set-domain` once — every exposed component moves and certificates
-reissue.
-
-For that to work the node needs a **public IP and inbound 80 and 443**. Behind NAT with no
-port-forward, generated hostnames cannot be issued certificates and you will need a domain with
-DNS-01 instead.
-
-**An S3-compatible backup target.** Supply it with `--backup-target` at install and Velero is
-configured and the schedule starts. Without one Velero is installed but protecting nothing, and the
-cluster reports `BACKUP_TARGET_UNCONFIGURED` until you fix it — loudly, because a cluster that has
-never taken a backup is exactly the quiet failure this product exists to prevent. You can configure
-it afterwards with `kubenest backup set-target`.
-
-**A maintenance window.** Upgrades never start outside it and reboots are held for it. Set it with
-`kubenest cluster set-window` — days, start, end, and an IANA timezone name, never a UTC offset,
-because offsets move twice a year and a window that shifts by an hour is worse than no window.
-
-**Reachability from the control plane.** The control plane connects to your cluster's Kubernetes API
-for some operations, using credentials the agent advertises. That endpoint has to be reachable from
-it. Easy to miss when planning firewall rules.
-
----
-
-Next: [Quickstart](/quickstart) · [Install the platform](/install) · [Why these choices](/why)
+For the runnable command and its stage-by-stage evidence, see [Quickstart](/quickstart) and
+[Install the platform](/install).
