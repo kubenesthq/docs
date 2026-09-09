@@ -34,7 +34,9 @@ components:
 ```
 
 `kubenest deploy` creates Postgres first because `api` reads a value from it, waits for the exports,
-then starts `api` with `DATABASE_URL` already resolved. Pausing the app does not pause the addon —
+then starts `api` with a usable `DATABASE_URL` injected from a per-workload Secret. KubeNest resolves
+the database password from the addon credentials into that Secret, so the app does not assemble a
+connection string or read the database credentials itself. Pausing the app does not pause the addon —
 databases keep running so data survives.
 
 ## Standing on its own
@@ -88,9 +90,8 @@ What `postgres` publishes:
 | `port` | `5432` |
 | `user`, `database` | `myapp` |
 
-The default PostgreSQL chart serves plaintext inside the cluster, so its `dsn`
-states `sslmode=disable` explicitly. If you configure the chart with
-`tls.enabled=true`, the exported `dsn` instead uses `sslmode=require`.
+The canonical PostgreSQL addon does not enable TLS inside the cluster, so its ready-to-use `dsn`
+ends with `sslmode=disable`.
 
 Conventional aliases come too, so a container expecting the standard PostgreSQL environment names
 needs no mapping: `DATABASE_URL`, `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE`.
