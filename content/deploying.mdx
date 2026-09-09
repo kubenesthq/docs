@@ -336,25 +336,13 @@ changes it.
 
 ## From CI
 
-`kubenest login` is interactive. In a pipeline, use a token instead — revocable, and scoped to a
-project:
+KubeNest does not currently provide an application-deployment CLI command or GitHub Action for
+CI. Do not add a KubeNest login step to a pipeline for this page: the documented standalone
+platform install needs neither a control plane nor a login.
 
-```yaml filename=".github/workflows/deploy.yml"
-- uses: kubenest/deploy-action@v1
-  with:
-    token: ${{ secrets.KUBENEST_TOKEN }}
-    project: acme-staging
-```
-
-Or without the action, anywhere that can run a binary:
-
-```bash filename="terminal"
-kubenest login --token "$KUBENEST_TOKEN"
-kubenest deploy --project acme-staging --wait
-```
-
-Your CI keeps doing what it already does — build, test, push an image. Deploying is the last step,
-and `--wait` makes the job fail when the deploy does.
+Keep the delivery mechanism you already operate — for example, your existing Helm, Argo CD, Flux,
+or `kubectl` workflow — for building, testing, pushing, and deploying an application. The former
+`kubenest/deploy-action@v1` and `kubenest deploy` examples were not available commands.
 
 ## Without the file
 
