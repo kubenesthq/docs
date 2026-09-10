@@ -117,6 +117,24 @@ Cluster operations are long-running and unreliable — network partitions, slow 
 
 This architecture eliminates HTTP timeouts from the critical path and makes the system resilient to transient connectivity failures between the backend and the hub, or between the hub and the operator.
 
+### Command delivery guarantee
+
+The hub is a router, not a durable command queue. A backend write that needs an
+operator command must use one of two contracts:
+
+- **Durable intent.** Persist the complete desired state before dispatching,
+  return `Pending` or `Accepted`, and keep deriving the command until a matching
+  operator observation confirms the cluster state. If confirmation is delayed,
+  the reader exposes a named degraded lifecycle reason while reconciliation
+  continues.
+- **Fail closed.** If an operation has no durable state that can be reconciled,
+  dispatch without relying on the client-side queue and return a non-2xx response
+  when the hub cannot confirm the route.
+
+A socket write, a connected preflight, or admission to a temporary client queue
+never proves that a cluster changed. A hub route confirmation only proves routing;
+the operator's status observation is what confirms cluster state.
+
 ---
 
 ## Request flow patterns
