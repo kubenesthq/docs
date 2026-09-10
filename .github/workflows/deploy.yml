@@ -28,6 +28,13 @@ jobs:
       # only on this repository. The guard belongs in CI, where it runs on every push to
       # this branch and can fail loudly without taking the site down with it.
 
+      # Depends on THIS REPOSITORY ONLY, which is why it may gate the publish. The
+      # registry and its patterns are in-repo; the cross-repo evidence checks live
+      # in ci.yml, for the reason written above. A retired security claim must not
+      # be able to reach the served page, so this runs before the build (kn-mxxu).
+      - name: Retired-claim guard (content)
+        run: python3 scripts/check_retired_claims.py --content content/
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
@@ -57,3 +64,18 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # PUBLISHED IS NOT MERGED. The content gate above proves the branch is clean; it
+  # cannot prove the site serves that branch. A stale build, a partial deploy or a
+  # cached page all look identical to success from inside the repo, and this wave
+  # re-invented the "check the served page, not the branch" rule three times
+  # (kn-okb6). So the last word belongs to the live URL.
+  verify-served:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retired-claim guard (served page)
+        run: |
+          python3 scripts/check_retired_claims.py \
+            --served https://docs.kubenest.io/ https://docs.kubenest.io/architecture/

@@ -17,12 +17,12 @@ Understanding the architecture pays off quickly: it tells you where to look when
 
 The backend is the control plane. It is a FastAPI application that owns every user-facing resource: organizations, users, clusters, projects, apps, stack templates, addon instances, and deployment history. All persistent state lives in PostgreSQL. Redis handles job queues, rate-limit counters, and short-lived cache entries (including chart inspection results).
 
-The backend holds **no Kubernetes client state in process**: application, addon and component-secret
-operations are dispatched as schema-validated JSON events to the hub and acknowledged
-asynchronously. It does keep one credential per cluster in PostgreSQL, used to register that
-cluster with ArgoCD — see [Cluster access](#1-cluster-access) below. Because nothing
-Kubernetes-related is held in memory, you can run multiple replicas behind a load balancer without
-any shared in-process state.
+Application, addon and component-secret operations are **dispatched as schema-validated JSON events**
+to the hub and acknowledged asynchronously, rather than executed against your cluster from inside
+the backend. The backend does keep one credential per cluster in PostgreSQL, used to register that
+cluster with ArgoCD — see [Cluster access](#1-cluster-access) below. No request state is held in
+memory between calls, so you can run multiple replicas behind a load balancer without any shared
+in-process state.
 
 ### kubenest-hub
 

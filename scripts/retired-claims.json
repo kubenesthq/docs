@@ -1,0 +1,123 @@
+{
+  "_comment": [
+    "Registry for scripts/check_retired_claims.py. See kn-mxxu for why it exists.",
+    "",
+    "RETIRED = false, must never reappear in any wording. Patterns are deliberately",
+    "SEMANTIC (negation near a capability noun), not the literal sentence that was",
+    "removed. The 2026-08-22 fix failed precisely because it matched one phrasing.",
+    "",
+    "ALLOWED = currently true, and `evidence` names the code that keeps it true. If",
+    "that code changes, the guard reports the claim as unsupported rather than",
+    "letting a once-accurate sentence rot quietly."
+  ],
+  "tripwire": {
+    "_comment": [
+      "Narrow ON PURPOSE, calibrated against real content rather than guessed.",
+      "The family this guard polices is: what THE CONTROL PLANE does or does not",
+      "do with YOUR cluster's credentials and API. A broader tripwire flagged 13",
+      "sentences, nearly all of them about the operator, the app, or other",
+      "products -- and an allowlist full of unrelated prose is how a guard becomes",
+      "noise that people learn to wave through.",
+      "'kubenest' and 'we' are deliberately NOT subjects: they match company-voice",
+      "sentences all over the site. If the claim is about the control plane, it",
+      "says so."
+    ],
+    "subject": "\\b(the\\s+)?(backend|control\\s+plane)\\b",
+    "negation": "\\b(never|no|not|cannot|can't|without|nothing|none|doesn't|does not)\\b",
+    "capability": "\\b(kubeconfig|cluster\\s+credential|cluster\\s+credentials|kubernetes\\s+api|api\\s+server|kubectl|cluster\\s+access|bearer\\s+token|kubernetes\\s+client)\\b"
+  },
+  "retired": [
+    {
+      "id": "backend-holds-no-cluster-credentials",
+      "retired_by": "kn-cjqw / kn-mxxu",
+      "because": "The control plane stores a cluster-scoped bearer the agent advertises, plus the API server address and its CA (kubenest-backend app/models/cluster.py, kubenest_sa_token).",
+      "patterns": [
+        "(backend|control plane)[^.]{0,80}\\b(never|not|no longer|does not|doesn't)\\b[^.]{0,40}\\b(hold|holds|store|stores|keep|keeps|retain|retains|have|has)\\b[^.]{0,40}(kubeconfig|cluster credential|credentials)",
+        "\\bno\\b[^.]{0,30}(kubeconfig|cluster credentials)[^.]{0,40}\\b(in|on|inside)\\b[^.]{0,20}(the )?(backend|control plane)"
+      ]
+    },
+    {
+      "id": "compromised-backend-cannot-reach-the-cluster-api",
+      "retired_by": "kn-cjqw / kn-mxxu",
+      "because": "A compromised control plane holds a decryptable bearer, the API server address and its CA on one row, and can build a client in one line. Removing call sites removed routine use, not capability.",
+      "patterns": [
+        "compromised[^.]{0,60}\\b(cannot|can't|could not|couldn't|is unable to|no ability to)\\b[^.]{0,60}(kubectl|kubernetes api|api call|api calls|arbitrary)",
+        "\\b(cannot|can't|could not)\\b[^.]{0,30}\\bissue\\b[^.]{0,30}\\barbitrary\\b"
+      ]
+    },
+    {
+      "id": "backend-is-stateless-with-respect-to-kubernetes",
+      "retired_by": "kn-mxxu",
+      "because": "It is not. One credential per cluster is persisted in PostgreSQL, along with the API server address and CA.",
+      "patterns": [
+        "stateless with respect to kubernetes",
+        "(backend|control plane)[^.]{0,60}\\b(reads|holds|stores)\\s+no\\s+kubeconfig"
+      ]
+    },
+    {
+      "id": "all-cluster-operations-flow-through-the-hub",
+      "retired_by": "kn-cjqw",
+      "because": "Three of four direct paths are closed; ArgoCD cluster registration still reaches the tenant API directly. An unqualified 'all operations' or 'every operation' claim is false until the fourth path closes.",
+      "patterns": [
+        "\\b(all|every)\\b[^.]{0,40}(cluster operation|kubernetes operation)[^.]{0,60}\\b(flow|flows|originate|originates|go|goes)\\b",
+        "\\bevery\\b[^.]{0,30}kubernetes operation[^.]{0,40}originates"
+      ]
+    }
+  ],
+  "allowed": [
+    {
+      "id": "no-tenant-kubernetes-client-on-app-paths",
+      "says": "For application, addon and component-secret operations the control plane builds no Kubernetes client for your cluster at all.",
+      "true_because": "kn-2fz2, kn-37n5 and kn-qh3g closed three of kn-cjqw's four direct paths. This is the ONE claim in this family that is currently true, and it is true only while the client builders stay deleted -- which is exactly why it carries evidence rather than a note.",
+      "patterns": [
+        "builds?\\s+no\\s+kubernetes\\s+client",
+        "no\\s+kubernetes\\s+client\\s+for\\s+your\\s+cluster"
+      ],
+      "evidence": [
+        {
+          "file": "app",
+          "symbol": "_build_cluster_client",
+          "must": "absent"
+        },
+        {
+          "file": "app",
+          "symbol": "_get_custom_client_for_cluster",
+          "must": "absent"
+        }
+      ]
+    },
+    {
+      "id": "no-kubeconfig-upload",
+      "says": "You never upload a kubeconfig.",
+      "true_because": "Narrowly true and kept deliberately: no kubeconfig is uploaded. It is QUALIFIED in place -- the stored bearer is named in the same block -- because standing alone a reader takes it to mean no credential is held, which is false. If the qualification is ever deleted, this sentence becomes the Q2 failure again.",
+      "patterns": [
+        "never\\s+upload\\s+a\\s+kubeconfig",
+        "no\\s+kubeconfig[^.]{0,40}\\b(uploaded|upload)\\b"
+      ],
+      "evidence": []
+    }
+  ],
+  "out_of_family": {
+    "_comment": [
+      "Patterns that mark a sentence as NOT a claim about our trust boundary.",
+      "These are applied ONLY to the unclassified tripwire, never to the retired",
+      "patterns -- so an exclusion can reduce noise but can NEVER hide a claim",
+      "already known to be false. That asymmetry is the whole safety property.",
+      "Each entry earned its place by producing a false positive on real content."
+    ],
+    "patterns": [
+      {
+        "pattern": "\\bbackend\\s+URL\\b",
+        "why": "a config value the agent may lack, not the backend acting"
+      },
+      {
+        "pattern": "\\byour\\s+(own\\s+)?control\\s+plane\\b",
+        "why": "the customer's control plane in self-hosted mode, not ours"
+      },
+      {
+        "pattern": "^The\\s+(operator|agent)\\b",
+        "why": "subject is the in-cluster agent; 'backend' appears only as an object"
+      }
+    ]
+  }
+}

@@ -33,6 +33,37 @@ jobs:
           path: .operator-v2
           token: ${{ secrets.OPERATOR_REPO_TOKEN || github.token }}
 
+      # The content half needs nothing but this repo, so it runs unconditionally.
+      - name: Retired-claim guard (content)
+        run: python3 scripts/check_retired_claims.py --content content/
+
+      # The EVIDENCE half ties each still-true claim to the code that keeps it true
+      # -- "the control plane builds no Kubernetes client for your cluster" is true
+      # only while the client builders stay deleted. kubenesthq/kubenest-backend is
+      # private, so this follows the same rule as the Helm guard above: allowed to
+      # skip with a warning rather than being permanently red, because a guard that
+      # is always red teaches people to ignore red.
+      - name: Checkout backend for claim evidence
+        id: backend_repo
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          repository: kubenesthq/kubenest-backend
+          path: .kubenest-backend
+          token: ${{ secrets.OPERATOR_REPO_TOKEN || github.token }}
+
+      - name: Retired-claim guard (code evidence)
+        if: steps.backend_repo.outcome == 'success'
+        run: >-
+          python3 scripts/check_retired_claims.py
+          --content content/ --evidence-root .kubenest-backend
+
+      - name: Note when the claim-evidence guard was skipped
+        if: steps.backend_repo.outcome != 'success'
+        run: |
+          echo "::warning title=Claim-evidence guard skipped::Could not read kubenesthq/kubenest-backend." \
+               "Doc claims tied to code (scripts/retired-claims.json 'evidence') were NOT verified."
+
       - name: Install Helm
         if: steps.operator_chart.outcome == 'success'
         uses: azure/setup-helm@v4
