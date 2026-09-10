@@ -213,6 +213,32 @@ fail cost you seconds, and that is a consequence of *sequencing*, not of any rec
 fails halts the sequence rather than continuing. Continuing past a failed check is how one broken
 component becomes a broken cluster.
 
+## Handing workload Application ownership to the cluster
+
+Earlier registered installs can have workload Applications owned by the control plane. A normal
+bundle upgrade preserves every existing Helm value, including an explicit
+`kubenest.workloadApplications.enabled: false`; it does not silently change who deploys your
+workloads.
+
+When you are ready to move that ownership to the in-cluster operator, request the explicit
+hand-off through the upgrade command:
+
+```bash filename="terminal"
+kubenest platform upgrade --cluster prod-1 --to <current-or-newer-bundle> \
+  --migrate-workload-applications
+```
+
+The CLI first asks the control plane to detach its host Applications and refuses unless every
+result is detached or already absent. It then changes only the ownership gate in the existing
+agent HelmChart; the cluster identity, agent token, Git credential, and every other Helm value are
+preserved. Finally it reads the operator's own gate record and requires it to report `open`.
+
+The explicit migration is the one exception to the same-bundle refusal: it may use the current
+bundle because ownership, rather than a component version, is the requested change. Without this
+flag a same-bundle upgrade remains refused. If the hand-off cannot complete, the control plane
+remains in the intermediate migration state and the CLI names the failed step; it never opens the
+operator gate before host Applications are detached.
+
 A component stage is not satisfied by "the pods are Ready", because the *previous* version's pods
 are Ready too — a chart pin that cannot resolve leaves the old release running and everything
 green. It requires that the release reports the pinned version **and** that the job applying it
@@ -497,4 +523,3 @@ pinned by the bundle you name, and only that one. An API removed in 1.1 and irre
 1.3 still breaks your workloads at 1.1, and a 1.0 → 1.3 jump would never scan for it. Skipping a
 bundle is skipping the check that makes the upgrade safe, which is why the answer is a gate rather
 than advice.
-
