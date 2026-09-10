@@ -215,7 +215,7 @@ A control plane that answers `404` here predates the endpoint. That means the ch
 | `GET` | `/clusters/{id}/bundle` | Get the cluster's bundle + profile record: bundle version, profile set, HA tier, volume-group ownership and install journal. All fields are `null` until a KubeNest Platform bundle install records them. Accepts a user JWT or a CLI token with `clusters:read`. |
 | `PUT` | `/clusters/{id}/bundle` | Write the bundle record (the installer's record stage). Validated against the bundle catalog: unknown bundle versions, unknown profile names and HA tiers the bundle does not offer are rejected with `422`. Accepts a user JWT or a CLI token with `install:report`. Replaces the removed `GET/PUT /clusters/{id}/config` component-toggle endpoints. |
 | `GET` | `/clusters/{id}/provisioning-jobs` | List provisioning jobs for a cloud-provisioned cluster, with status and timestamps. |
-| `POST` | `/clusters/{id}/register-argocd` | Register the cluster as an ArgoCD target so the GitOps controller can sync to it. |
+| `POST` | `/clusters/{id}/register-argocd` | Register a legacy backend-owned workload cluster as a host-ArgoCD target. Returns `409 operator_owned_workload_applications` when the connected operator advertises local workload-Application ownership, because that workload path does not use a host target. |
 | `GET` | `/clusters/{id}/rbac` | List cluster-scoped role assignments. |
 | `POST` | `/clusters/{id}/rbac` | Grant a cluster-scoped role to a user. |
 | `PUT` | `/clusters/{id}/rbac` | Replace a user's cluster-scoped role. |
