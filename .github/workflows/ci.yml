@@ -4,6 +4,10 @@ name: CI
 # everything before it, so a page describing unbuilt software fails on the branch
 # rather than at the moment it would go live.
 on:
+  # A holding branch is legitimate, but invisible content drift is not. This
+  # report never blocks a build; it makes unpublished docs paths observable.
+  schedule:
+    - cron: "17 08 * * *"
   push:
     branches-ignore: [main]
   pull_request:
@@ -17,6 +21,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Fetch both refs explicitly. A scheduled run uses main's workflow file,
+      # which means it can report holding-branch drift even if the holding
+      # branch itself has not received this workflow revision.
+      - name: Fetch published and holding docs refs
+        run: >-
+          git fetch --no-tags origin
+          +refs/heads/main:refs/remotes/origin/main
+          +refs/heads/docs/platform-public:refs/remotes/origin/docs/platform-public
+
+      - name: Report unpublished holding-branch content drift
+        run: python3 scripts/report_holding_branch_content_drift.py
 
       # kubenesthq/operator-v2 is private and the default GITHUB_TOKEN cannot read it, so
       # this step fails on every run until a PAT with read access is added as
