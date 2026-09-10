@@ -165,6 +165,28 @@ What exists is the configuration surface. A superuser can define per-tier, per-p
 
 ## Endpoint index
 
+### Control plane version
+
+Which control plane you are talking to, in a form you can compare.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/version` | Returns `contract` and `build`. `contract` is a monotonic integer that increases when client-visible behaviour changes — this is the field to compare when you need to know whether a fix is present. `build` is the git SHA of the running image, for support and forensics; it is `null` when the image was not stamped at build time. Accepts a user JWT or a CLI token with `bundles:read`. |
+
+`contract` is deliberately not a semantic version and carries no compatibility promise. It says one thing: whether this control plane is at or after the point where some behaviour changed. Where a fix or an advisory records a floor, it records that floor as a contract number, so checking it is a single integer comparison and needs nothing but the response:
+
+```bash filename="is this control plane at or after the fix"
+CONTRACT=$(curl -fsS -H "Authorization: Bearer $TOKEN" \
+  "https://api.your-domain.com/api/v1/version" | jq -r .contract)
+[ "$CONTRACT" -ge 1 ] && echo "at or after contract 1"
+```
+
+Do not compare `build` values. Two commit SHAs cannot be ordered without the repository they came from, which is why the orderable field is separate.
+
+A control plane that answers `404` here predates the endpoint. That means the check is **unavailable**, not that the fix is absent — do not read a missing answer as a negative one.
+
+---
+
 ### Auth
 
 | Method | Path | Description |
