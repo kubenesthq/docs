@@ -325,11 +325,16 @@ makes that argument and cannot describe their own response has not made an argum
 The bundle pins the agent. Your control plane upgrades on its own schedule, so the two versions
 are not locked together, and something has to say how far apart they may drift.
 
-**The control plane accepts agents from the current bundle and the one before it** — the same
-two-release window as bundles themselves. A control-plane change that cannot be made compatible
-with an in-window agent waits for a bundle that moves the agent pin. An agent outside the window
-is refused with an error naming the bundle to upgrade to, rather than failing in some subtler way
-later.
+**The stated window is the current bundle and the one before it** — the same two-release window
+as bundles themselves. A control-plane change that cannot be made compatible with an in-window
+agent waits for a bundle that moves the agent pin.
+
+**This window is policy today, not enforcement.** Nothing in the control plane or the hub checks
+an agent's bundle against it, so an out-of-window agent is **not refused** — it connects, and any
+incompatibility shows up later as a failing operation rather than as a named error at the door.
+Enforcement is tracked as `kn-opj8`. Until it lands, read the window as the commitment we hold
+ourselves to when we change the control plane, and keep your clusters inside it rather than
+relying on being told when they leave it.
 
 Without a stated window, the first control-plane upgrade quietly breaks every cluster still on an
 older bundle, which is exactly the class of failure the version number exists to prevent.
