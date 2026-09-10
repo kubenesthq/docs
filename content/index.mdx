@@ -102,9 +102,14 @@ flowchart TD
     style DB stroke-dasharray: 4 4
 ```
 
-**No kubeconfig for your cluster is ever uploaded to KubeNest.** Cluster operations flow through the
-hub to the agent, which runs inside the cluster and has local Kubernetes API access, and acts only
-on signed, schema-validated events.
+**You never upload a kubeconfig.** Application, addon and component-secret operations flow through
+the hub to the agent, which runs inside the cluster and has local Kubernetes API access, and acts
+only on signed, schema-validated events.
+
+One exception, because you should hear it from us rather than find it: to register your cluster
+with ArgoCD, the control plane stores a bearer token your agent advertises and uses it to reach
+your API server directly. It is encrypted at rest, scoped to the namespaces KubeNest manages, and
+rotatable. [Architecture](/architecture) has the detail.
 
 The agent dials **out** to the hub, so that session needs no inbound rule at all and survives NAT
 and egress-only firewalls. (Serving your own traffic is separate — that needs 80 and 443 open, like

@@ -9,7 +9,7 @@ import { Callout } from 'nextra/components'
 
 kubenest is a distributed system with five cooperating components. Each component has a single, well-bounded responsibility, and the boundaries between them are deliberately strict. This page explains what each component does, how they communicate, and why the system is designed the way it is.
 
-Understanding the architecture pays off quickly: it tells you where to look when a deployment stalls, why certain operations are async, and what "the backend never holds your kubeconfig" actually means in practice.
+Understanding the architecture pays off quickly: it tells you where to look when a deployment stalls, why certain operations are async, and exactly what the control plane can and cannot reach inside your cluster.
 
 ## The five components
 
@@ -17,10 +17,12 @@ Understanding the architecture pays off quickly: it tells you where to look when
 
 The backend is the control plane. It is a FastAPI application that owns every user-facing resource: organizations, users, clusters, projects, apps, stack templates, addon instances, and deployment history. All persistent state lives in PostgreSQL. Redis handles job queues, rate-limit counters, and short-lived cache entries (including chart inspection results).
 
-The backend is designed to be **stateless with respect to Kubernetes**: it reads no kubeconfig, and
-cluster operations are dispatched as signed JSON events to the hub and acknowledged asynchronously.
-This is what makes the backend horizontally scalable — you can run multiple replicas behind a load
-balancer without any shared in-process state.
+The backend holds **no Kubernetes client state in process**: application, addon and component-secret
+operations are dispatched as schema-validated JSON events to the hub and acknowledged
+asynchronously. It does keep one credential per cluster in PostgreSQL, used to register that
+cluster with ArgoCD — see [Cluster access](#1-cluster-access) below. Because nothing
+Kubernetes-related is held in memory, you can run multiple replicas behind a load balancer without
+any shared in-process state.
 
 ### kubenest-hub
 
@@ -81,13 +83,15 @@ flowchart LR
 
 ## Three core design principles
 
-### 1. Zero-trust cluster access
+### 1. Cluster access
 
-The backend never holds a kubeconfig or cluster credentials. Every Kubernetes operation originates inside the target cluster, initiated by the operator in response to a validated event. A compromised backend cannot issue arbitrary Kubernetes API calls — the worst it can do is send malformed events, which the hub rejects at the schema-validation boundary.
+Most Kubernetes work originates inside the target cluster. The agent holds the local API access and acts on schema-validated events routed through the hub, and for application, addon and component-secret operations the control plane builds no Kubernetes client for your cluster at all.
 
-This means the operator's own session requires no inbound firewall rule. The operator dials the hub outbound over WebSocket and holds the connection open, so it survives NAT and a restrictive corporate firewall as long as outbound HTTPS/WSS is allowed.
+One path is different, and it is why this page does not claim a clean boundary. To register your cluster with the control plane's ArgoCD, the backend stores a bearer token your agent advertises — together with your API server's address and its CA — and uses it to reach that API server directly. The token is encrypted at rest, scoped to the namespaces KubeNest manages, rotatable, and its TLS is verified against the advertised CA. It is nonetheless a standing credential the control plane holds, and a compromised control plane could use it. Removing that last path, and then the stored credential, is what `kn-cjqw` tracks; until both are done, treat the control plane as a component that can reach your cluster's API.
 
-The control plane connects to the cluster's Kubernetes API server with the credentials the operator advertises, so that endpoint must be reachable from the control plane. `kn-cjqw` is what closes that gap.
+The agent's own session requires no inbound firewall rule. The operator dials the hub outbound over WebSocket and holds the connection open, so it survives NAT and a restrictive corporate firewall as long as outbound HTTPS/WSS is allowed.
+
+The operational consequence of that one path: your cluster's API server address, as advertised by the agent, must be reachable **from the control plane**. An address that resolves only inside the cluster will register but not work.
 
 ### 2. ArgoCD reconciles everything; Git backs the addons
 
