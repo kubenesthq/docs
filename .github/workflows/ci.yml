@@ -50,6 +50,14 @@ jobs:
           token: ${{ secrets.OPERATOR_REPO_TOKEN || github.token }}
 
       # The content half needs nothing but this repo, so it runs unconditionally.
+      # Proves the guard CAN FAIL before trusting it to say nothing is wrong.
+      # Its failure mode is entirely in the green path: a broken pattern makes
+      # it print "clean" forever and nothing downstream notices, because a red
+      # result gets investigated and a green one does not. Depends on this
+      # repository only, so it is safe to gate the publish on.
+      - name: Retired-claim guard SELF-TEST (can it still fail?)
+        run: python3 scripts/selftest_retired_claims.py
+
       - name: Retired-claim guard (content)
         run: python3 scripts/check_retired_claims.py --content content/
 

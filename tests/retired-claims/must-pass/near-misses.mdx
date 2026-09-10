@@ -1,0 +1,13 @@
+# Fixture: this page MUST NOT trip the guard
+
+Prose that sits close to the retired claims without making them. If the guard
+fires here it is over-matching, which costs a publish and trains people to
+ignore it.
+
+The control plane stores an encrypted cluster bearer token, and the operator
+holds its own credentials in the cluster.
+
+A compromised control plane can build a Kubernetes client from what it holds,
+which is why the earlier claim was retired.
+
+Most cluster operations are routed through the hub to the in-cluster agent.
