@@ -179,10 +179,16 @@ Access tokens are validated on every request by the backend's FastAPI dependency
 
 When a cluster is registered, the backend mints a **cluster JWT** — a long-lived token scoped to that cluster's UUID. This token is embedded in the Kubernetes Secret created by the operator Helm chart. The operator presents it to the hub in the `Authorization: Bearer` header when establishing its WebSocket connection.
 
-The hub validates the cluster JWT (signature + `cluster_id` claim) and associates the authenticated session with that cluster ID. Subsequent events from that session are authoritative for that cluster — the backend trusts hub-routed status events without re-validating the operator's identity on each message.
+The hub validates the cluster JWT (signature + `cluster_id` claim), then checks the token's `token_version` claim against the cluster's **revocation floor** — the lowest version the hub still admits. A token below the floor is refused, and a rotation also closes the cluster's live session rather than waiting for it to reconnect. Once admitted, the session is associated with that cluster ID and subsequent events from it are authoritative for that cluster — the backend trusts hub-routed status events without re-validating the operator's identity on each message.
+
+The floors are pushed to the hub by the backend and held in the hub's memory. A hub that has restarted and has not yet received them, or whose copy has gone stale, **refuses every operator connection** with a retryable `503` until the control plane reconnects. That is deliberate: a hub restart is predictable, so admitting operators unverified for a window after one would make the window selectable. Existing connections are not dropped and workloads on the cluster are unaffected — this is a control-plane pause, not an outage on your cluster.
 
 <Callout type="warning">
-The cluster JWT is long-lived and has significant privilege. Treat it like an SSH private key: store it in a Kubernetes Secret (the Helm chart does this automatically), restrict access to that Secret via RBAC, and rotate it immediately if you believe it was compromised. Rotation is done via the backend API — see [Cluster Registration](/connect-cluster).
+The cluster JWT is long-lived and has significant privilege. Treat it like an SSH private key: store it in a Kubernetes Secret (the Helm chart does this automatically), restrict access to that Secret via RBAC, and revoke it immediately if you believe it was compromised.
+
+Revoke with `POST /clusters/{id}/rotate-token` — see the [API reference](/api). It is the only call that raises the revocation floor, and every token previously issued for that cluster stops working the moment it returns.
+
+**It is not a hygiene operation.** The new token reaches the agent through the operator chart's values, so the cluster stays disconnected until you run an install or upgrade carrying it. Rotating a fleet on a schedule would disconnect the fleet. Re-running `kubenest platform install` is *not* a revocation: it issues a higher-versioned token and deliberately leaves the floor where it is, so re-running an install cannot lock a healthy cluster out of its own hub.
 </Callout>
 
 ### Backend-to-hub authentication
