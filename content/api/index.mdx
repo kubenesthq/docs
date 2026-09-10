@@ -220,7 +220,7 @@ The bundle catalog: the KubeNest Platform release manifests this control plane k
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/projects` | List all projects the user can access. |
-| `POST` | `/projects` | Create a project (Kubernetes namespace) on a cluster. |
+| `POST` | `/projects` | Request creation of a project (Kubernetes namespace) on a cluster. The backend persists the desired project before dispatching it through the hub; the initial lifecycle is pending, not a claim that the namespace already exists. It becomes ready only after the operator reports the matching Project. If the hub or cluster cannot confirm it, the record stays visible with a named degraded lifecycle reason and reconciliation continues. |
 | `GET` | `/projects/{id}` | Get project details and status. |
 | `DELETE` | `/projects/{id}` | Request project cleanup. Requires the org `admin` role and returns `202 Accepted` with a retained cleanup-pending record. The backend keeps that record until the operator confirms that both the managed Project CR and its namespace (including its workloads, addons, and secrets) are absent. Persistent-volume retention follows the cluster storage class policy. If the cluster cannot confirm cleanup, the record stays visible with a `cleanup_degraded` lifecycle reason and reconciliation continues; it is never reported as deleted merely because delivery to the cluster failed. |
 | `GET` | `/projects/{id}/apps` | List every app in the project. |

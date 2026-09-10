@@ -126,8 +126,6 @@ to build first, and `kn-xrxs` needs splitting before anyone starts.
 |---|---|---|
 | `dsn` and `DATABASE_URL` are usable connection strings | The password segment is a literal `${postgres-password}` that nothing substitutes | `kn-kgu5` |
 | A standalone addon instance can be referenced by `addon_instance_id` from an App | The CRD converter writes the instance UUID into a `component` key, so the create fails | `kn-l8z5` |
-| Deleting a project removes the namespace and its workloads | Only the control-plane record is deleted; the namespace and Project CR keep running | `kn-ezf4` |
-| A hub-dependent write either succeeds or fails visibly | A failed `project_create` send is swallowed and the record diverges silently | `kn-z7g7` |
 | The API is rate limited | Enforcement is attached to one sample route; no usage endpoint, no `X-RateLimit-*` headers | `kn-3m3z` |
 | `kubenest cluster connect` — the command the API returns | Not an implemented subcommand. The docs route around it by documenting the Helm path, so nothing on the site is wrong today; the API response still offers it | `kn-887b` |
 
