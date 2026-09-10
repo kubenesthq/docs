@@ -53,7 +53,7 @@ these must close **before the first customer install**, not merely before someon
 
 | The site says | The code does | Bead |
 |---|---|---|
-| Cluster operations flow through the hub to the agent; no cluster credential is held by the control plane | Registration persists a cluster-admin bearer token on the cluster record, and StackDeploy CRUD, ArgoCD registration, component secrets and addon mutations call the tenant cluster's API directly with it | `kn-cjqw`, `kn-p61d` |
+| Cluster operations flow through the hub to the agent; no cluster credential is held by the control plane | Registration persists a cluster-admin bearer token on the cluster record, and StackDeploy CRUD, ArgoCD registration and addon mutations call the tenant cluster's API directly with it | `kn-cjqw`, `kn-p61d` |
 | Three roles — `admin`, `member`, `viewer` — bind at organization, cluster and project scope | Only the organization role is enforced. Cluster- and project-scoped bindings are membership records no endpoint consults, so a `viewer` can create projects, deploy apps and write secrets | `kn-gdf` |
 | The operator presents the cluster JWT in an `Authorization: Bearer` header | It is passed as a URL query parameter, so the credential lands in access, proxy and APM logs | `kn-ws-token-in-query-param-nahc` |
 | The control plane never renders a credential into a browser | Fixed for the install command (`kn-kvc3`); the remaining phases of the per-tenant credential broker are in flight | `kn-rnyl` |
