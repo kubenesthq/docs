@@ -113,6 +113,24 @@ Pushing to `main` triggers `.github/workflows/deploy.yml`, which builds the stat
 
 To deploy the built output elsewhere, `bun run build` produces a fully static site in `out/` that any static host will serve.
 
+### Published-branch contract
+
+`main` is the sole published source. A factual correction belongs on `main`, where its push
+reaches readers; do not treat a clean commit on another branch as delivery.
+
+`docs/platform-public` is a non-published holding branch for an unreviewed, broad public-content
+rewrite. It is not a deploy candidate and must not be merged wholesale, force-pushed over, or
+checked out in the shared `/data/projects/kubenest/kubenest-docs` worktree. If work on that rewrite
+resumes, use a separately coordinated worktree so the shared checkout remains on `main`.
+
+When a reviewed correction first exists on `docs/platform-public`, move only that correction to
+`main` through a narrow reviewed cherry-pick or pull request, then push `main`. Never use the
+holding branch as the default destination for an operational or API-truth correction.
+
+For any claim about what readers see, fetch first and inspect `origin/main` content (for example,
+`git show origin/main:content/api/index.mdx`), then check the served page. The working tree and
+commit ancestry are not publication evidence.
+
 ## Related repositories
 
 - [kubenest-backend](https://github.com/kubenesthq/kubenest-backend) — FastAPI control plane
