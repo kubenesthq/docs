@@ -37,8 +37,12 @@ jobs:
       # it print "clean" forever and nothing downstream notices, because a red
       # result gets investigated and a green one does not. Depends on this
       # repository only, so it is safe to gate the publish on.
-      - name: Retired-claim guard SELF-TEST (can it still fail?)
-        run: python3 scripts/selftest_retired_claims.py
+      # --publish-gate: refuses a publish only when the GUARD HAS STOPPED WORKING.
+      # Incomplete fixture coverage is reported and does not block, because it is
+      # pre-existing debt that this publish did not cause and the guard still fires
+      # for every claim that has a fixture. CI enforces coverage on the change.
+      - name: Retired-claim guard SELF-TEST (has it stopped working?)
+        run: python3 scripts/selftest_retired_claims.py --publish-gate
 
       - name: Retired-claim guard (content)
         run: python3 scripts/check_retired_claims.py --content content/
