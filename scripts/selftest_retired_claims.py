@@ -1,5 +1,18 @@
 #!/usr/bin/env python3
-"""Prove the retired-claim guard CAN FAIL, and that it does not over-fire.
+"""Prove the retired-claim guard fires on the fixtures here, and does not over-fire.
+
+WHAT THIS DOES NOT CHECK, FIRST, BECAUSE THE NAME IS MORE AMBITIOUS THAN THE
+ASSERTION. It does NOT establish that the guard catches wording nobody wrote a
+fixture for. The must-trip corpus is one page per retired claim, PHRASED BY THE
+PERSON WHO WROTE THE FIXTURE, so this proves the guard catches the synonyms that
+person thought of and nothing more. The guard exists because a claim reappeared
+in a wording its author had not anticipated; a fixture corpus is an enumerated
+set of anticipated wordings and cannot close that. Whether the registry's
+patterns are broad enough is a REVIEW OBLIGATION at the moment a claim is
+retired, and no test performs it.
+
+What it does close is the green-path hole: a guard whose patterns have silently
+stopped matching anything reports clean forever, and this fails instead.
 
 WHY THIS EXISTS. check_retired_claims.py protects the publish: if a retired
 security claim reappears in any wording, the deploy stops. Its failure mode is

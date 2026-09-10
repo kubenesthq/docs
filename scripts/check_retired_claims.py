@@ -1,5 +1,23 @@
 #!/usr/bin/env python3
-"""Fail when a RETIRED claim reappears in the docs, in any wording.
+"""Fail when a retired claim reappears in a wording this registry can recognise.
+
+WHAT THIS DOES NOT CHECK, SAID FIRST BECAUSE THE OBVIOUS READING OF THE NAME IS
+WRONG. It does NOT catch a retired claim "in any wording". Both layers are word
+lists someone wrote down: the per-claim patterns enumerate synonyms for that
+claim, and the tripwire that catches UNCLASSIFIED prose is three enumerated
+alternations -- a subject list, a negation list and a capability-noun list. A
+sentence that makes a retired claim while naming none of those words passes
+silently. "The service holds nothing that could reach your workloads" trips
+nothing here.
+
+The tripwire is genuinely broader than the per-claim patterns, because a sentence
+matching subject+negation+capability that no registry entry accounts for FAILS
+THE BUILD rather than being ignored -- that is what stops a new wording being
+silently absent. But broader is not complete, and this file has claimed
+completeness since it was written.
+
+WHETHER THE WORD LISTS ARE WIDE ENOUGH IS A REVIEW OBLIGATION at the moment a
+claim is retired, and no code here performs it.
 
 WHY THIS EXISTS (kn-mxxu). On 2026-08-22 a pre-publication truth pass retired the
 claim "a compromised backend cannot issue arbitrary kubectl commands" from the
@@ -8,10 +26,12 @@ arbitrary Kubernetes API calls", sat in that same commit's own diff as untouched
 context on the architecture page. It stayed live for three more months and was
 found by accident.
 
-The fix hunted a PHRASE. The claim had a SYNONYM. So this guard matches claims by
-their semantic parts -- a subject that is us, a negation, and a capability noun --
-rather than by remembered sentences. A literal-string check would reproduce the
-exact bug it is meant to prevent.
+The fix hunted a PHRASE. The claim had a SYNONYM. So this guard decomposes a
+claim into a subject that is us, a negation, and a capability noun, which catches
+more wordings than a remembered sentence does. That is a WIDER NET, not a
+semantic one: the parts are still enumerated words, and the failure that produced
+this bead -- an author not anticipating a synonym -- can recur one level up, in
+the word lists.
 
 TWO WAYS A REGISTRY LIKE THIS GOES STALE, and what is done about each:
 
