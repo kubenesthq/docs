@@ -53,10 +53,25 @@ these must close **before the first customer install**, not merely before someon
 
 | The site says | The code does | Bead |
 |---|---|---|
-| Cluster operations flow through the hub to the agent; no cluster credential is held by the control plane | Registration persists a cluster-admin bearer token on the cluster record, and StackDeploy CRUD, ArgoCD registration and addon mutations call the tenant cluster's API directly with it | `kn-cjqw`, `kn-p61d` |
+| Cluster operations flow through the hub to the agent; no cluster credential is held by the control plane | Registration persists a bearer token on the cluster record, and StackDeploy CRUD, ArgoCD registration and addon mutations call the tenant cluster's API directly with it | `kn-cjqw`, `kn-2fz2`, `kn-qh3g`, `kn-37n5` |
 | Three roles — `admin`, `member`, `viewer` — bind at organization, cluster and project scope | Only the organization role is enforced. Cluster- and project-scoped bindings are membership records no endpoint consults, so a `viewer` can create projects, deploy apps and write secrets | `kn-gdf` |
 | The operator presents the cluster JWT in an `Authorization: Bearer` header | It is passed as a URL query parameter, so the credential lands in access, proxy and APM logs | `kn-ws-token-in-query-param-nahc` |
 | The control plane never renders a credential into a browser | Fixed for the install command (`kn-kvc3`); the remaining phases of the per-tenant credential broker are in flight | `kn-rnyl` |
+
+**Row 1 changed 2026-09-11 and the change is a correction, not progress.** `kn-p61d` was removed
+from it and `kn-cjqw`'s companions named instead. Two reasons, and the first is a defect this file
+had:
+
+- **The row said "a *cluster-admin* bearer token" and that has not been true since chart 2.6.8.**
+  `kn-p61d` fix 3 replaced the cluster-admin binding with namespace-scoped roles plus three
+  cluster-scoped reads. This file overstated the live defect, in the one section whose whole purpose
+  is to state defects accurately.
+- **`kn-p61d` closed on its acceptance, and closing it here would have read as progress toward this
+  row.** It is not. All four of its fixes shrink the credential — shorter-lived, encrypted, scoped,
+  verified — and **smaller is not absent**. The row becomes false only when the control plane stops
+  holding a tenant credential at all, which is `kn-2fz2`, `kn-qh3g`, `kn-37n5` and the `argocd.py`
+  bearer-into-cluster-Secret path. Those are now the beads named, so a reader watching this row
+  watches the things that can actually retire it.
 
 There is no live control plane and no customer cluster today, so nothing is exposed right now. That
 is the reason this was an acceptable trade to make, and it is also the thing that stops being true
