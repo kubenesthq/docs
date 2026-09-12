@@ -69,8 +69,10 @@ had:
 - **`kn-p61d` closed on its acceptance, and closing it here would have read as progress toward this
   row.** It is not. All four of its fixes shrink the credential — shorter-lived, encrypted, scoped,
   verified — and **smaller is not absent**. The row becomes false only when the control plane stops
-  holding a tenant credential at all, which is `kn-2fz2`, `kn-qh3g`, `kn-37n5` and the `argocd.py`
-  bearer-into-cluster-Secret path. Those are now the beads named, so a reader watching this row
+  holding a tenant credential at all. **Three of those are closed** (`kn-2fz2`, `kn-37n5`,
+  `kn-qh3g`); the fourth is **`kn-bz3k`** — stop advertising the bearer once the operator owns
+  Applications, which removes the `argocd.py` cluster-Secret write by removing its input. And
+  `kn-zod2` sits between the code and any claim about installs. Those are now the beads named, so a reader watching this row
   watches the things that can actually retire it.
 
 There is no live control plane and no customer cluster today, so nothing is exposed right now. That
