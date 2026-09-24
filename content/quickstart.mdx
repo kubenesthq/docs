@@ -53,8 +53,13 @@ kubenest platform install \
 ```
 
 ```ansi filename="output"
-[14/14] verify ok
-agent-reconciles: pass
+[14/14] verify                ok
+
+Installed in 5m43s.
+Journal: /home/you/.kubenest/journals/mgmt.json
+
+Console:      https://app.203.0.113.10.sslip.io
+Logged in to https://api.203.0.113.10.sslip.io
 ```
 
 `--domain` is optional. Without it the installer uses `<first --server address>.sslip.io`, so this
