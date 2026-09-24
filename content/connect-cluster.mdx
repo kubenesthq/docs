@@ -1,7 +1,9 @@
 ---
 title: Connect an existing cluster
-description: Existing Kubernetes clusters cannot yet be connected to a KubeNest control plane.
+description: Existing Kubernetes clusters cannot yet be connected to KubeNest; every managed cluster comes from the platform installer.
 ---
+
+import { Callout } from 'nextra/components'
 
 # Connect an existing cluster
 
@@ -9,22 +11,32 @@ KubeNest does not currently support connecting an existing Kubernetes cluster �
 kubeadm, or an already-running k3s — to a control plane.
 
 Do not run `kubenest cluster connect`: that command is not implemented. Creating a manual cluster
-record in the console records metadata only; it does not install an operator or mint a credential.
+record in the console records metadata only; the record has no agent behind it, so it never connects.
 
 ## What works today
 
-To create a **new KubeNest platform** on fresh Ubuntu hosts, use the platform installer:
+Every cluster KubeNest manages comes from the platform installer, on hosts you supply. The first
+install creates the control plane and registers itself to it; further clusters register to the same
+control plane through the same API path:
 
 ```bash filename="terminal"
-kubenest platform install --help
+# On the first cluster: platform bundle and control plane together.
+kubenest platform install --control-plane --bundle 1.0 --name mgmt ...
+
+# On each further cluster, from a logged-in CLI.
+kubenest platform install --bundle 1.0 --name client-a ...
 ```
 
-That installer establishes a new K3s platform and deliberately refuses hosts that already run
-Kubernetes. It does not connect an existing cluster record. See [Install the platform](/install)
-for the supported new-host path.
+The installer establishes a new K3s platform and deliberately refuses hosts that already run
+Kubernetes. See [Install the platform](/install) for the supported new-host path and
+[Quickstart](/quickstart) for the two commands end to end.
 
-Existing-cluster connection will be documented here only once the CLI can install the bundle-pinned
-agent through a supported transport and verify its real control-plane heartbeat.
+<Callout type="info">
+Bringing an existing cluster under management would mean adopting the ingress, CSI and certificate
+manager already installed on it — the untested component combination the bundle exists to
+eliminate. It will be documented here only once the CLI can install the bundle-pinned agent through
+a supported transport and verify its real control-plane heartbeat.
+</Callout>
 
 ---
 

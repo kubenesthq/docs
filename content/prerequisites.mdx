@@ -1,58 +1,66 @@
 ---
 title: Prerequisites
-description: What the proven standalone KubeNest install needs — and what belongs only to a separately operated control-plane path.
+description: What the KubeNest platform install needs — hosts, access, disks, and the network path to the control plane.
 ---
 
 import { Callout } from 'nextra/components'
 
 # Prerequisites
 
-KubeNest hosts no control plane for you. The proven starting path is a standalone install: one
-clean Ubuntu 24.04 host, no login, no control plane and no hub connection.
+KubeNest is installed onto hosts you own, and every cluster it installs registers to a control
+plane. The first install creates that control plane inside the cluster it is installing, so the
+whole product starts from one Ubuntu host and no separate service to sign up for.
 
-## The proven standalone path
+## The first install
 
-The real-host acceptance used:
+You need:
 
-- a clean Ubuntu 24.04 host;
+- one Ubuntu 24.04 host with at least 2 vCPU, 3.7 GiB RAM and 36 GiB of free disk on the root
+  filesystem;
 - SSH access from the machine running the CLI, with passwordless `sudo` on the host;
-- a blank storage device supplied with `--storage-device`; and
-- normal outbound access to retrieve container images and Helm charts.
+- either a pre-created `kubenest-vg` volume group or a blank storage device, given to the installer
+  with `--storage-device`; and
+- normal outbound access to container registries and Helm repositories, for the duration of the
+  install.
 
-It ran `kubenest platform install --standalone --bundle 1.0` with one `--server` and
-`--ha single-server`. All thirteen stages passed in 4m56s. The agent became Ready without a
-backend URL, bearer token or hub connection, then reconciled a verification `Project` to `Ready`.
+The management host must also accept TCP 443 from the machine running the CLI: the console and the
+API are served there, and the CLI reads the bundle manifest and reports install progress over that
+connection.
 
-The standalone command needs neither `kubenest login` nor a route to a KubeNest control plane or
-hub. Stage 12 keeps the installed bundle, profile set, HA tier and storage ownership in the local
-ConfigMap `kubenest-system/kubenest-cluster-record`. A standalone cluster is a complete platform,
-not a degraded one.
+```bash filename="terminal"
+kubenest platform install \
+  --control-plane \
+  --bundle 1.0 \
+  --name mgmt \
+  --ha single-server \
+  --server 203.0.113.10 \
+  --ssh-user ubuntu \
+  --storage-device /dev/nvme1n1
+```
+
+That command installs the platform bundle and the control plane together, registers the cluster to
+its own control plane, and leaves the CLI logged in. See [Quickstart](/quickstart) for the full
+walkthrough and [Install the platform](/install) for the flags, the stages and recovery.
+
+## Adding clusters
+
+Further clusters are installed from a machine with the same host and SSH requirements, plus a CLI
+logged in to the management cluster's control plane:
+
+- when the CLI is already logged in, `kubenest platform install` with no `--control-plane` flag is
+  enough;
+- on a machine that has never logged in, run
+  `kubenest login --control-plane https://api.<domain> --token-stdin --ca-file <platform CA>`
+  first.
+
+The new cluster's agent connects **out** to the management cluster's hub over `wss` on port 443, so
+the management host must accept 443 from the new cluster as well as from the machine running the
+CLI.
 
 <Callout type="info">
-**This is not an air-gapped claim.** The acceptance host had normal egress to retrieve the bundle
-components. It proves that a control plane and hub are not prerequisites; it does not prove an
-air-gapped installation.
+**Air-gapped installs are not covered here.** The installer pulls component images and charts from
+public registries, and the new cluster needs the route to the management host described above. Plan
+a registry mirror and that route before treating an air-gapped estate as supported.
 </Callout>
 
-## A separately operated control-plane path
-
-KubeNest does not provide this service. If you operate your own control plane and choose an install
-*without* `--standalone`, that separate path has different requirements:
-
-- the machine running the CLI needs HTTPS access to **your** control plane to authenticate and read
-  the bundle manifest;
-- the installed agent needs persistent outbound WSS access to **your** hub; and
-- the control plane needs reachability to the cluster Kubernetes API for its connected-cluster
-  operations.
-
-That path is present in the CLI, but it was not exercised by the kn-sf17 real-host acceptance. It
-is not a prerequisite for the standalone command above.
-
-## What this page does not establish
-
-The standalone proof did not exercise a public IP, DNS, an HTTPS endpoint, an application
-deployment, a backup target or completed backup, a maintenance window, a three-node topology, or
-another host size. Those are not presented here as standalone prerequisites.
-
-For the runnable command and its stage-by-stage evidence, see [Quickstart](/quickstart) and
-[Install the platform](/install).
+For the runnable commands, see [Quickstart](/quickstart) and [Install the platform](/install).

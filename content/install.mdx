@@ -1,6 +1,6 @@
 ---
 title: Install the platform
-description: Install the KubeNest Platform bundle — a pinned, tested k3s stack — onto Ubuntu hosts you supply.
+description: Install the KubeNest Platform bundle — a pinned, tested k3s stack — onto Ubuntu hosts you supply, with the control plane created by the first install.
 ---
 
 import { Callout, Steps } from 'nextra/components'
@@ -12,9 +12,18 @@ The KubeNest Platform is a pinned, tested bundle of everything a Kubernetes clus
 Kubernetes itself — ingress, certificates, storage, backup, upgrade orchestration and OS patching —
 installed together as one versioned unit onto Ubuntu hosts you supply.
 
-This page covers installing that bundle onto machines that have no Kubernetes on them yet. KubeNest
-hosts no control plane for you: the documented install is standalone, with no login, no external
-control plane and no hub connection.
+This page covers installing that bundle onto machines that have no Kubernetes on them yet — and the
+control plane that manages the fleet. Every cluster registers to a control plane through the same
+API path. The first install creates the control plane inside the cluster it is installing and leaves
+the CLI logged in to it; every cluster after that registers to the same control plane.
+
+<Callout type="info">
+**All-in-one or two-tier.** Putting the control plane inside the cluster that also runs your
+applications is right for trying KubeNest and for a small fleet: one host to keep. For production,
+run a dedicated management cluster and add workload clusters to it. Running applications on the
+management cluster means one application's memory pressure can take the console down for the whole
+fleet, and upgrading that cluster upgrades the thing that manages everything else.
+</Callout>
 
 ## What "one click" means here
 
@@ -105,9 +114,9 @@ Which option you used is recorded against the cluster, because it determines wha
 
 ### Backup
 
-Velero is installed as part of core. The standalone proof established that stage 8 completed, but
-did not configure a target, run a backup, or exercise a fleet-health view. This page therefore
-does not present backup configuration or fleet reporting as a proven outcome of the standalone run.
+Velero is installed as part of core. The install does not configure a backup target; where backups
+are written is yours to choose and configure after the cluster is up. See
+[Backup and restore](/backup-restore).
 
 <Callout type="info">
 Velero itself is not optional and is not a profile. Core is a fixed set — variation comes from
@@ -127,16 +136,19 @@ Between cluster nodes:
 
 Outbound from the cluster and from the machine running the installer:
 
-- HTTPS to container registries and Helm repositories, for the duration of the install.
+- HTTPS to container registries and Helm repositories, for the duration of the install;
+- TCP 443 to the management cluster, from the machine running the CLI, for the control plane API and
+  console; and
+- TCP 443 to the management cluster, from each cluster that is being added, because its agent opens
+  the hub connection outbound as `wss` on that port.
 
-A standalone install needs neither a KubeNest control plane nor a hub route. Its agent is explicitly
-unmanaged and reconciles inside the cluster; the real-host acceptance observed it Ready without a
-backend URL or bearer token.
+The agent opens that connection outbound and holds it open, so it survives NAT and an egress-only
+firewall.
 
 <Callout type="info">
-**Air-gapped installs are not covered here.** The real-host standalone proof used normal egress to
-retrieve the bundle components. It establishes that no control plane or hub is required; it does
-not establish an air-gapped installation.
+**Air-gapped installs are not covered here.** The installer retrieves the bundle components over
+normal egress, and each added cluster needs the route to the management host described above. Plan a
+registry mirror and that route before treating an air-gapped estate as supported.
 </Callout>
 
 ### Access
@@ -207,21 +219,54 @@ Profiles, what changing one later does, and what it does not do, are covered on 
 ## The install command
 
 The installer is the `kubenest` CLI, run from your own workstation or bastion. Your SSH keys stay
-on your machine. Do not log in first: the standalone path needs no control plane.
+on your machine.
 
-Install:
+### The first cluster
+
+On the first cluster, `--control-plane` installs the platform bundle and the KubeNest control plane
+— console, API, hub, Postgres and Redis — into that cluster, registers the cluster to that control
+plane, and leaves the CLI logged in:
 
 ```bash filename="terminal"
 kubenest platform install \
-  --standalone \
+  --control-plane \
   --bundle 1.0 \
-  --name prod-1 \
-  --server 10.0.1.10 \
+  --name mgmt \
   --ha single-server \
+  --server 10.0.1.10 \
   --ssh-user ubuntu \
   --ssh-key ~/.ssh/id_ed25519 \
   --storage-device /dev/nvme1n1
 ```
+
+`--domain` is optional and defaults to `<first --server address>.sslip.io`. The console is served at
+`https://app.<domain>` and the API at `https://api.<domain>`. The certificate for those hostnames is
+issued by the cluster's own platform CA, so a browser shows a certificate warning until you import
+that CA or configure your own issuer; the CLI stores the CA automatically. `--admin-email` is
+optional and defaults to `admin@<domain>`. The installer prints the generated admin password **once**
+— save it.
+
+### Every cluster after that
+
+With the CLI logged in, drop `--control-plane` and install the platform on the next cluster:
+
+```bash filename="terminal"
+kubenest platform install \
+  --bundle 1.0 \
+  --name client-a \
+  --ha single-server \
+  --server 10.0.2.10 \
+  --ssh-user ubuntu \
+  --storage-device /dev/nvme1n1
+```
+
+The new cluster's agent connects **out** to the management cluster's hub over `wss` on 443, so the
+management host must accept 443 from the new cluster and from the machine running the CLI. On a
+machine that has not logged in, run
+`kubenest login --control-plane https://api.<domain> --token-stdin --ca-file <platform CA>` first.
+
+The management cluster is registered through the API like every other cluster, and the control plane
+it runs is the one the whole fleet registers to.
 
 `--bundle` selects the platform version. Every component version is pinned by that number — the
 bundle is the unit of test, of support and of upgrade, and a cluster is always at exactly one
@@ -235,21 +280,7 @@ Re-running the same command against the same cluster is safe. The installer conv
 not duplicate resources and it does not fail because something is already present.
 
 Re-running is a journal replay rather than a second install. `preflight`, `register` and `verify`
-always run; every stage the journal records as completed is skipped. The clean-host standalone
-proof did not exercise a resume, so it does not make a timing claim for one.
-
-### Standalone is the install path
-
-`--standalone` makes the cluster register with nothing. KubeNest hosts no control plane, and no
-login, hub connection or control-plane reachability is required for this install.
-
-The cluster still keeps the durable information an upgrade needs: stage 12 writes its bundle
-version, profile set, HA tier and volume-group ownership into
-`kubenest-system/kubenest-cluster-record`. A standalone cluster is a complete platform, not a
-degraded one.
-
-The clean-host proof covered Platform 1.0 on one Ubuntu 24.04 server. It did not exercise a
-managed or multi-cluster install, so this page does not claim either path as verified.
+always run; every stage the journal records as completed is skipped.
 
 ### Provisioning the machines
 
@@ -263,44 +294,70 @@ separate command rather than a flag on `install`: provisioning and installing fa
 ways and are re-run under different circumstances, and a failed install must never re-run
 `terraform apply`. GCP and Azure are not planned.
 
-### Does standalone have a fleet view?
+### The console and the fleet view
 
-No. A standalone cluster has no fleet view and no `kubenest cluster` commands against a control
-plane. The record is local to the cluster rather than a hosted service. Adding a control plane for
-a fleet is outside the real-host proof this page documents.
+Every cluster registered to the control plane appears in the console's fleet view with its bundle
+version, HA tier and health, so a cluster that is behind or unhealthy is visible rather than silent.
+See [Console](/console).
 
 ## What the installer does, in order
 
-Thirteen stages. In standalone mode each prints progress at the terminal, and each names itself in
-any failure.
+Every install prints progress at the terminal, and every stage names itself in any failure.
 
 The order is not arbitrary — every stage depends on the ones above it.
+
+### A registered install — thirteen stages
+
+With the CLI logged in and no `--control-plane` flag, the install runs these thirteen stages:
 
 | # | Stage | What happens |
 |---|---|---|
 | 1 | `preflight` | Every check in the table below, against every node; the requested bundle comes from the CLI |
-| 2 | `register` | A local cluster identity is generated; nothing is registered anywhere and no agent credential is issued |
+| 2 | `register` | The cluster is registered to the control plane through the API, and its agent credential is minted |
 | 3 | `k3s-server` | k3s at the pinned version on the control-plane node, or all three for the `ha` tier |
 | 4 | `k3s-agents` | Agents join the server |
 | 5 | `platform-networking` | Traefik with the Gateway API provider, and the Gateway API CRDs |
 | 6 | `platform-certs` | cert-manager |
 | 7 | `platform-storage` | The volume group is verified or created, then OpenEBS Local PV LVM and the default StorageClass |
-| 8 | `platform-backup` | Velero, configured if a target was supplied |
+| 8 | `platform-backup` | Velero |
 | 9 | `platform-day2` | `system-upgrade-controller` and `kured` |
-| 10 | `kubenest-agent` | The KubeNest agent in unmanaged mode; it reaches Ready without a hub connection |
+| 10 | `kubenest-agent` | The KubeNest agent, installed with the credential minted at stage 2; it connects to the control plane's hub |
 | 11 | `profiles` | Each selected profile, in the order listed above. No component profile is built yet, so this stage refuses one rather than installing core and calling it done |
-| 12 | `record` | The bundle version, profile set, HA tier and volume-group ownership are written to `kubenest-system/kubenest-cluster-record` |
+| 12 | `record` | The bundle version, profile set, HA tier and volume-group ownership are recorded, so a later upgrade starts from them |
 | 13 | `verify` | The acceptance checks below are run and reported |
 
-Stage 1 writes nothing anywhere. Stage 2 records only a local identity. The first change to any of
-your machines happens in stage 3.
+Stage 1 writes nothing anywhere. Stage 2 writes only to the control plane. The first change to any
+of your machines happens at `k3s-server`.
+
+### A `--control-plane` install — fourteen stages
+
+The first cluster adds the `control-plane` stage and moves `register` after it, because registering
+needs the control plane that stage has just installed. `kubenest-agent` follows `register` because
+it needs the credential `register` mints.
+
+| # | Stage | What happens |
+|---|---|---|
+| 1 | `preflight` | As above |
+| 2 | `k3s-server` | As above |
+| 3 | `k3s-agents` | As above |
+| 4 | `platform-networking` | As above |
+| 5 | `platform-certs` | As above |
+| 6 | `platform-storage` | As above |
+| 7 | `platform-backup` | As above |
+| 8 | `platform-day2` | As above |
+| 9 | `control-plane` | The control-plane chart — console, API, hub, Postgres and Redis — is installed into this cluster, and the CLI is signed in to it. It runs after `platform-day2` because it uses the Gateway, the platform CA issuer and the storage class those stages installed |
+| 10 | `register` | The cluster is registered to that control plane through the API, and its agent credential is minted |
+| 11 | `kubenest-agent` | The KubeNest agent, installed with that credential; it connects to the hub of the control plane in this same cluster |
+| 12 | `profiles` | Each selected profile |
+| 13 | `record` | The bundle version, profile set, HA tier and volume-group ownership are recorded |
+| 14 | `verify` | The acceptance checks below are run and reported |
 
 ```mermaid
 flowchart TD
     subgraph safe ["Nothing on your machines has changed"]
         direction TB
         S1["1 · preflight<br/>every check, every node"]
-        S2["2 · register<br/>local identity only"]
+        S2["2 · register<br/>control-plane API only"]
         S1 --> S2
     end
 
@@ -318,7 +375,7 @@ flowchart TD
 
     subgraph fin ["Identity and proof"]
         direction TB
-        S10["10 · kubenest-agent<br/>unmanaged, no hub"] --> S11["11 · profiles"]
+        S10["10 · kubenest-agent<br/>dials the hub"] --> S11["11 · profiles"]
         S11 --> S12["12 · record"] --> S13["13 · verify"]
     end
 
@@ -332,16 +389,15 @@ flowchart TD
     style STOP stroke-dasharray: 4 4
 ```
 
+The diagram numbers the registered order. In a `--control-plane` install a `control-plane` stage
+runs between `platform-day2` and `register`, as the table above shows.
+
 Everything above the labelled edge is recoverable by walking away. That is the property the
 ordering exists to give you: the expensive checks happen while abandoning the install costs
 nothing.
 
-The documented time budget is fifteen minutes. The real-host standalone proof below establishes
-one single-server core shape only; it does not establish a time for a three-node or profiled install.
-
-A single-server standalone core install on a clean Ubuntu 24.04 host completed all thirteen stages
-in **4m56s**. That is the real-host proof recorded for this path; it does not establish a time for
-other host sizes or topologies.
+The documented time budget is fifteen minutes. It is a budget for one single-server core shape, not
+a claim about a three-node or profiled install.
 
 <Callout type="info">
 **The budget and the timeout are different numbers, deliberately.** Fifteen minutes is the
@@ -372,7 +428,7 @@ before the first byte is written anywhere, and any failure aborts before a machi
 
 | Check | Fails when |
 |---|---|
-| Standalone bundle | The CLI does not carry the requested bundle version |
+| Bundle carried by the CLI | The CLI does not carry the requested bundle version |
 | SSH reachability | A node cannot be reached, or the key is rejected |
 | Operating system | The node is not running Ubuntu 24.04 LTS |
 | Privilege | `sudo -n true` fails |
@@ -386,9 +442,9 @@ before the first byte is written anywhere, and any failure aborts before a machi
 
 ## Verifying the install
 
-Stage 13 runs these automatically and reports the result. They are also the checks to run by hand
-when something looks wrong, and they are the acceptance criteria the release tests assert against a
-real cluster.
+The `verify` stage runs these automatically and reports the result. They are also the checks to run
+by hand when something looks wrong, and they are the acceptance criteria the release tests assert
+against a real cluster.
 
 <Callout type="warning">
 **These are convergence checks, not snapshots.** Every one of them waits for a condition to hold
@@ -445,19 +501,14 @@ way a storage install looks successful and is not.
 
 ### The agent reconciles
 
-A standalone cluster has nowhere to report. Instead of accepting a Ready pod as proof, stage 13
-creates a verification `Project` and waits for the agent to reconcile it to `Ready`. The clean-host
-run passed this `agent-reconciles` check in one second.
-
-The same run established that the agent was Ready without a backend URL, bearer token or hub
-connection. It did not exercise fleet telemetry or a console, so this standalone page does not
-claim either.
+Instead of accepting a Ready pod as proof, the `verify` stage creates a verification `Project` and
+waits for the agent to reconcile it to `Ready` through its hub connection to the control plane.
 
 ### The recorded manifest matches reality
 
 Every core pin in the bundle is compared against what is actually on the cluster — the kubelet
-version on each node, and the chart version of each component k3s reconciles. The standalone
-record is the ConfigMap at `kubenest-system/kubenest-cluster-record`.
+version on each node, and the chart version of each component k3s reconciles — and against the
+record the install wrote.
 
 </Steps>
 
@@ -476,8 +527,7 @@ What makes that safe is that a half-installed cluster is never an unexplained st
   deterministic — it reads the journal rather than relying on every component happening to be
   idempotent.
 - **Failure remains local and legible.** The terminal names the failing stage and the completed
-  work stays available for diagnosis. The standalone proof did not exercise fleet telemetry, so
-  it would be misleading to promise a remote failure record here.
+  work stays available for diagnosis.
 - **There are exactly two supported exits**, and the failure message prints both.
 
 To recover, either:

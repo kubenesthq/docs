@@ -138,8 +138,12 @@ forty-two green is the failure this exists to prevent.
 The bundle is machine-readable and versioned. It is the record of what a release contains, and it
 is what the installer, the upgrade path and the compatibility tests all read.
 
-It has three readers. `kubenest platform install` fetches the manifest from the control plane, takes every component version and every deadline from it, and its last acceptance check
-compares the manifest's pins against what is actually on the cluster before reporting success.
+It has three readers. A `--control-plane` install uses the bundle manifest built into the CLI, and
+an install for an added cluster fetches the manifest from the control plane the CLI is logged in to.
+Either way every component version and every deadline comes from that manifest, and the install's
+last acceptance check compares its pins against what is actually on the cluster before reporting
+success.
+
 `kubenest platform upgrade` reads both the manifest it is leaving and the one it is moving to: the
 difference between them *is* the upgrade plan, and a transition the two manifests do not describe
 — a downgrade, an unoffered tier — is refused at the gate rather than attempted. And the
@@ -180,7 +184,7 @@ limits:
     component-ready:  10m    # one Helm release reaching its ready condition
     node-drain:       15m    # cordon + drain before reboot or node upgrade
     node-reboot:      20m    # node leaves, comes back, reports Ready
-    install-total:    30m    # all 13 stages; the 15-minute budget is the target
+    install-total:    30m    # the whole install; the 15-minute budget is the target
     upgrade-per-node: 30m
     backup:            1h
     restore-drill:     2h

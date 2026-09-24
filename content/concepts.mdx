@@ -35,10 +35,10 @@ node count.
 A Kubernetes cluster KubeNest deploys to. One operator runs on each, and it dials **out** to the
 hub over a WebSocket — no inbound firewall rule, no VPN, no exposed API server.
 
-A cluster arrives one of three ways: KubeNest installs the whole platform onto machines you supply
-([Install](/install)), you connect a cluster you already run
-([Connect a cluster](/connect-cluster)), or KubeNest provisions the machines for you on a cloud
-provider.
+A cluster arrives by installing the KubeNest platform bundle onto machines you supply
+([Install](/install)). Every cluster registers to a control plane — the first install creates one
+inside the cluster it is installing — and connecting a cluster you already run is not supported yet
+([Connect a cluster](/connect-cluster)).
 
 States a cluster moves through:
 
@@ -58,7 +58,7 @@ stopped knowing anything about you".
 
 **Many clusters, one control plane.** The usual splits are one cluster per environment, one per
 region, or one per workload shape — small nodes for stateless services, storage-optimised nodes for
-data. Components can target a specific cluster, so a single App can straddle them.
+data. Every component of an App runs on that App's cluster; nothing is placed across clusters.
 
 ## Projects
 

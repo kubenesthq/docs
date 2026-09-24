@@ -19,8 +19,8 @@ The backend is the control plane. It is a FastAPI application that owns every us
 
 Application, addon and component-secret operations are **dispatched as schema-validated JSON events**
 to the hub and acknowledged asynchronously, rather than executed against your cluster from inside
-the backend. The backend does keep one credential per cluster in PostgreSQL, used to register that
-cluster with ArgoCD — see [Cluster access](#1-cluster-access) below. No request state is held in
+the backend. The control plane sends intents through the hub and reads what happened from the
+status events the operators send back. No request state is held in
 memory between calls, so you can run multiple replicas behind a load balancer without any shared
 in-process state.
 
@@ -35,7 +35,7 @@ The hub understands two event directions: **command events** flow backend → op
 The operator is a Go controller-runtime application that runs inside each registered Kubernetes cluster. It implements five Kubernetes controllers:
 
 - **StackDeploy controller** — watches `StackDeploy` CRDs (the cluster-side representation of an App) and drives the full deploy/patch/delete reconcile loop.
-- **Workload controller** — tracks individual workload components within a StackDeploy: watches the ArgoCD Application's health, reports the cluster's ingress IP, and collects exports once a component is running. It does not render manifests or create the Application — the backend does both. See [GitOps](/architecture#gitops).
+- **Workload controller** — tracks individual workload components within a StackDeploy: watches the Argo CD Application's health, reports the cluster's ingress IP, and collects exports once a component is running. The operator creates that Application on its own cluster. See [GitOps](/architecture#gitops).
 - **Addon controller** — same as Workload but for Helm-chart backing services; also handles export discovery after a successful install.
 - **BuildRequest controller** — manages image build jobs (Kaniko or Cloud Native Buildpacks) for Dockerfile and buildpack deployment modes.
 - **Project controller** — ensures the Kubernetes namespace exists and synchronizes an optional project registry secret before any app is deployed into it. It does not manage resource quotas or RBAC bindings.
@@ -87,11 +87,9 @@ flowchart LR
 
 Most Kubernetes work originates inside the target cluster. The agent holds the local API access and acts on schema-validated events routed through the hub, and for application, addon and component-secret operations the control plane builds no Kubernetes client for your cluster at all.
 
-One path is different, and it is why this page does not claim a clean boundary. To register your cluster with the control plane's ArgoCD, the backend stores a bearer token your agent advertises — together with your API server's address and its CA — and uses it to reach that API server directly. The token is encrypted at rest, scoped to the namespaces KubeNest manages, rotatable, and its TLS is verified against the advertised CA. It is nonetheless a standing credential the control plane holds, and a compromised control plane could use it. Removing that last path, and then the stored credential, is what `kn-cjqw` tracks; until both are done, treat the control plane as a component that can reach your cluster's API.
+Every workload Argo CD Application is created by the operator on its own cluster. The backend records the intent and dispatches it as an event; the operator on the target cluster turns that intent into the Application and reports status back through the hub. A stack's components all run on the stack's cluster.
 
 The agent's own session requires no inbound firewall rule. The operator dials the hub outbound over WebSocket and holds the connection open, so it survives NAT and a restrictive corporate firewall as long as outbound HTTPS/WSS is allowed.
-
-The operational consequence of that one path: your cluster's API server address, as advertised by the agent, must be reachable **from the control plane**. An address that resolves only inside the cluster will register but not work.
 
 ### 2. ArgoCD reconciles everything; Git backs the addons
 
@@ -104,10 +102,10 @@ GitOps repository under `clusters/{id}/addons/`, then points an ArgoCD Applicati
 directory. An addon therefore has a human-readable representation in Git that you can inspect, diff
 and revert independently of kubenest, and ArgoCD keeps serving it if kubenest is offline.
 
-**Workloads are not.** The backend creates the ArgoCD Application itself, with the Helm values
-inline in the Application spec against a chart repository. No workload manifest is committed, and
-there is no workload directory in the GitOps repo. A workload's change history lives in the
-backend's deployment records rather than in Git.
+**Workloads are not.** The operator creates the Argo CD Application on the cluster it runs in, with
+the Helm values inline in the Application spec against a chart repository. No workload manifest is
+committed, and there is no workload directory in the GitOps repo. A workload's change history lives
+in the backend's deployment records rather than in Git.
 
 [GitOps](/architecture#gitops) has the full comparison, including what this costs you.
 
@@ -164,10 +162,10 @@ Operations that change Kubernetes state are asynchronous. The backend dispatches
 flowchart TD
     UI["UI: POST /api/v1/apps"] --> BE["Backend validates the spec"]
     BE --> DB[("PostgreSQL<br/>records intent")]
-    BE --> ARGO["Backend upserts the ArgoCD Application<br/>Helm values inline, no Git commit"]
     BE -- "dispatch event" --> HUB["Hub routes to the operator"]
     HUB --> OP["Operator reconciles the StackDeploy"]
-    ARGO --> SYNC["ArgoCD syncs the workload<br/>into the cluster"]
+    OP --> ARGO["Operator creates the Argo CD Application<br/>Helm values inline, no Git commit"]
+    ARGO --> SYNC["Argo CD syncs the workload<br/>into the cluster"]
     OP -- "status event" --> HUB
 ```
 
@@ -250,7 +248,7 @@ workloads — a distinction worth knowing before you go looking for something in
 
 <img
   src="/diagrams/gitops-flow.svg"
-  alt="Workloads are created by the backend as ArgoCD Applications with inline Helm values and no Git commit, with history in PostgreSQL. Addons are reconciled by the in-cluster addon controller, which commits Chart.yaml and values.yaml under the cluster's addon directory and points an ArgoCD Application at that Git path."
+  alt="Workloads are created by the operator as Argo CD Applications on the cluster it runs in, with inline Helm values and no Git commit, and history in PostgreSQL. Addons are reconciled by the in-cluster addon controller, which commits Chart.yaml and values.yaml under the cluster's addon directory and points an Argo CD Application at that Git path."
   style={{ width: '100%', height: 'auto', margin: '2rem 0' }}
 />
 
@@ -311,6 +309,6 @@ Direct edits can be overwritten by the next API operation or controller reconcil
 ---
 
 See also:
-- [Connect a cluster](/connect-cluster) — the mechanics of connecting a cluster to the hub
+- [Connect a cluster](/connect-cluster) — why existing clusters are not supported yet
 - [Concepts](/concepts) — the object model these components reconcile
 - [Deploying apps](/deploying) — the API these paths serve

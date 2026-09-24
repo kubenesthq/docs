@@ -102,14 +102,13 @@ flowchart TD
     style DB stroke-dasharray: 4 4
 ```
 
-**You never upload a kubeconfig.** Application, addon and component-secret operations flow through
-the hub to the agent, which runs inside the cluster and has local Kubernetes API access, and acts
-only on signed, schema-validated events.
+**You never upload a kubeconfig.** The agent runs inside your cluster with its own in-cluster
+access, and application, addon and component-secret operations flow through the hub to it as
+signed, schema-validated events.
 
-One exception, because you should hear it from us rather than find it: to register your cluster
-with ArgoCD, the control plane stores a bearer token your agent advertises and uses it to reach
-your API server directly. It is encrypted at rest, scoped to the namespaces KubeNest manages, and
-rotatable. [Architecture](/architecture) has the detail.
+Every workload is deployed by the agent on its own cluster: the control plane sends the intent
+through the hub, and the agent on that cluster creates the Argo CD Application. A stack's components
+all run on the stack's cluster. [Architecture](/architecture) has the detail.
 
 The agent dials **out** to the hub, so that session needs no inbound rule at all and survives NAT
 and egress-only firewalls. (Serving your own traffic is separate — that needs 80 and 443 open, like
@@ -122,4 +121,4 @@ anything else on the internet.)
 - [Quickstart](/quickstart) — one host, one command, a running app
 - [Day 2](/day-2) — the upgrades, drills and patching that are the reason to run this
 - [Why these choices](/why) — and what we deliberately did not build
-- [Connect a cluster](/connect-cluster) — for a Kubernetes cluster you already run
+- [Connect a cluster](/connect-cluster) — existing clusters are not supported yet, and why
