@@ -58,7 +58,7 @@ A cluster is at exactly one bundle version plus a recorded profile set. That num
 component: Kubernetes, ingress, certificates, storage, backup, the agent.
 
 This is the difference between *"we run Kubernetes 1.35, Traefik 41, cert-manager 1.21, OpenEBS 1.10
-and Velero 12, and I think those work together"* and *"we run Platform 1.0"*. The first is a
+and Velero 12, and I think those work together"* and *"we run Platform 1.1"*. The first is a
 statement you have to defend every time anything moves. The second is a statement somebody else
 tested.
 
@@ -66,7 +66,7 @@ Upgrading is `Platform N → N+1` for your exact recorded set, and what changed 
 versions is a diff you can read before you start:
 
 ```bash filename="terminal"
-kubenest platform diff --cluster staging --to 1.0
+kubenest platform diff --cluster staging --to 1.1
 ```
 
 ## Upgrades that check before they run
@@ -129,10 +129,10 @@ kubenest health
 ```
 
 ```ansi filename="output"
-prod-1     Platform 1.0   single-server   ok         drill passed 2d ago
-prod-2     Platform 1.0   ha              warning    certificate expires in 19d
-staging    Platform 0.9   single-server   critical   no backup target configured
-eu-west-1  Platform 1.0   ha              unknown    silent for 14m
+prod-1     Platform 1.1   single-server   ok         drill passed 2d ago
+prod-2     Platform 1.1   ha              warning    certificate expires in 19d
+staging    Platform 1.0   single-server   critical   no backup target configured
+eu-west-1  Platform 1.1   ha              unknown    silent for 14m
 ```
 
 A check the agent could not collect reports `unknown`, ordered above `ok` rather than folded into

@@ -79,7 +79,7 @@ kubenest backup set-target --cluster prod-1 \
   --bucket kubenest-backups-prod-1 \
   --region ap-south-1 \
   --server 10.0.1.10 --ssh-user ubuntu \
-  --bundle-manifest bundles/platform-1.0.yaml
+  --bundle-manifest bundles/platform-1.1.yaml
 ```
 
 For the three-server tier, repeat `--server` for all three control-plane nodes. `set-target`
@@ -256,7 +256,7 @@ not match. Suspect the node-agent/Kopia data path rather than PVC metadata or th
 ```bash filename="terminal"
 kubenest backup drill --cluster prod-1 \
   --server 10.0.1.10 --ssh-user ubuntu \
-  --bundle-manifest bundles/platform-1.0.yaml
+  --bundle-manifest bundles/platform-1.1.yaml
 ```
 
 A drill that passes on a manual re-run points at something transient — a network blip to the
@@ -267,10 +267,10 @@ bucket, or contention with another operation. Still worth understanding; not an 
 ```bash filename="terminal"
 kubenest backup now --cluster prod-1 \
   --server 10.0.1.10 --ssh-user ubuntu \
-  --bundle-manifest bundles/platform-1.0.yaml
+  --bundle-manifest bundles/platform-1.1.yaml
 kubenest backup drill --cluster prod-1 \
   --server 10.0.1.10 --ssh-user ubuntu \
-  --bundle-manifest bundles/platform-1.0.yaml
+  --bundle-manifest bundles/platform-1.1.yaml
 ```
 
 If a fresh backup drills clean, the problem was that specific backup. If it fails too, the problem
@@ -323,7 +323,7 @@ kubenest platform restore --cluster prod-1 --confirm \
   --bucket kubenest-backups-prod-1 \
   --region ap-south-1 \
   --server 10.0.1.10 --ssh-user ubuntu \
-  --bundle-manifest bundles/platform-1.0.yaml
+  --bundle-manifest bundles/platform-1.1.yaml
 ```
 
 Repeat `--server` for every control-plane server in the three-server tier, with the server to

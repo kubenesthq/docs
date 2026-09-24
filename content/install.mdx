@@ -230,7 +230,7 @@ plane, and leaves the CLI logged in:
 ```bash filename="terminal"
 kubenest platform install \
   --control-plane \
-  --bundle 1.0 \
+  --bundle 1.1 \
   --name mgmt \
   --ha single-server \
   --server 10.0.1.10 \
@@ -252,7 +252,7 @@ With the CLI logged in, drop `--control-plane` and install the platform on the n
 
 ```bash filename="terminal"
 kubenest platform install \
-  --bundle 1.0 \
+  --bundle 1.1 \
   --name client-a \
   --ha single-server \
   --server 10.0.2.10 \
@@ -270,11 +270,13 @@ it runs is the one the whole fleet registers to.
 
 `--bundle` selects the platform version. Every component version is pinned by that number — the
 bundle is the unit of test, of support and of upgrade, and a cluster is always at exactly one
-bundle version plus a recorded profile set. **Install Platform 1.0.** The catalog also carries
-Platform 0.9, which exists so the upgrade path has a real predecessor to move from — it differs
-from 1.0 in the k3s and agent pins only, and there is no reason to install it deliberately. A
-version the CLI does not carry is refused by preflight. What each version contains is on the Bundle
-contents page.
+bundle version plus a recorded profile set. **Install Platform 1.1.** It is Platform 1.0 with one
+change: the agent chart moves to 2.6.17, pinning operator image `d8475a8`, which fixes the operator
+rewriting each workload Argo CD Application about 20 times a second. Platform 1.0 stays installable
+while it is in support. The catalog also carries Platform 0.9, the predecessor the upgrade path
+moves from — but the installer refuses it, because its agent chart (2.2.0) cannot create a
+cluster's workload Applications, and 2.6.5 is the first agent chart that can. A version the CLI does
+not carry is refused by preflight. What each version contains is on the Bundle contents page.
 
 Re-running the same command against the same cluster is safe. The installer converges: it does
 not duplicate resources and it does not fail because something is already present.

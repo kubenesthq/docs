@@ -14,7 +14,7 @@ support, and what we upgrade between.
 
 That last point is the whole reason the bundle exists. Without it, an upgrade is *N* independent
 component version bumps whose interactions nobody has tried. With it, an upgrade is
-`Platform 0.9 → 1.0`: one transition, tested before it reached you.
+`Platform 1.0 → 1.1`: one transition, tested before it reached you.
 
 A bundle is the unit of test, of support and of upgrade. A cluster is at exactly one bundle version
 plus a recorded profile set, and that number pins every component on it.
@@ -149,8 +149,8 @@ difference between them *is* the upgrade plan, and a transition the two manifest
 — a downgrade, an unoffered tier — is refused at the gate rather than attempted. And the
 compatibility matrix builds every tested configuration from it.
 
-```yaml filename="platform-1.0.yaml"
-bundle: "1.0"
+```yaml filename="platform-1.1.yaml"
+bundle: "1.1"
 
 core:
   k3s:                        <pinned>
@@ -232,8 +232,9 @@ support conversation can start with *"which bundle, and what were its limits"* r
 
 The deadlines are ceilings, not expectations. Real hardware runs well inside them: a
 single-server core install takes about **4m14s** against a 30-minute `install-total`, and a
-0.9 → 1.0 upgrade across two nodes about **3m11s** against a 30-minute per-node allowance. A
-deadline exists so that nothing waits forever, not to describe how long anything takes.
+0.9 → 1.0 upgrade across two nodes — the last transition that moved Kubernetes — about **3m11s**
+against a 30-minute per-node allowance. A deadline exists so that nothing waits forever, not to
+describe how long anything takes.
 
 ### Units
 
@@ -269,7 +270,7 @@ it fails with a clear error instead of silently installing single-server.
 The manifest says what a release contains. The cluster record says what *you* have:
 
 ```
-cluster-a: Platform 1.0 + []          # core only — no profile installs yet
+cluster-a: Platform 1.1 + []          # core only — no profile installs yet
            ha-tier: single-server
            volume-group: customer-created
 ```
@@ -343,9 +344,16 @@ relying on being told when they leave it.
 Without a stated window, the first control-plane upgrade quietly breaks every cluster still on an
 older bundle, which is exactly the class of failure the version number exists to prevent.
 
-**Platform 1.0 is the current release, and the one to install.** The catalog also carries Platform
-0.9, the release 1.0 succeeds. It exists because an upgrade cannot be built or tested against a
-catalog with one entry in it, and because a transition that changes no Kubernetes version never
-reaches the point of no return — so it would not test the part that matters. It differs from 1.0
-in the k3s pin and the agent pin, and both were real releases of the same k3s line when each was
-cut. Nothing in it is a placeholder, and there is no reason to install it deliberately.
+**Platform 1.1 is the current release, and the one to install.** It is Platform 1.0 with one
+change: the agent chart moves to 2.6.17, pinning operator image `d8475a8`, which fixes the operator
+rewriting each workload Argo CD Application about 20 times a second.
+
+The catalog carries three versions: 1.1, 1.0 and 0.9. Platform 1.0 is the release 1.1 succeeds, and
+it stays supported — two bundles are supported at a time. Platform 0.9 exists so the upgrade path
+has a real predecessor to move from: a transition that changes no Kubernetes version never reaches
+the point of no return, so it would not test the part that matters. It differs from 1.0 in the k3s
+pin and the agent pin, and both were real releases of the same k3s line when each was cut.
+
+**The installer refuses 0.9**, rather than offering a version that cannot work. Its agent chart is
+2.2.0, which cannot create a cluster's workload Applications, and 2.6.5 is the first agent chart
+that can. Nothing in 0.9 is a placeholder; there is simply no reason to install it deliberately.

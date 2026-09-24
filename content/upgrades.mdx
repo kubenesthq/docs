@@ -23,7 +23,7 @@ any of them, including the Kubernetes version itself. What changes between two s
 in the [bundle manifest](/bundle), and you can see the diff before you start:
 
 ```bash filename="terminal"
-kubenest platform diff --from 0.9 --to 1.0
+kubenest platform diff --from 1.0 --to 1.1
 ```
 
 Your profile set does not change during an upgrade. Adding or removing a profile is a separate
@@ -111,7 +111,7 @@ then calls us. A finding you have judged safe is accepted one resource at a time
 audit afterwards:
 
 ```bash filename="terminal"
-kubenest platform upgrade --cluster prod-1 --to 1.0 \
+kubenest platform upgrade --cluster prod-1 --to 1.1 \
   --acknowledge payments/Ingress/legacy-gateway
 ```
 
@@ -267,7 +267,7 @@ only if enough Ready replicas to serve it are already on agent nodes that remain
 | | Multi-replica workload | Single-replica workload |
 |---|---|---|
 | **`ha` tier** | No downtime. Replicas reschedule ahead of each drain | Restarts once, when its node drains |
-| **`single-server`, enough Ready replicas already on agent nodes** | No downtime for the workload itself while those replicas remain healthy. A two-node 0.9 → 1.0 upgrade kept a two-replica workload reachable on all 146 one-second probes; that result does not remove the placement condition | Restarts once, when its node drains |
+| **`single-server`, enough Ready replicas already on agent nodes** | No downtime for the workload itself while those replicas remain healthy. A two-node 0.9 → 1.0 upgrade — the last transition that moved Kubernetes — kept a two-replica workload reachable on all 146 one-second probes; that result does not remove the placement condition | Restarts once, when its node drains |
 | **`single-server`, service depends on a control-plane-node replica** | The workload is down if the replicas already on agent nodes cannot serve it alone. A drained replica moves only when an agent has capacity and its scheduling rules allow it. A one-node cluster has no surviving agent, so every workload is down while the node upgrades | Restarts; on a one-node cluster it is down while the node upgrades |
 
 KubeNest does not taint the control-plane node or restrict application workloads to agents. Unless
@@ -493,7 +493,6 @@ needed patching, the release before it stays supported: you did not choose to sk
 issue it, and the support promise should not shrink because we shipped a fix.
 
 The reason to step at all is the deprecated-API scan. It runs against the Kubernetes version
-pinned by the bundle you name, and only that one. An API removed in 1.1 and irrelevant again by
-1.3 still breaks your workloads at 1.1, and a 1.0 → 1.3 jump would never scan for it. Skipping a
-bundle is skipping the check that makes the upgrade safe, which is why the answer is a gate rather
-than advice.
+pinned by the bundle you name, and only that one — so a bundle you jump over is never scanned
+against, and an API removal it carries goes unseen. Skipping a bundle is skipping the check that
+makes the upgrade safe, which is why the answer is a gate rather than advice.
