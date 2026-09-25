@@ -1,0 +1,11 @@
+# Fixture: this page MUST trip the CLI-example guard
+
+Deliberately wrong prose; tests/ is never built into the site.
+
+`--ha ha` is the tier the guard must accept -- and `--haa` is one letter away
+from it. The flag surface is a set, not a prefix match: a misspelling that
+starts like a real flag is still a command line that does not run.
+
+```bash filename="terminal"
+kubenest platform install --bundle 1.1 --name prod-1 --haa single-server --server 10.0.1.10
+```

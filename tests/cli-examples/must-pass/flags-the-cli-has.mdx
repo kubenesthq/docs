@@ -1,0 +1,31 @@
+# Fixture: this page MUST NOT trip the CLI-example guard
+
+Everything here is a flag, a path or an environment prefix the released CLI
+has. If the guard fires here it is over-matching, which blocks a publish and
+teaches people to bypass the gate.
+
+```bash filename="terminal"
+KUBENEST_BACKUP_ACCESS_KEY_ID=… KUBENEST_BACKUP_SECRET_ACCESS_KEY=… \
+kubenest backup set-target --cluster prod-1 \
+  --endpoint s3.ap-south-1.amazonaws.com \
+  --bucket kubenest-backups-prod-1 \
+  --region ap-south-1 \
+  --prefix prod-1          # the cluster root, per the access policy
+```
+
+```bash filename="terminal"
+kubenest platform install --control-plane --bundle 1.1 --name prod-1 \
+  --server 10.0.1.10 --ha single-server \
+  --ssh-user ubuntu --ssh-key ~/.ssh/id_ed25519 \
+  --storage-device /dev/nvme1n1
+```
+
+`--ha ha` is the tier the guard must accept, and so is a command that only
+elides the rest of its line:
+
+```bash filename="terminal"
+kubenest platform diff --from 1.0 --to 1.1
+kubenest platform install ...    # resumes at the failed stage
+kubenest platform uninstall --confirm
+kubenest login --control-plane https://api.example.com --token-stdin
+```

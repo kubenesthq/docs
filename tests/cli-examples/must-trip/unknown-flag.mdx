@@ -1,0 +1,14 @@
+# Fixture: this page MUST trip the CLI-example guard
+
+Deliberately wrong prose; tests/ is never built into the site.
+
+`--servver` is a typo for `--server`. Every other flag on this line is real, so
+the guard has to name the one flag that is not -- and it must survive the
+backslash continuations to get there.
+
+```bash filename="terminal"
+kubenest platform install \
+  --bundle 1.1 --name prod-1 --ha ha \
+  --server 10.0.1.10 --server 10.0.1.11 --server 10.0.1.12 \
+  --ssh-user ubuntu --servver 10.0.1.13
+```

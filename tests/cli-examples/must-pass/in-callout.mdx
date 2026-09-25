@@ -1,0 +1,21 @@
+# Fixture: this page MUST NOT trip the CLI-example guard
+
+The one dated exception, in the shape G0.6 writes it: the example sits inside a
+callout whose first sentence is exactly "Not supported by the current release."
+and which names the release that removes it.
+
+<Callout type="warning">
+**Not supported by the current release.** `kubenest health` is not in the command tree yet; it
+arrives with **Bundle 1.2, on promotion**.
+
+```bash filename="terminal"
+kubenest health
+```
+</Callout>
+
+A callout that is not that marker must NOT except anything, so it sits here as
+the near miss -- it wraps no example, so it decides nothing:
+
+<Callout type="info">
+**Fleet health is not a substitute for an alert.** A green view of forty clusters is not a pager.
+</Callout>

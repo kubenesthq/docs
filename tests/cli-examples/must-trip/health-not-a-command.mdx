@@ -1,0 +1,10 @@
+# Fixture: this page MUST trip the CLI-example guard
+
+Deliberately wrong prose; tests/ is never built into the site.
+
+`kubenest health` was shown on day-2.mdx and the released CLI has no `health`
+verb. This fixture is that example, with no callout around it.
+
+```bash filename="terminal"
+kubenest health
+```

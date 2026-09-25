@@ -1,0 +1,25 @@
+# Fixture: this page MUST NOT trip the CLI-example guard
+
+The app-layer pages are written this way: ONE marker callout over a whole frozen
+family of commands, naming them, rather than a callout around every occurrence.
+The callout wraps no code, so it excepts the page it sits on.
+
+<Callout type="warning">
+**Not supported by the current release.** The commands on this page — `kubenest deploy`,
+`kubenest addon` and `kubenest template` — were removed from the command tree and are frozen scope
+under decision D1. The released CLI installs and operates the platform only, so this callout comes
+off only when a release that lifts that decision is promoted.
+
+</Callout>
+
+## In an app
+
+```bash filename="terminal"
+kubenest deploy --project acme-prod
+```
+
+```yaml filename="kubenest.yaml"
+components:
+  api:
+    image: myorg/my-api:v1.2.0
+```

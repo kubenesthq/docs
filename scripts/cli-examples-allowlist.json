@@ -1,0 +1,24 @@
+{
+  "_comment": [
+    "Deferred CLI-example failures: the escape hatch for an occurrence that is",
+    "known and not yet fixable, and it must not rot.",
+    "",
+    "Read by scripts/check_examples_against_cli.py. Each entry is {page,",
+    "command, owning_bead}: the occurrence on `page` is reported and NOT fatal,",
+    "and the checker FAILS when the page no longer shows that command -- an",
+    "entry whose example was corrected or removed is an entry outliving its",
+    "reason, and it comes out.",
+    "",
+    "An entry is a deferral, never a way to make a real defect green: it names",
+    "the bead that owns the fix. The page itself stays as written, the same way",
+    "the 'not supported' callouts do (README.md, 'The docs are the",
+    "specification').",
+    "",
+    "EMPTY IS THE INTENDED STATE. Every page is currently checked against the",
+    "released CLI's command metadata with no deferrals: the commands the",
+    "released CLI lacks are inside 'Not supported by the current release.'",
+    "callouts, which the checker skips, and every other example runs something",
+    "the CLI has."
+  ],
+  "allow": []
+}

@@ -47,6 +47,22 @@ jobs:
       - name: Retired-claim guard (content)
         run: python3 scripts/check_retired_claims.py --content content/
 
+      # The publish gate for CLI examples (PLAN section 8, G0.7). This is the
+      # workflow that gates main, so a checker that ran only in ci.yml would
+      # still let a page promising a command the released CLI lacks reach the
+      # served site. It reads the COMMITTED metadata (cli-metadata/...), which
+      # is why this publish still needs nothing but this repository -- the rule
+      # the Helm-values guard above failed closed on (run 32578834006).
+      # The self-test runs first: every guard here fails quiet in its green path.
+      - name: CLI-example guard SELF-TEST (can it still fail?)
+        run: python3 scripts/selftest_cli_examples.py
+
+      - name: CLI-example guard (content)
+        run: >-
+          python3 scripts/check_examples_against_cli.py
+          --metadata cli-metadata/command-metadata.json
+          --content content/
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest

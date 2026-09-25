@@ -1,0 +1,13 @@
+# Fixture: this page MUST trip the CLI-example guard
+
+Deliberately wrong prose; tests/ is never built into the site.
+
+`--prefxi` is a typo for `--prefix`, and it sits after a quoted value containing
+a `#`. A stripper that cuts the line at the first `#` would leave an unbalanced
+quote, fail to parse the line, and skip it -- which is how an example stops being
+checked without anyone noticing.
+
+```bash filename="terminal"
+kubenest backup set-target --cluster prod-1 --bucket "kubenest #1" \
+  --region ap-south-1 --endpoint s3.ap-south-1.amazonaws.com --prefxi x
+```

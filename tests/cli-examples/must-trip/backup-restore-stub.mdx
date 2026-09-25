@@ -1,0 +1,12 @@
+# Fixture: this page MUST trip the CLI-example guard
+
+Deliberately wrong prose; tests/ is never built into the site.
+
+`kubenest backup restore` is registered and NOT built: it carries
+`kubenest.io/unavailable`, so the metadata reports it `available: false`. A page
+that offers it as a runnable example tells the reader to run something that
+exits non-zero.
+
+```bash filename="terminal"
+kubenest backup restore --cluster prod-1
+```

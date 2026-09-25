@@ -1,0 +1,745 @@
+{
+  "cli_version": "dev",
+  "commit": "none",
+  "generated_at": "2026-09-25T07:09:15Z",
+  "commands": [
+    {
+      "path": "kubenest",
+      "available": true,
+      "reason": "kubenest installs and operates the KubeNest Platform: a pinned, tested",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--version",
+          "type": "bool",
+          "shorthand": "v",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest backup",
+      "available": true,
+      "reason": "Back up, drill and restore a platform cluster",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest backup drill",
+      "available": true,
+      "reason": "Request the same real restore path the weekly scheduler uses: the newest",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--bundle-manifest",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--server",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-key",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-user",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest backup now",
+      "available": true,
+      "reason": "Take one workload backup right now, outside the schedule, and wait for it",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--bundle-manifest",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--server",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-key",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-user",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest backup restore",
+      "available": false,
+      "reason": "workload restores need a running cluster with workloads; they land with the wave-3 half of kn-mzn",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest backup set-target",
+      "available": true,
+      "reason": "Point the cluster's backups at an S3-compatible bucket you supply and",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--bucket",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--bundle-manifest",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--endpoint",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--prefix",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--region",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--server",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-key",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-user",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest cluster",
+      "available": true,
+      "reason": "Settings that belong to one cluster",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest cluster rotate-token",
+      "available": true,
+      "reason": "Rotate the cluster's agent JWT, revoke every older one, and deliver the new",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--server",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-key",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-user",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest cluster set-window",
+      "available": true,
+      "reason": "Set the recurring window inside which the platform may act on this cluster.",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--days",
+          "type": "stringSlice",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--end",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--start",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--timezone",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest login",
+      "available": true,
+      "reason": "Obtain a revocable CLI token from your control plane and store it in",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--ca-file",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--control-plane",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--token-stdin",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest logout",
+      "available": true,
+      "reason": "Discard the stored control-plane credential",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest platform",
+      "available": true,
+      "reason": "Install, upgrade or remove the KubeNest Platform on your hosts",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest platform diff",
+      "available": true,
+      "reason": "Show what changes between two platform bundles",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--from",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--to",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest platform install",
+      "available": true,
+      "reason": "Install the complete platform bundle — k3s, ingress, certificates, storage,",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--admin-email",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--agent",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--backup-target",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--bundle",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--control-plane",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--domain",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ha",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--name",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--org",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--profile",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--server",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-key",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-user",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--storage-device",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest platform restore",
+      "available": true,
+      "reason": "Restore the embedded-etcd datastore from a k3s snapshot in the configured",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--bucket",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--bundle-manifest",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--confirm",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--endpoint",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--prefix",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--region",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--server",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--snapshot",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-key",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-user",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest platform rollback",
+      "available": true,
+      "reason": "Return a cluster to the bundle it was upgraded from.",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--agent",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--confirm",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--server",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-key",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-user",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--to",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest platform uninstall",
+      "available": true,
+      "reason": "Remove k3s and every component the installer placed, returning the machines",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--agent",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--confirm",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--destroy-data",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--name",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--server",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-key",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-user",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest platform upgrade",
+      "available": true,
+      "reason": "Move a cluster from its current platform bundle to a newer one, as one",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--acknowledge",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--agent",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--server",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-key",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-user",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--to",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    }
+  ]
+}

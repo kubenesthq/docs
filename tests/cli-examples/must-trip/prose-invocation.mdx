@@ -1,0 +1,11 @@
+# Fixture: this page MUST trip the CLI-example guard
+
+Deliberately wrong prose; tests/ is never built into the site.
+
+An invocation that lost its fence is still an invocation, and this is the shape
+a page takes when an example is written as a sentence rather than a block:
+
+kubenest health
+
+The guard reads a bare command line, and not a sentence that mentions a
+command mid-paragraph.

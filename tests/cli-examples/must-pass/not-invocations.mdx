@@ -1,0 +1,24 @@
+# Fixture: this page MUST NOT trip the CLI-example guard
+
+Every near miss that is not an invocation of this CLI: another tool, a comment
+inside an example, a directory name, and the product's name at the start of a
+sentence -- which is prose about KubeNest, not a command line.
+
+```bash filename="terminal"
+kubectl get pods -A
+helm upgrade --install api ./charts/api -n acme-prod
+mkdir -p ~/.kubenest
+kubenest-platform init
+# kubenest health --cluster prod-1
+```
+
+```bash filename="terminal"
+# The commented-out example above is inside this block on purpose: a comment is
+# not a runnable example, and neither is the line below.
+kubenest login --control-plane https://api.example.com
+```
+
+kubenest does not manage ResourceQuota.
+
+Re-running `kubenest platform install` is not a revocation, and `kubenest deploy` is not in the
+released CLI -- but neither of those is a line a reader runs.

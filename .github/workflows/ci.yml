@@ -71,6 +71,54 @@ jobs:
       - name: Unsupported-callout guard (content)
         run: python3 scripts/check_unsupported_callouts.py
 
+      # Every runnable example is compared against the CLI's OWN command tree
+      # (PLAN section 8, G0.7): the command paths, the flags on each path, and
+      # whether a path is available or a registered stub -- not a second
+      # hand-written list. The tree comes from kubenest-cli's
+      # cmd/gen-command-metadata, which .github/workflows/build.yml attaches to
+      # every release as command-metadata.json.
+      #
+      # The SELF-TEST runs first, for the same reason as the guards above: a
+      # metadata file that no longer says what the pages assume would otherwise
+      # print clean. The check reads the COMMITTED copy, so this job needs a
+      # download only for the release half below.
+      - name: CLI-example guard SELF-TEST (can it still fail?)
+        run: python3 scripts/selftest_cli_examples.py
+
+      - name: CLI-example guard (content)
+        run: >-
+          python3 scripts/check_examples_against_cli.py
+          --metadata cli-metadata/command-metadata.json
+          --content content/
+
+      # The public site documents the RELEASED CLI, so the release asset
+      # cli-contract.json names is fetched and the same pages are checked
+      # against it (PLAN section 7.12). This step may fail with a warning -- a
+      # release cut before the asset existed has none -- but the CHECK below is
+      # never a warning: a page telling a reader to run something the released
+      # CLI does not have is the defect, and it stops the branch.
+      - name: Fetch the released CLI's command metadata
+        id: cli_release
+        continue-on-error: true
+        run: |
+          release=$(jq -r '.public_site.release' cli-contract.json)
+          repo=$(jq -r '.public_site.repo' cli-contract.json)
+          asset=$(jq -r '.public_site.asset' cli-contract.json)
+          curl -fsSL -o /tmp/released-command-metadata.json \
+            "https://github.com/${repo}/releases/download/${release}/${asset}"
+
+      - name: CLI-example guard (the released CLI's metadata, content)
+        if: steps.cli_release.outcome == 'success'
+        run: >-
+          python3 scripts/check_examples_against_cli.py
+          --metadata /tmp/released-command-metadata.json
+          --content content/
+
+      - name: Note when the released metadata could not be fetched
+        if: steps.cli_release.outcome != 'success'
+        run: |
+          echo "::warning title=Released CLI metadata not fetched::The pages were checked against the committed cli-metadata/command-metadata.json only. Add the command-metadata.json release asset (kubenest-cli's build.yml produces it) or correct cli-contract.json's public_site.release."
+
       # The EVIDENCE half ties each still-true claim to the code that keeps it true
       # -- "the control plane builds no Kubernetes client for your cluster" is true
       # only while the client builders stay deleted. kubenesthq/kubenest-backend is

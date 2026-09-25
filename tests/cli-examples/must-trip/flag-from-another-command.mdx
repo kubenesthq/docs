@@ -1,0 +1,12 @@
+# Fixture: this page MUST trip the CLI-example guard
+
+Deliberately wrong prose; tests/ is never built into the site.
+
+`--to` is a real flag -- of `kubenest platform upgrade`, `rollback` and `diff`,
+not of `kubenest backup drill`. A flag that exists elsewhere in the tree is not
+there by virtue of existing; the guard checks the command the example actually
+runs.
+
+```bash filename="terminal"
+kubenest backup drill --cluster prod-1 --to 1.1
+```

@@ -1,0 +1,42 @@
+{
+  "_comment": [
+    "Which CLI a CLI-example check run is against (PLAN section 7.12): the",
+    "released CLI for the public site, the candidate channel for the candidate",
+    "build.",
+    "",
+    "HOW THE METADATA REACHES CI. kubenest-cli's cmd/gen-command-metadata emits",
+    "the command tree as JSON and .github/workflows/build.yml attaches it to",
+    "every release as command-metadata.json, so a docs run never builds Go.",
+    "",
+    "cli-metadata/command-metadata.json is the COMMITTED snapshot the workflows",
+    "read, which is what makes the docs deploy depend on this repository only --",
+    "deploy.yml's own rule, after the Helm-values guard once failed closed on a",
+    "private checkout. It was generated from kubenest-cli's tree at the v2.0.0",
+    "release (whose pkg/cmd differs from that tree only by the",
+    "kubenest.io/unavailable annotation this guard reads) because v2.0.0's",
+    "release carries no such asset: the asset exists from the NEXT tag onward,",
+    "and ci.yml fetches it when it does.",
+    "",
+    "cli-metadata/command-metadata.json is kept honest by",
+    "kubenest-cli/cmd/gen-command-metadata/main_test.go, which regenerates the",
+    "tree and fails when the committed copy's commands no longer match (it skips",
+    "where the umbrella workspace is not checked out beside the CLI, the same",
+    "rule pkg/bundles' contract test follows).",
+    "",
+    "MOVING THE TARGET RELEASE IS A REVIEW OBLIGATION. Nothing checks that",
+    "public_site.release is the version docs.kubenest.io should document; a",
+    "release that is promoted without bumping it is checked against the wrong",
+    "tree, and the pages do not fail."
+  ],
+  "public_site": {
+    "repo": "kubenesthq/cli",
+    "release": "v2.0.0",
+    "asset": "command-metadata.json",
+    "metadata": "cli-metadata/command-metadata.json"
+  },
+  "candidate": {
+    "repo": "kubenesthq/cli",
+    "ref": "main",
+    "metadata": "cli-metadata/command-metadata.json"
+  }
+}

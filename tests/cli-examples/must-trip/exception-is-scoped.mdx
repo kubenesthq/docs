@@ -1,0 +1,24 @@
+# Fixture: this page MUST trip the CLI-example guard
+
+Deliberately wrong prose; tests/ is never built into the site.
+
+This page carries the exception in the right shape AND the defect it does not
+cover, so it proves the exception is scoped to its callout rather than to the
+page it sits on. The first example is inside a real
+"Not supported by the current release." callout and must pass; the second is
+outside it and must fail.
+
+<Callout type="warning">
+**Not supported by the current release.** Restoring one namespace by name is registered but not
+built; it arrives with **Bundle 1.2, on promotion**.
+
+```bash filename="terminal"
+kubenest backup restore --cluster prod-1 --namespace payments
+```
+</Callout>
+
+Later on the same page, with no callout at all:
+
+```bash filename="terminal"
+kubenest node reboot --cluster prod-1 --node server-1 --confirm
+```
