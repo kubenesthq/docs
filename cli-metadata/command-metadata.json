@@ -1,7 +1,7 @@
 {
   "cli_version": "dev",
   "commit": "none",
-  "generated_at": "2026-09-25T12:24:25Z",
+  "generated_at": "2026-09-25T14:28:08Z",
   "commands": [
     {
       "path": "kubenest",
@@ -836,6 +836,12 @@
           "inherited": false
         },
         {
+          "name": "--control-plane",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
           "name": "--help",
           "type": "bool",
           "shorthand": "h",
@@ -844,6 +850,12 @@
         {
           "name": "--now",
           "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--resume",
+          "type": "string",
           "shorthand": "",
           "inherited": false
         },
