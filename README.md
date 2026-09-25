@@ -43,7 +43,6 @@ kubenest-docs/
 │   ├── architecture.mdx            # System design and the GitOps flow
 │   └── api/index.mdx               # REST API reference — keeps its directory,
 │                                   #   the backend route guard checks this path
-├── OPEN-ITEMS.md                   # Where the code does not yet match the docs
 ├── src/
 │   ├── app/
 │   │   ├── layout.tsx              # Nextra theme layout, navbar, footer
@@ -78,11 +77,12 @@ So: write the page as though the feature works. Do not add a "not built yet" not
 marker, or a callout explaining that an example fails today. A page full of hedges is a product
 that has not been finished, and hiding that behind honest-sounding prose fixes nothing.
 
-**Every gap goes in [`OPEN-ITEMS.md`](OPEN-ITEMS.md) instead**, which is the delta between what the
-site says and what the code does. Add a row when a page makes a new claim; delete it when the code
-catches up. Its first section is the security claims, kept separate because those are the rows
-where the gap is a risk to a customer's cluster rather than a missing feature — and they gate the
-first customer install.
+**Every gap goes in `OPEN-ITEMS.md` instead**, which is the delta between what the site says and what
+the code does. Since 2026-09-25 that file lives in the private KubeNest workspace, not in this public
+repository, because it carries internal notes. Add a row when a page makes a new claim; delete it
+when the code catches up. Its first section is the security claims, kept separate because those are
+the rows where the gap is a risk to a customer's cluster rather than a missing feature — and they
+gate the first customer install.
 
 Callouts are still right for things that are permanently true and easy to get wrong: a PATCH that
 replaces a component wholesale, a Helm downgrade that cannot be reversed, a sealing key whose loss
