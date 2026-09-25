@@ -1,7 +1,7 @@
 {
   "cli_version": "dev",
   "commit": "none",
-  "generated_at": "2026-09-25T07:28:29Z",
+  "generated_at": "2026-09-25T08:20:52Z",
   "commands": [
     {
       "path": "kubenest",
@@ -19,6 +19,114 @@
           "name": "--version",
           "type": "bool",
           "shorthand": "v",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest alerts",
+      "available": true,
+      "reason": "Manage the destinations every organisation's alerts are delivered to, and the",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest alerts add-destination",
+      "available": true,
+      "reason": "Add an instance alert destination.",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--format",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--url",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest alerts list-destinations",
+      "available": true,
+      "reason": "List every alert destination.",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest alerts remove-destination",
+      "available": true,
+      "reason": "Remove a destination and its undelivered alerts.",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--id",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest alerts set-heartbeat",
+      "available": true,
+      "reason": "Store the heartbeat URL.",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--url",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest alerts test",
+      "available": true,
+      "reason": "Send a test alert to every enabled destination and report each answer.",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
           "inherited": false
         }
       ]
@@ -728,6 +836,12 @@
           "inherited": false
         },
         {
+          "name": "--now",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
           "name": "--server",
           "type": "stringArray",
           "shorthand": "",
@@ -748,6 +862,12 @@
         {
           "name": "--to",
           "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--wait",
+          "type": "bool",
           "shorthand": "",
           "inherited": false
         }
