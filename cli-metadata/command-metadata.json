@@ -1,7 +1,7 @@
 {
   "cli_version": "dev",
   "commit": "none",
-  "generated_at": "2026-09-25T07:09:15Z",
+  "generated_at": "2026-09-25T07:28:29Z",
   "commands": [
     {
       "path": "kubenest",
@@ -438,6 +438,12 @@
           "inherited": false
         },
         {
+          "name": "--fleet-recipient",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
           "name": "--ha",
           "type": "string",
           "shorthand": "",
@@ -447,6 +453,12 @@
           "name": "--help",
           "type": "bool",
           "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--instance-id",
+          "type": "string",
+          "shorthand": "",
           "inherited": false
         },
         {
@@ -735,6 +747,88 @@
         },
         {
           "name": "--to",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest recovery-kit",
+      "available": true,
+      "reason": "Check that a cluster's recovery kit and its recovery set are usable",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest recovery-kit check",
+      "available": true,
+      "reason": "Report, separately, whether the kit's upload is intact, whether it decrypts with",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--artifact",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--backup",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--fleet-key-file",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--instance",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--kind",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--kit-file",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--organisation",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--target",
           "type": "string",
           "shorthand": "",
           "inherited": false
