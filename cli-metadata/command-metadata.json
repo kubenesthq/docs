@@ -1,7 +1,7 @@
 {
   "cli_version": "dev",
   "commit": "none",
-  "generated_at": "2026-09-25T14:28:08Z",
+  "generated_at": "2026-09-25T18:43:13Z",
   "commands": [
     {
       "path": "kubenest",
@@ -465,6 +465,88 @@
           "name": "--help",
           "type": "bool",
           "shorthand": "h",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest node",
+      "available": true,
+      "reason": "Operate one node of a cluster",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest node reboot",
+      "available": true,
+      "reason": "Reboot one node of a cluster, or restart its k3s service.",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--confirm",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--k3s-only",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--node",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--now",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--resume",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-key",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-user",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--wait",
+          "type": "bool",
+          "shorthand": "",
           "inherited": false
         }
       ]
