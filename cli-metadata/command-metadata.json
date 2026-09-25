@@ -1,7 +1,7 @@
 {
   "cli_version": "dev",
   "commit": "none",
-  "generated_at": "2026-09-25T08:20:52Z",
+  "generated_at": "2026-09-25T12:24:25Z",
   "commands": [
     {
       "path": "kubenest",
@@ -204,6 +204,12 @@
         {
           "name": "--cluster",
           "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--control-plane",
+          "type": "bool",
           "shorthand": "",
           "inherited": false
         },
