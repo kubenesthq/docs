@@ -179,21 +179,23 @@ step last means the great majority of failures happen while retreating is still 
 | 3 | `platform-components` | The seven core components, in dependency order: Gateway API, Traefik, cert-manager, OpenEBS, Velero, `system-upgrade-controller`, `kured` |
 | 4 | `profiles` | Components of each enabled profile |
 | 5 | `agent` | The KubeNest agent |
-| 6 | **`kubernetes`** | **Point of no return.** k3s on each node in turn, via `system-upgrade-controller` |
-| 7 | `verify` | Full post-upgrade verification |
-| 8 | `record` | The cluster's bundle version is updated |
+| 6 | `host-policy` | Ubuntu's APT policy — security updates only, `Automatic-Reboot "false"` — and the `kubenest.io/auto-reboot=false` hold, on every node. A fresh install writes both; a cluster that predates 1.2 gets them here |
+| 7 | **`kubernetes`** | **Point of no return.** k3s on each node in turn, via `system-upgrade-controller` |
+| 8 | `verify` | Full post-upgrade verification |
+| 9 | `record` | The cluster's bundle version is updated |
 
 ```mermaid
 flowchart TD
     S1["1 · preflight"] --> S2["2 · backup"]
     S2 --> S3["3 · platform components"]
     S3 --> S4["4 · profiles"] --> S5["5 · agent"]
-    S5 --> S6["6 · kubernetes<br/>node by node"]
-    S6 --> S7["7 · verify"] --> S8["8 · record"]
+    S5 --> S5b["6 · host policy"] --> S6["7 · kubernetes<br/>node by node"]
+    S6 --> S7["8 · verify"] --> S8["9 · record"]
 
     S3 -. "fails" .-> R1["helm rollback<br/>seconds"]
     S4 -. "fails" .-> R1
     S5 -. "fails" .-> R1
+    S5b -. "fails" .-> R1
     S6 -. "fails" .-> R2["restore the datastore<br/>snapshot from stage 2"]
     S7 -. "fails" .-> R2
 
@@ -205,8 +207,8 @@ flowchart TD
     style S6 stroke-width:3px
 ```
 
-The diagram is the argument for the ordering. Every stage before 6 exits through the cheap path on
-the left; only 6 and 7 exit through a datastore restore. Five of the seven ways an upgrade can
+The diagram is the argument for the ordering. Every stage before 7 exits through the cheap path on
+the left; only 7 and 8 exit through a datastore restore. Five of the seven ways an upgrade can
 fail cost you seconds, and that is a consequence of *sequencing*, not of any recovery machinery.
 
 **Every stage converges on its own health check before the next one starts**, and a check that
@@ -219,7 +221,21 @@ green. It requires that the release reports the pinned version **and** that the 
 succeeded. That distinction was found by a real cluster, where a deliberately poisoned pin
 otherwise sailed through.
 
-Stage 6 upgrades nodes one at a time. Each node is cordoned, drained, upgraded, and must return to
+Stage 6 is the host step, and it is the only stage that exists for clusters that predate the bundle
+being installed on them. This page and the installer write the same two things to a fresh install's
+hosts, so a fresh cluster has nothing to do here: Ubuntu's APT policy — security updates only,
+`Automatic-Reboot "false"`, and k3s held out of `needrestart`'s reach — and the
+`kubenest.io/auto-reboot=false` hold, which is what makes `kubenest node reboot` rather than luck
+the thing that decides when a node reboots. A cluster upgraded from an earlier release gets both
+here, before Kubernetes moves.
+
+Two properties matter operationally. It is **idempotent**: a re-run on a cluster that already
+carries the policy writes nothing and reports no change. And it is **reversible per node**: servers
+keep the hold permanently, because in 1.2 a server never reboots by itself, while an agent's hold
+is restored to the value it had before the upgrade — so an agent that rebooted automatically in its
+window still does, and one that was already held when the upgrade started keeps its hold.
+
+Stage 7 upgrades nodes one at a time. Each node is cordoned, drained, upgraded, and must return to
 Ready and pass its health check before the next node is touched. Servers complete before any agent
 starts: an agent joining a control plane it is newer than is the one version skew Kubernetes does
 not promise to tolerate.
@@ -348,6 +364,20 @@ matters in one case: a PersistentVolumeClaim created *during* the upgrade window
 the restored cluster, while its underlying volume still exists on disk. That volume is orphaned
 until reclaimed. The post-rollback report names any it finds.
 </Callout>
+
+### Host policy — left in place
+
+One thing a rollback does not undo is the host step (stage 6). The APT policy under
+`/etc/apt/apt.conf.d` and the servers' `kubenest.io/auto-reboot=false` hold stay exactly as the
+upgrade left them, whichever mechanism the rollback uses.
+
+That is deliberate. Reverting the drop-in would restore Ubuntu's own update behaviour — security
+updates installed at a random time each day, and a reboot the node chooses for itself — which is
+precisely what the host step exists to replace. Reverting the hold would let a server reboot by
+itself, which 1.2 does not promise.
+
+Nothing about a rollback depends on that stage having run, either: a cluster that failed before
+stage 6 rolls back with nothing extra to undo.
 
 ### The rollback command
 
