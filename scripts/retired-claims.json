@@ -79,7 +79,8 @@
       "patterns": [
         "rotating\\s+(sample|slice|subset|selection)\\s+of\\s+(your|the\\s+customer'?s?)\\s+(own\\s+)?(volumes|volume\\s+data|data|pvcs?)",
         "\\b(restores?|restoring|restored|drills?|drilling)\\b[^.]{0,70}\\brotating\\s+(sample|slice|subset|selection)\\b",
-        "\\bcoverage\\b[^.]{0,60}\\baccumulat\\w*\\b[^.]{0,90}\\b(most\\s+of\\s+the\\s+cluster|real\\s+data|your\\s+data)\\b"
+        "\\bcoverage\\b[^.]{0,60}\\baccumulat\\w*\\b[^.]{0,90}\\b(most\\s+of\\s+the\\s+cluster|real\\s+data|your\\s+data)\\b",
+        "\\b(we|kubenest|it|the\\s+(weekly\\s+)?(drill|backup|restore|platform|cluster|operator|control\\s+plane))\\b(?![^.]{0,50}\\b(not|never|no|doesn't|does not|cannot|can't|isn't|aren't|don't|without|nothing)\\b[^.]{0,60}?\\b(yours|your\\s+(own\\s+)?(volumes?|data|pvcs?)|customer\\s+volumes?)\\b)[^.]{0,40}\\b(restores?|restoring|restored|drills?|drilling)\\b[^.]{0,50}\\b(yours|your\\s+(own\\s+)?(volumes?|data|pvcs?)|customer\\s+volumes?)\\b"
       ]
     }
   ],

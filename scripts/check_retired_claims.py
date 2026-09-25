@@ -50,6 +50,7 @@ TWO WAYS A REGISTRY LIKE THIS GOES STALE, and what is done about each:
 
 Usage:
     check_retired_claims.py --content content/            # pre-publish, in-repo only
+    check_retired_claims.py --html ../kubenest-landing/index.html   # HTML page, same prose path
     check_retired_claims.py --served https://docs...      # post-publish, served HTML
     check_retired_claims.py --content content/ --evidence-root ../kubenest-backend
 """
@@ -181,6 +182,9 @@ def check_evidence(reg: dict, root: Path) -> list[str]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--content", type=Path, help="docs content directory (MDX)")
+    ap.add_argument("--html", nargs="+", default=[], type=Path,
+                    help="HTML files to check (e.g. a sibling landing page) through the same "
+                         "strip_markup/check_text path as --content")
     ap.add_argument("--served", nargs="*", default=[], help="published URLs to fetch and check")
     ap.add_argument("--evidence-root", type=Path, help="sibling repo root for evidence checks")
     args = ap.parse_args()
@@ -190,6 +194,10 @@ def main() -> int:
 
     if args.content:
         for p in sorted(args.content.rglob("*.mdx")):
+            failures += check_text(reg, str(p), p.read_text(encoding="utf-8"))
+
+    if args.html:
+        for p in args.html:
             failures += check_text(reg, str(p), p.read_text(encoding="utf-8"))
 
     for url in args.served:
@@ -217,6 +225,8 @@ def main() -> int:
     scope = []
     if args.content:
         scope.append(f"content={args.content}")
+    if args.html:
+        scope.append(f"html={len(args.html)} file(s)")
     if args.served:
         scope.append(f"served={len(args.served)} url(s)")
     if args.evidence_root:
