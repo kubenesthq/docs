@@ -84,6 +84,16 @@ when the code catches up. Its first section is the security claims, kept separat
 the rows where the gap is a risk to a customer's cluster rather than a missing feature — and they
 gate the first customer install.
 
+**One dated exception, 2026-09-25.** Until the release that supports a command ships, a page that
+shows a command the released CLI lacks or stubs carries a callout whose first sentence is exactly
+**Not supported by the current release.**, followed by the release that will remove it — today
+`Bundle 1.2, on promotion`. One callout covers a group of related commands on a page; when the same
+command is shown again further down, it gets the same callout rather than a second flavour of note,
+and the neighbouring prose stays as written. The callout comes off when that release is **promoted
+and downloadable**, not when its code merges: the page describes what a reader can install today.
+`scripts/check_unsupported_callouts.py` fails the build when a command on its list appears outside
+such a callout, and G0.7's CLI metadata enforces the same rule from the command tree.
+
 Callouts are still right for things that are permanently true and easy to get wrong: a PATCH that
 replaces a component wholesale, a Helm downgrade that cannot be reversed, a sealing key whose loss
 is unrecoverable. The test is whether the warning would still be there once every bead is closed.

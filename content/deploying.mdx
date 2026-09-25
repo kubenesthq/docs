@@ -13,6 +13,17 @@ ArgoCD. None of that needs KubeNest involved, and if your team likes its pipelin
 
 What follows is the app layer, for teams who would rather not build one.
 
+<Callout type="warning">
+**Not supported by the current release.** Almost nothing on this page is in the command tree. The
+app layer — `kubenest init`, `deploy`, `rollback`, `status`, `logs`, `open`, `exec`, `scale`,
+`pause`, `resume`, `deploys`, `diff`, `secret`, `project`, `promote`, `destroy` — was removed and
+is frozen scope under decision D1, and `kubenest cluster set-domain`, further down, is not built
+either (kn-18c3). `kubenest login`, on this page too, is the exception: it is the one command here
+that exists in the released CLI. The released CLI installs and operates the platform, so this
+callout comes off only when a release that carries the app layer is promoted.
+
+</Callout>
+
 ## What the platform gives your workloads
 
 Worth knowing before you deploy anything, because it changes what you have to configure:

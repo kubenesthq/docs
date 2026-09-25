@@ -61,6 +61,16 @@ jobs:
       - name: Retired-claim guard (content)
         run: python3 scripts/check_retired_claims.py --content content/
 
+      # Until the release that supports a command ships, a page that shows it must
+      # wrap it in a "Not supported by the current release." callout (README,
+      # "One dated exception, 2026-09-25"; G0.6). The self-test runs first for the
+      # same reason as the guard above: a stale list would otherwise print clean.
+      - name: Unsupported-callout guard SELF-TEST (can it still fail?)
+        run: python3 scripts/selftest_unsupported_callouts.py
+
+      - name: Unsupported-callout guard (content)
+        run: python3 scripts/check_unsupported_callouts.py
+
       # The EVIDENCE half ties each still-true claim to the code that keeps it true
       # -- "the control plane builds no Kubernetes client for your cluster" is true
       # only while the client builders stay deleted. kubenesthq/kubenest-backend is

@@ -131,8 +131,15 @@ data and can make an otherwise sound backup terminally partial.
 the sealed-secrets sealing key and every `SealedSecret` in your Git repository becomes permanently
 undecryptable, with no recovery path at all.
 
-That makes your backup bucket as sensitive as the secrets themselves. Treat its access policy
-accordingly.
+**Read access to the backup bucket exposes cluster secrets.** Sealed material and the key that
+opens it are both in there, so whoever can list and read the bucket can read them. Treat the bucket
+itself as secret material, not as a place to hand a whole team `s3:GetObject`.
+
+**Scope the credentials per cluster.** One credential per cluster, reaching only that cluster's
+prefix, so a leaked key exposes one cluster instead of the fleet. `kubenest backup set-target`
+takes `--prefix` as the cluster root and writes workload backups under `<prefix>/workload/` and
+datastore snapshots under `<prefix>/datastore/`, which is the boundary to write the access policy
+against.
 </Callout>
 
 ## The restore drill
@@ -158,23 +165,12 @@ that PVC metadata exists.
 
 ### What a drill covers
 
-The proof set proves the mechanism. **It does not prove your data**, and a drill that only ever
+The proof set proves the mechanism. **It does not prove your data.** A drill that only ever
 restores the same synthetic Pod is answering an easier question than the one you are paying it to
-answer.
-
-So the weekly drill also restores a **rotating sample of your own volumes**, and the result names
-exactly which ones it verified. Coverage accumulates: a different slice each week rather than the
-same proof every week, so over a month the drill has restored real data from most of the cluster
-instead of proving the same thing four times. A full-cluster drill — every volume, on demand — is
-a command to run before a migration or a risky upgrade, not a weekly default.
-
-Every volume, every week, was the alternative. On a cluster with terabytes of PVCs it stops being
-weekly and becomes continuous, and the most likely reason a drill fails is that the cluster is
-already short of resources — which restoring everything every week makes considerably more likely.
-
-Whichever it verified, **the result says so**. "The restore path works" and "your `invoices`
-namespace restored on the 14th, 41 GiB, byte-verified" are different claims, and a drill result
-that does not distinguish them lets the weaker one be read as the stronger.
+answer: it proves the backup was written, that object storage still holds it, and that the restore
+path puts it back — compared byte-for-byte, through the same node-agent/Kopia path a customer PVC
+takes. It does not prove that a particular namespace of yours can be restored, and this page does
+not claim it does.
 
 The result goes into fleet telemetry and is visible against the cluster. **A failed drill is an
 alert, not a log line.** It is also a gate: the [upgrade](/upgrades) pre-flight refuses to
@@ -287,6 +283,11 @@ upgrade has no way back.
 
 ### A namespace or a workload
 
+<Callout type="warning">
+**Not supported by the current release.** `kubenest backup restore` is registered but not built —
+running it exits with a "not yet implemented" error. The command arrives with **Bundle 1.2, on
+promotion**; until then this is how it will behave, not something you can run today.
+
 ```bash filename="terminal"
 kubenest backup restore --cluster prod-1 \
   --from daily-20260813-0200 \
@@ -294,6 +295,8 @@ kubenest backup restore --cluster prod-1 \
 ```
 
 Restores into the live cluster. It reports what it will change before doing it.
+
+</Callout>
 
 ### A whole cluster, from a datastore snapshot
 
@@ -347,6 +350,14 @@ value in 17 seconds. That is the tested disaster path; checking that a snapshot 
 exists is not accepted as restore evidence.
 
 ### Restore volume data
+
+<Callout type="warning">
+**Not supported by the current release.** This step is `kubenest backup restore` on top of the
+rebuilt cluster, and that command is not built yet — it arrives with **Bundle 1.2, on promotion**.
+The datastore half above it, `kubenest platform restore`, is implemented and is the tested disaster
+path.
+
+</Callout>
 
 Datastore snapshots do not contain your persistent volumes. Restore the most recent workload
 backup on top.

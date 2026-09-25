@@ -1,0 +1,44 @@
+{
+  "_comment": [
+    "The commands docs.kubenest.io shows that the released CLI does not have.",
+    "",
+    "Read by scripts/check_unsupported_callouts.py. Every occurrence of a command",
+    "listed here, anywhere under the scanned content directory, must sit inside a",
+    "<Callout> whose first sentence is exactly 'Not supported by the current",
+    "release.' and which names the release that removes it. That sentence is the",
+    "machine-readable marker: it is the dated exception in README.md section 'The",
+    "docs are the specification', and it is the string G0.7's CLI metadata will",
+    "skip on when it compares the command tree to the pages.",
+    "",
+    "PLAN section 6.6 found FOUR by grepping four strings: kubenest health,",
+    "kubenest node reboot, cluster set-reboot-window, and backup restore. The",
+    "third is absent here on purpose, and not because it was fixed: there was",
+    "never such a command. pkg/cmd/cluster.go registers set-window, which is",
+    "implemented, so os-patching.mdx shows that command and no occurrence of",
+    "set-reboot-window is left to call out. The self-test fails when a listed",
+    "page no longer shows the command, so listing a removed one would fail there.",
+    "",
+    "The app-layer pages (deploying, addons, console, index) carry the same",
+    "callout for commands that were REMOVED under decision D1 rather than",
+    "stubbed. They are deliberately not listed: those pages need one page-level",
+    "callout over a frozen family of commands, not a callout around every",
+    "occurrence of every verb, and a list entry here means the latter."
+  ],
+  "unsupported": [
+    {
+      "page": "content/day-2.mdx",
+      "command": "kubenest health",
+      "because": "PLAN section 6.4 records it MISSING from the command tree; it is a T2.x day-2 verb."
+    },
+    {
+      "page": "content/os-patching.mdx",
+      "command": "kubenest node reboot",
+      "because": "pkg/cmd/root.go registers login, logout, platform, cluster and backup only. There is no node verb."
+    },
+    {
+      "page": "content/backup-restore.mdx",
+      "command": "kubenest backup restore",
+      "because": "Registered as a skeleton (pkg/cmd/backup.go newBackupSkeletonCommand): it exits non-zero with 'not yet implemented'."
+    }
+  ]
+}

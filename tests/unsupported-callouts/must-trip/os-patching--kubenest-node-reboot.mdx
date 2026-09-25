@@ -1,0 +1,9 @@
+# Fixture: this page MUST trip the guard
+
+Deliberately wrong prose. Not published — see tests/unsupported-callouts/README.md.
+
+The last healthy control-plane node waits for an explicit decision:
+
+```bash
+kubenest node reboot --cluster prod-1 --node server-1 --confirm
+```

@@ -15,6 +15,14 @@ They drive the same [API](/api), so a team can mix them freely — someone deplo
 else scales a component from a phone during an incident, and the deploy history records both the
 same way.
 
+<Callout type="warning">
+**Not supported by the current release.** The app-layer commands named on this page —
+`kubenest deploys`, `kubenest logs` and `kubenest status` — were removed from the command tree and
+are frozen scope under decision D1. The released CLI installs and operates the platform only, so
+this callout comes off only when a release that lifts that decision is promoted.
+
+</Callout>
+
 ## What it is better at
 
 **Looking at more than one thing.** The fleet view is every cluster at once: bundle version, HA

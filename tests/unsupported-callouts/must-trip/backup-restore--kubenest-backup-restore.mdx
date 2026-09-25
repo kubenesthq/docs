@@ -1,0 +1,9 @@
+# Fixture: this page MUST trip the guard
+
+Deliberately wrong prose. Not published — see tests/unsupported-callouts/README.md.
+
+Restore one namespace from a workload backup:
+
+```bash
+kubenest backup restore --cluster prod-1 --from daily-20260813-0200 --namespace payments
+```

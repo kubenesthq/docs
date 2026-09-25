@@ -1,0 +1,16 @@
+# Fixture: this page MUST trip the guard
+
+Deliberately wrong prose. Not published — see tests/unsupported-callouts/README.md.
+
+This fixture also proves the guard is not satisfied by a callout somewhere on the page: its first
+occurrence is inside a proper one and its second is not.
+
+<Callout type="warning">
+**Not supported by the current release.** `kubenest health` prints the fleet view below once
+Bundle 1.2 is promoted.
+
+`kubenest health`
+</Callout>
+
+The operator runs `kubenest health` every morning before standup, which is the sentence the guard
+must catch.

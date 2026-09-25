@@ -62,6 +62,25 @@
         "\\b(all|every)\\b[^.]{0,40}(cluster operation|kubernetes operation)[^.]{0,60}\\b(flow|flows|originate|originates|go|goes)\\b",
         "\\bevery\\b[^.]{0,30}kubernetes operation[^.]{0,40}originates"
       ]
+    },
+    {
+      "id": "livepatch-respected",
+      "retired_by": "kn-g06 / F7",
+      "because": "Nothing implements livepatch awareness and no test host has Livepatch (plan section 7.4). The reboot coordinator decides from the platform's own sentinel, not from a node's livepatch state, so 'where you already have it, the platform must not undo the benefit by rebooting anyway' was a promise with no code behind it. F7 removed the promise now rather than build it.",
+      "patterns": [
+        "(livepatch\\w*|live-?patch\\w*|patched\\s+live)[^.]{0,90}\\b(not|never|isn't|does not|doesn't|no need to)\\b[^.]{0,50}reboot",
+        "\\b(not|never|does not|doesn't|no longer)\\b[^.]{0,50}reboot[^.]{0,60}(livepatch\\w*|live-?patch\\w*|patched\\s+live)"
+      ]
+    },
+    {
+      "id": "rotating-volume-sample",
+      "retired_by": "kn-g06 / F7",
+      "because": "The drill restores its own proof set, never a customer volume. F7 removed the claim instead of building the rotating sample: the weekly drill proves the mechanism and reports what it verified, and nothing restores a customer PVC on a rotating schedule.",
+      "patterns": [
+        "rotating\\s+(sample|slice|subset|selection)\\s+of\\s+(your|the\\s+customer'?s?)\\s+(own\\s+)?(volumes|volume\\s+data|data|pvcs?)",
+        "\\b(restores?|restoring|restored|drills?|drilling)\\b[^.]{0,70}\\brotating\\s+(sample|slice|subset|selection)\\b",
+        "\\bcoverage\\b[^.]{0,60}\\baccumulat\\w*\\b[^.]{0,90}\\b(most\\s+of\\s+the\\s+cluster|real\\s+data|your\\s+data)\\b"
+      ]
     }
   ],
   "allowed": [

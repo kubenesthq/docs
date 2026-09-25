@@ -1,0 +1,16 @@
+# Fixture: this page MUST NOT trip the guard
+
+Commands the released CLI has, shown with no callout, because a real command does not need one. This
+is the near-miss that keeps the guard scoped to its list: `kubenest cluster set-window` shares the
+`kubenest cluster` prefix with nothing listed, and `kubenest backup drill` is one word away from the
+backup restore verb without being it.
+
+```bash
+kubenest cluster set-window --cluster prod-1 \
+  --days sat,sun --start 02:00 --end 06:00 --timezone Asia/Kolkata
+kubenest platform install --bundle 1.1 --name prod-1
+kubenest backup drill --cluster prod-1
+```
+
+`kubenest platform restore` rebuilds the cluster itself from a datastore snapshot, and
+`kubenest cluster rotate-token` delivers a rotated agent token.

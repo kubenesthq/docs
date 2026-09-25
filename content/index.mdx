@@ -3,7 +3,7 @@ title: KubeNest — Kubernetes without the maintenance dread
 description: A tested, versioned Kubernetes platform that installs on servers you already own — with upgrades, backups, restore drills and OS patching handled.
 ---
 
-import { Cards } from 'nextra/components'
+import { Callout, Cards } from 'nextra/components'
 
 # KubeNest
 
@@ -63,6 +63,14 @@ components:
   postgres:
     addon: postgres@16
 ```
+
+<Callout type="warning">
+**Not supported by the current release.** `kubenest deploy` and the rest of the app layer were
+removed from the command tree and are frozen scope under decision D1. The released CLI installs and
+operates the platform; this callout comes off only when a release that lifts that decision is
+promoted.
+
+</Callout>
 
 ## The honest comparison
 

@@ -64,12 +64,9 @@ the default state rather than something the policy has to remember to do.
 **That redirection is shipped.** kured is installed pointing at the KubeNest sentinel, not
 Ubuntu's, on every cluster today.
 
-**If your hosts have kernel livepatching, it is respected.** A node whose kernel was patched live
-and therefore no longer needs a reboot does not get rebooted for that patch: the reboot decision
-reads the node's actual patch state, not merely whether some file exists. We do not sell, require
-or configure livepatching — enrolling your hosts would mean a commercial subscription and a
-credential in the install flow, and that is your relationship to have, not ours to broker. But
-where you already have it, the platform must not undo the benefit by rebooting anyway.
+**KubeNest does not sell, require or configure kernel livepatching.** Enrolling your hosts would
+mean a commercial subscription and a credential in the install flow, and that is your relationship
+to have, not ours to broker.
 
 ## How reboots are coordinated
 
@@ -113,10 +110,17 @@ for a `Ready` condition is waiting on a component that does not exist for the du
 
 So on that path the wait is external, and belongs to whoever issued the reboot:
 
+<Callout type="warning">
+**Not supported by the current release.** The CLI half of this table is `kubenest node reboot`,
+which is not in the command tree yet; it arrives with **Bundle 1.2, on promotion**. Fleet telemetry
+observes the reboot today.
+
 | Observer | Waits on | Reports |
 |---|---|---|
 | The CLI that ran `kubenest node reboot` | SSH reachable, then k3s active, then the node's own API answering | Progress, then Ready or the `node-reboot` deadline |
 | Fleet telemetry | The agent's heartbeat resuming | The cluster as **unreachable** while it is down, recovered when the heartbeat returns |
+
+</Callout>
 
 A cluster that misses its configured number of reports goes critical as `CLUSTER_SILENT`, and every
 other check it was reporting turns to `unknown` rather than staying green. The cluster showing as
@@ -152,9 +156,14 @@ sits on that absence is the entire safety net for the tier.
 ### Reboot windows
 
 ```bash filename="terminal"
-kubenest cluster set-reboot-window --cluster prod-1 \
+kubenest cluster set-window --cluster prod-1 \
   --days sat,sun --start 02:00 --end 06:00 --timezone Asia/Kolkata
 ```
+
+One cluster, one window, one name: `kubenest cluster set-window` writes the setting that both the
+bundle upgrade and this reboot orchestration read. Two names would mean two windows — a cluster
+that reboots at 02:00 and upgrades at 03:00 by different rules — which is exactly what the single
+setting exists to prevent.
 
 No node reboots outside its window. A patch applied on Tuesday waits until Saturday, reporting as
 pending reboot for the whole interval — visible, not forgotten.
@@ -176,9 +185,15 @@ every workload is on that node and the reboot is a full application outage.
 That is an announced, deliberate action, not something a daemon does at 3am. So the node reports
 pending reboot and **waits for an explicit decision**:
 
+<Callout type="warning">
+**Not supported by the current release.** `kubenest node reboot` is not in the command tree; it
+arrives with **Bundle 1.2, on promotion**, and until then no released CLI has this verb.
+
 ```bash filename="terminal"
 kubenest node reboot --cluster prod-1 --node server-1 --confirm
 ```
+
+</Callout>
 
 Agent nodes on a single-server cluster reboot automatically within the window as normal. It is
 only the last healthy control-plane node that requires a human.
