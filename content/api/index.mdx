@@ -149,7 +149,7 @@ Hub- and operator-dependent endpoints can return `502`, `503`, or `504` when dis
 
 ## Rate limits
 
-The API is not rate limited, with one exception. Limits can be configured per tier and per path, but enforcement is attached to a single endpoint (`POST /tasks/task`); every other endpoint is unthrottled. There is no endpoint for reading current usage, and responses carry no `X-RateLimit-*` headers — do not build a client that waits for them.
+The API is not rate limited, with two exceptions. **Sign-in is throttled:** `POST /login` counts attempts per submitted email and source address, and per source address; after 20 attempts within a minute, further attempts are refused with the same `401` a wrong password gets, for a window that doubles with persistence up to 15 minutes. A correct password clears its own count, and nothing locks an account permanently. **One task endpoint is throttled:** configurable per-tier, per-path limits are enforced only on `POST /tasks/task`, which requires an authenticated caller; with the defaults it allows ten requests per hour per caller. Every other endpoint is unthrottled. There is no endpoint for reading current usage, and responses carry no `X-RateLimit-*` headers — do not build a client that waits for them.
 
 What exists is the configuration surface. A superuser can define per-tier, per-path limits:
 
