@@ -1,7 +1,7 @@
 {
   "cli_version": "dev",
   "commit": "none",
-  "generated_at": "2026-09-27T05:45:58Z",
+  "generated_at": "2026-09-27T11:52:23Z",
   "commands": [
     {
       "path": "kubenest",
@@ -358,6 +358,12 @@
           "type": "string",
           "shorthand": "",
           "inherited": false
+        },
+        {
+          "name": "--take-over",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
         }
       ]
     },
@@ -576,6 +582,12 @@
           "inherited": false
         },
         {
+          "name": "--scope",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
           "name": "--token-stdin",
           "type": "bool",
           "shorthand": "",
@@ -630,6 +642,12 @@
           "inherited": false
         },
         {
+          "name": "--confirm",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
           "name": "--help",
           "type": "bool",
           "shorthand": "h",
@@ -661,6 +679,12 @@
         },
         {
           "name": "--storage-device",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--take-over",
           "type": "string",
           "shorthand": "",
           "inherited": false
@@ -734,6 +758,12 @@
           "inherited": false
         },
         {
+          "name": "--take-over",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
           "name": "--wait",
           "type": "bool",
           "shorthand": "",
@@ -756,6 +786,12 @@
         {
           "name": "--cluster",
           "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--confirm",
+          "type": "bool",
           "shorthand": "",
           "inherited": false
         },
@@ -796,8 +832,100 @@
           "inherited": false
         },
         {
+          "name": "--take-over",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
           "name": "--wait",
           "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest node replace",
+      "available": true,
+      "reason": "Replace one agent of a cluster: a new machine joins, and the machine it",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--confirm",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--confirm-isolated",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--node",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--now",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--resume",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-key",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-user",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--storage-device",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--take-over",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--wait",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--with",
+          "type": "string",
           "shorthand": "",
           "inherited": false
         }
@@ -850,7 +978,19 @@
       "hidden": false,
       "flags": [
         {
+          "name": "--acknowledge-single-operator",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
           "name": "--admin-email",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--admin-password",
           "type": "string",
           "shorthand": "",
           "inherited": false
@@ -858,6 +998,12 @@
         {
           "name": "--agent",
           "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--backup",
+          "type": "string",
           "shorthand": "",
           "inherited": false
         },
@@ -874,6 +1020,12 @@
           "inherited": false
         },
         {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
           "name": "--control-plane",
           "type": "bool",
           "shorthand": "",
@@ -881,6 +1033,12 @@
         },
         {
           "name": "--domain",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--fleet-key-file",
           "type": "string",
           "shorthand": "",
           "inherited": false
@@ -916,6 +1074,12 @@
           "inherited": false
         },
         {
+          "name": "--old-host-fenced",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
           "name": "--org",
           "type": "string",
           "shorthand": "",
@@ -924,6 +1088,18 @@
         {
           "name": "--profile",
           "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--recovery-kit",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--restore-from",
+          "type": "string",
           "shorthand": "",
           "inherited": false
         },
@@ -1170,6 +1346,12 @@
           "inherited": false
         },
         {
+          "name": "--confirm",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
           "name": "--control-plane",
           "type": "bool",
           "shorthand": "",
@@ -1207,6 +1389,12 @@
         },
         {
           "name": "--ssh-user",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--take-over",
           "type": "string",
           "shorthand": "",
           "inherited": false
