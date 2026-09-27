@@ -1,7 +1,7 @@
 {
   "cli_version": "dev",
   "commit": "none",
-  "generated_at": "2026-09-27T05:29:39Z",
+  "generated_at": "2026-09-27T05:45:58Z",
   "commands": [
     {
       "path": "kubenest",
@@ -520,6 +520,32 @@
         {
           "name": "--timezone",
           "type": "string",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest health",
+      "available": true,
+      "reason": "Show the fleet's health: one line per cluster, worst verdict first, with the",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--json",
+          "type": "bool",
           "shorthand": "",
           "inherited": false
         }
