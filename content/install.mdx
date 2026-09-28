@@ -107,6 +107,25 @@ partition table, a filesystem or an existing volume group, so this cannot silent
 The flag is required — there is no device auto-detection, because guessing which disk is
 disposable on someone else's infrastructure is not a risk worth taking.
 
+<Callout type="warning">
+**Not supported by the current release.** The released CLI takes one `--storage-device` for every
+node. That works when every host names its blank disk the same way, such as `/dev/nvme1n1`. When the
+names differ, for example because you use the stable `/dev/disk/by-id/...` path, which carries each
+volume's serial, use Option 1 on each node. From **Bundle 1.2, on promotion**, `--storage-device`
+also takes `HOST=DEVICE`, once per node, where HOST is a `--server` or `--agent` value exactly as
+you gave it:
+
+```bash
+--storage-device 10.0.1.10=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_vol0aaaaaaaaaaaaaaaa \
+--storage-device 10.0.1.11=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_vol0bbbbbbbbbbbbbbbb \
+--storage-device 10.0.1.12=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_vol0cccccccccccccccc
+```
+
+Every node must be named, and the two forms cannot be mixed. The installer refuses before it touches
+any host when a node has no device, when a HOST is not one of the install's nodes, or when a node is
+named twice. A resumed install must use the same mapping as the first run.
+</Callout>
+
 Creating a volume group from free space on the root disk is not supported.
 
 Which option you used is recorded against the cluster, because it determines what
