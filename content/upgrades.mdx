@@ -225,9 +225,14 @@ Stage 6 is the host step, and it is the only stage that exists for clusters that
 being installed on them. This page and the installer write the same two things to a fresh install's
 hosts, so a fresh cluster has nothing to do here: Ubuntu's APT policy — security updates only,
 `Automatic-Reboot "false"`, and k3s held out of `needrestart`'s reach — and the
-`kubenest.io/auto-reboot=false` hold, which is what makes `kubenest node reboot` rather than luck
-the thing that decides when a node reboots. A cluster upgraded from an earlier release gets both
-here, before Kubernetes moves.
+`kubenest.io/auto-reboot=false` hold. A cluster upgraded from an earlier release gets both here,
+before Kubernetes moves.
+
+<Callout type="warning">
+**Not supported by the current release.** With the hold in place, `kubenest node reboot`, rather
+than luck, decides when a node reboots. That command is not in the released command tree; it
+arrives with **Bundle 1.2, on promotion**.
+</Callout>
 
 Two properties matter operationally. It is **idempotent**: a re-run on a cluster that already
 carries the policy writes nothing and reports no change. And it is **reversible per node**: servers
