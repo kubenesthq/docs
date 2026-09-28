@@ -1,7 +1,7 @@
 {
   "cli_version": "dev",
   "commit": "none",
-  "generated_at": "2026-09-27T11:52:23Z",
+  "generated_at": "2026-09-28T11:29:02Z",
   "commands": [
     {
       "path": "kubenest",
@@ -1123,7 +1123,7 @@
         },
         {
           "name": "--storage-device",
-          "type": "string",
+          "type": "stringArray",
           "shorthand": "",
           "inherited": false
         }
