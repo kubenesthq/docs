@@ -591,8 +591,10 @@ these checks prove the artifact is present, readable and about the right cluster
 completed restore proves a restore works**.
 
 **What you must keep separately**, because no copy of it exists on any host: the fleet recovery key,
-SSH access to the hosts, the S3 credentials, control of DNS for the control-plane domain, and the
-ability to power the hosts off at their provider.
+the instance id the control-plane install prints beside it, SSH access to the hosts, the S3
+credentials, control of DNS for the control-plane domain, and the ability to power the hosts off at
+their provider. Every kit and recovery set is bound to the instance id, so a recovery run from a
+machine other than the one that installed the control plane needs it as `--instance-id`.
 
 ## Recovering a lost single-server host
 
@@ -609,6 +611,7 @@ kubenest platform install \
   --bundle 1.1 \
   --name prod-2 \
   --cluster 01a0d868-… \
+  --instance-id 9c11… \
   --restore-from latest \
   --recovery-kit s3 \
   --backup-target 's3://kubenest-backups/prod-2?endpoint=…&region=…' \
@@ -630,6 +633,12 @@ is read by the id, and the name it carries is used in messages and nothing else.
 that cluster is selected and checked — the same four questions `kubenest recovery-kit check` asks —
 and a set that belongs to another cluster, or an incomplete one, is refused before anything is
 changed. Run the check itself first if you want the answers before typing the install command.
+
+The recovery starts from the newest completed backup the recovery set records. Today only
+`kubenest backup now` records a backup in the set: the nightly schedule's backups can be restored
+into a running cluster with `kubenest backup restore`, but they are not recovery points for this
+procedure. Take a `kubenest backup now` after any change you could not afford to lose, and before
+planned work on the host.
 
 ### Take recovery ownership, and fence the old host
 
@@ -655,9 +664,10 @@ the cluster's rather than the host's.
 
 The backup repository the recovery set names is **opened with the kit's password, never initialised
 over**. A wrong or missing repository password is reported as a wrong kit rather than retried, and the
-evidence that it was right is a `PodVolumeRestore` that completed. Then every workload namespace the
+evidence that it was right is a `PodVolumeRestore` that completed. Then every project namespace the
 recovery set's backup covers is restored with the workload restore path, which lets Velero provision
-fresh volumes on the new host and fill them.
+fresh volumes on the new host and fill them. The platform's own namespaces, such as `cert-manager`
+and `openebs`, come back from the install itself and are never restored over it.
 
 ### Verify, and activate
 
@@ -714,6 +724,7 @@ kubenest platform install \
   --control-plane \
   --bundle 1.1 \
   --name prod-1 \
+  --instance-id 5cc7141e… \
   --restore-from latest \
   --recovery-kit s3 \
   --backup-target 's3://kubenest-backups/prod-1?endpoint=…&region=…' \
@@ -786,8 +797,10 @@ A cluster registered after the checkpoint appears as unknown, and is registered 
 
 ### Restore the management cluster's own workloads
 
-The management cluster's workload namespaces are restored from its own backup, and activated. The
-recovery does this only when the backup records coverage of those namespaces. Where it does not — a
+The management cluster's project namespaces are restored from its own backup, and activated. As in
+a single-server recovery, the backup is the newest one the recovery set records, which today means
+the newest `kubenest backup now`. The recovery does this only when the backup records coverage of
+those namespaces. Where it does not — a
 bundle 1.1 fleet, whose operator writes no coverage records — the recovery restores the control plane,
 prints a **NOT RESTORED** block naming the backup, the reason, and the restore command to run by hand
 once you have accepted the data's age, and exits successfully. The control plane is recovered and
