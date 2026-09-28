@@ -91,6 +91,17 @@ jobs:
           --metadata cli-metadata/command-metadata.json
           --content content/
 
+      # The CLI-example guard proves the commands exist. This one proves the page
+      # says the things it has to say and none of the things that are false of the
+      # product: workload Secrets are readable in the bucket, an uncoordinated copy
+      # is not consistent, and no recovery time is promised (T4.10's acceptance).
+      # Its SELF-TEST runs first, for the same reason as every guard above.
+      - name: Page-claim guard SELF-TEST (can it still fail?)
+        run: python3 scripts/selftest_page_claims.py
+
+      - name: Page-claim guard (the page its registry names)
+        run: python3 scripts/check_page_claims.py
+
       # The public site documents the RELEASED CLI, so the release asset
       # cli-contract.json names is fetched and the same pages are checked
       # against it (PLAN section 7.12). This step may fail with a warning -- a

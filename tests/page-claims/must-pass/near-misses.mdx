@@ -1,0 +1,16 @@
+# Fixture: this page MUST NOT trip the guard
+
+Prose that states the required clauses and states none of the forbidden ones. If the
+guard fires here it is over-matching, which costs a publish and trains people to ignore
+it.
+
+The bucket holds the cluster's backups and the control plane's checkpoints. Velero's resource archives
+hold workload Secrets in plaintext, so read access to a cluster's backups is treated like
+cluster-admin on that cluster.
+
+An uncoordinated file copy gives no consistency guarantee: its files are copied at different moments.
+A quiescing hook that exited zero is recorded as "hook ran", never as "consistent", and the method is
+printed with the backup's coverage in the restore plan.
+
+No recovery-time budget is promised anywhere on this page. The recorded runs carry their conditions,
+and only a completed restore proves restoration.

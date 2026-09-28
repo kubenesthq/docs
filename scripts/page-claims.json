@@ -1,0 +1,49 @@
+{
+  "_comment": [
+    "Read by scripts/check_page_claims.py, proven by scripts/selftest_page_claims.py.",
+    "",
+    "Two kinds of clause. `must_state` is something the page has to say, because",
+    "a reader who is not told it will get the next decision wrong. `must_not_state`",
+    "is something the page must never say, because it is not true of the product.",
+    "",
+    "Patterns are SEMANTIC and deliberately narrow: they match the claim, not the",
+    "one sentence someone happened to write. A pattern is added here when a clause",
+    "of this shape appears, and the self-test's fixture corpus grows with it -- the",
+    "guard cannot become a rule with no evidence that it fires."
+  ],
+  "page": "content/backup-restore.mdx",
+  "claims": [
+    {
+      "id": "resource-archives-are-plaintext",
+      "kind": "must_state",
+      "because": "Velero offers no client-side encryption for resource archives, so any Secret a backup captured is readable in the bucket. Plan 7.8 makes read access to a cluster's backups equivalent to cluster-admin on that cluster, and a page about that bucket that does not say so is the sentence an operator uses to hand out s3:GetObject.",
+      "patterns": [
+        "\\bresource\\s+archives?\\b[^.]{0,60}\\b(plain[- ]?text|unencrypted|un[- ]?encrypted|readable)\\b",
+        "\\b(plain[- ]?text|unencrypted|un[- ]?encrypted)\\b[^.]{0,60}\\b(resource\\s+archives?|velero'?s\\s+archives?)\\b",
+        "\\b(workload\\s+)?secrets?\\b[^.]{0,50}\\b(are|is|sit|stay)\\b[^.]{0,30}\\b(plain[- ]?text|unencrypted|readable)\\b"
+      ]
+    },
+    {
+      "id": "no-consistency-claim-for-an-uncoordinated-copy",
+      "kind": "must_not_state",
+      "because": "An uncoordinated file-level copy of a running database copies its files at different moments, so it gives no consistency guarantee. Plan 7.5 lets the page describe the method and the hook annotations; it never lets a copy under neither be called consistent.",
+      "patterns": [
+        "\\buncoordinated\\b[^.]{0,80}\\b(consistent|point[- ]in[- ]time|crash[- ]consistent)\\b",
+        "\\b(consistent|point[- ]in[- ]time)\\b[^.]{0,80}\\buncoordinated\\b",
+        "\\b(every|each|all)\\s+backups?\\b[^.]{0,40}\\bare\\s+consistent\\b",
+        "\\bbackup\\w*\\b[^.]{0,40}\\b(is|are)\\s+consistent\\s+by\\s+default\\b"
+      ]
+    },
+    {
+      "id": "no-recovery-time-guarantee",
+      "kind": "must_not_state",
+      "because": "T4.8 and T4.9 record wall-clock times with their conditions -- data volume, host size, bandwidth -- and assert no recovery-time budget; section 10's rule is that a number without its conditions is not evidence. The page may quote the recorded runs; it may not turn one into a promise.",
+      "patterns": [
+        "\\brecover\\w*\\b[^.]{0,40}\\b(in|within|under|takes?)\\b\\s+(under\\s+)?(\\d+|one|two|three|a\\s+few|an\\s+hour|minutes?)\\b[^.]{0,20}\\b(minutes?|hours?|mins?)\\b",
+        "\\b(guarantee\\w*|guaranteed|promise\\w*|sla|service\\s+level)\\b[^.]{0,60}\\b(recover\\w*|restor\\w*|minutes|hours)\\b",
+        "\\b(recover\\w*|restor\\w*)\\b[^.]{0,40}\\b(will|always)\\b[^.]{0,30}\\b(complete|finish|be\\s+done)\\b",
+        "\\bwithin\\s+\\d+\\s*(minutes?|hours?)\\b[^.]{0,40}\\b(recover\\w*|restor\\w*)\\b"
+      ]
+    }
+  ]
+}

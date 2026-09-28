@@ -1,0 +1,9 @@
+# Fixture: this page MUST be reported as missing a clause
+
+Deliberately wrong prose: it talks about the bucket and never says what the bucket exposes.
+Not published — see scripts/selftest_page_claims.py.
+
+The bucket holds your cluster's backups and the control plane's checkpoints. Scope one credential to
+one cluster's own prefix, and keep the control plane's checkpoints under their own principal.
+
+Read access to the bucket should be given sparingly, and never to a whole team at once.

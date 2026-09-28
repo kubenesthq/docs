@@ -1,0 +1,9 @@
+# Fixture: this page MUST trip the guard
+
+Deliberately wrong prose. Not published — see tests/retired-claims/README.md.
+
+The control plane's database is not backed up off its host, so the only copy of every organisation,
+member and window is on the machine that runs it.
+
+Restoring the datastore snapshot from S3 is how the control plane comes back after its host dies, and
+the cluster returns with every workload definition, secret and config it had at snapshot time.

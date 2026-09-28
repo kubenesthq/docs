@@ -17,3 +17,18 @@ objects restored and matched, and volume bytes read back.
 
 KubeNest does not sell, require or configure kernel livepatching; enrolling your hosts would mean a
 commercial subscription and a credential in the install flow.
+
+## The truths that replaced the retired claims
+
+Volume data is protected by a per-cluster repository password, generated at install and carried in
+the cluster kit.
+
+The control plane's database is checkpointed to the bucket nightly, and a security change triggers
+its own checkpoint; a recovery loads the newest eligible one.
+
+The control plane has its own certificate authority as the issuer for the control-plane chart, and
+that CA travels in the control-plane kit rather than being the host cluster's.
+
+A datastore snapshot is the documented fallback for rebuilding a workload cluster, and nothing from
+the dead host's datastore is replayed by the supported recovery.
+

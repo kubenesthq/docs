@@ -1,0 +1,9 @@
+# Fixture: this page MUST be reported for claiming consistency
+
+Deliberately wrong prose. Not published — see scripts/selftest_page_claims.py.
+
+Velero's resource archives hold workload Secrets in plaintext, so read access to a cluster's backups
+is treated like cluster-admin on that cluster.
+
+An uncoordinated file copy is consistent enough for a database, because Velero copies each volume in
+one pass.

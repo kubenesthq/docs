@@ -73,6 +73,37 @@
       ]
     },
     {
+      "id": "velero-default-repo-password",
+      "retired_by": "kn-t46 / kn-t47 / T4.10",
+      "because": "1.2 generates a random Velero repository password per cluster at install (recoverykit.KeyVeleroRepoPassword), installs it before Velero creates its repository, and carries it in the cluster kit. Nothing sets the vendored default, so volume data is not protected by a key anyone can read out of Velero's source.",
+      "patterns": [
+        "\\b(default|commonly[- ]known|well[- ]known|vendored|built[- ]in|shared|standard)\\b[^.]{0,30}\\b(repository|repo)\\s+password\\b",
+        "\\b(repository|repo)\\s+password\\b[^.]{0,50}\\b(default|commonly[- ]known|well[- ]known|vendored|built[- ]in|shared|standard|same\\s+(on\\s+)?every)\\b",
+        "\\bvolume\\s+data\\b[^.]{0,60}\\bprotected\\b[^.]{0,40}\\b(default|commonly[- ]known|vendored|built[- ]in)\\b"
+      ]
+    },
+    {
+      "id": "control-plane-database-unsupported",
+      "retired_by": "kn-t47 / kn-t48 / T4.10",
+      "because": "1.2's control-plane chart runs a checkpoint Job that dumps the control plane's database, proves the dump restores, seals it to the fleet recipient and uploads it under the bucket's control-plane/ prefix nightly and on every security change; a recovery loads the newest eligible checkpoint. The database is no longer only on the machine that runs it, and a datastore snapshot is not the control plane's recovery path.",
+      "patterns": [
+        "\\bcontrol\\s+plane'?s?\\s+(own\\s+)?(postgres\\s+)?(database|db|state|data)\\b[^.]{0,60}\\b(not|never|isn'?t|no\\s+longer|only|nothing)\\b[^.]{0,60}\\b(backed\\s+up|backup|copied|copy|copies|off[- ]host|off\\s+(its|the)\\s+host|on\\s+(its|the)\\s+host)\\b",
+        "\\b(no|nothing|never)\\b[^.]{0,50}\\b(backed\\s+up|backup|copied|copy|copies)\\b[^.]{0,40}\\boff\\b[^.]{0,20}\\bhost\\b",
+        "\\b(datastore|etcd)\\s+snapshot\\w*\\b[^.]{0,40}\\b(recovers?|restores?|rebuilds?|brings?\\s+back|is\\s+how)\\b[^.]{0,30}\\b(control\\s+plane|the\\s+cluster\\s+itself)\\b",
+        "\\b(control\\s+plane|the\\s+cluster\\s+itself)\\b[^.]{0,60}\\b(recover\\w*|restor\\w*|rebuild\\w*|comes?\\s+back)\\b[^.]{0,60}\\b(from|with|by|using)\\b[^.]{0,40}\\b(datastore|etcd)\\s+snapshot\\w*\\b"
+      ]
+    },
+    {
+      "id": "control-plane-ca-is-the-host-cluster-ca",
+      "retired_by": "kn-t47 / T4.10",
+      "because": "1.2 generates the control plane its own CA at install and uses it as the control-plane chart's issuer, instead of the host cluster's platform CA. The CA travels in the control-plane kit (recoverykit.KeyControlPlaneCA), so the control plane's identity survives a restore or a move.",
+      "patterns": [
+        "\\bcontrol\\s+plane\\b[^.]{0,60}\\b(TLS|certificate|identity|CA|certificate\\s+authority|issuer)\\b[^.]{0,50}\\b(from|of|is|takes?)\\b[^.]{0,40}\\b(host\\s+cluster'?s?|platform\\s+CA|cluster'?s\\s+own\\s+CA|the\\s+host\\s+cluster)\\b",
+        "\\b(host\\s+cluster'?s?|platform)\\s+(CA|certificate\\s+authority)\\b[^.]{0,50}\\b(control\\s+plane|its\\s+identity|its\\s+certificate)\\b",
+        "\\bcontrol\\s+plane\\b[^.]{0,40}\\btakes\\s+its\\s+(TLS\\s+)?(identity|certificate|CA)\\b"
+      ]
+    },
+    {
       "id": "rotating-volume-sample",
       "retired_by": "kn-g06 / F7",
       "because": "The drill restores its own proof set, never a customer volume. F7 removed the claim instead of building the rotating sample: the weekly drill proves the mechanism and reports what it verified, and nothing restores a customer PVC on a rotating schedule.",
