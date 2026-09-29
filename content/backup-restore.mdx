@@ -70,7 +70,7 @@ group of the health report names the newest terminal backup, the newest **eligib
 missing and failed volumes that make a backup ineligible.
 
 Bundle 1.1's operator writes no expected-coverage records — they arrived with operator chart
-`2.7.0-rc.1`, which bundle 1.2 pins — so on a 1.1 cluster coverage reads **unknown**, and the command
+`2.7.0-rc.1`, and bundle 1.2 pins `2.7.0-rc.2` — so on a 1.1 cluster coverage reads **unknown**, and the command
 says so rather than assuming the volumes are there.
 
 **The data's age is conservative.** For an uncoordinated file copy, the age is measured from the
@@ -144,8 +144,8 @@ project's own namespace — so it survives the namespace's deletion. The operato
 sync off and does not recreate the namespace, and it acknowledges the hold with a `ReconcilePaused`
 condition. The restore waits for that acknowledgement before its first destructive step.
 
-The acknowledgement exists only in operator chart `2.7.0-rc.1` and later, which is the chart bundle
-1.2 pins. Against an older operator the command refuses **at once and before anything is changed**:
+The acknowledgement exists only in operator chart `2.7.0-rc.1` and later. Bundle 1.2 pins
+`2.7.0-rc.2`. Against an older operator the command refuses **at once and before anything is changed**:
 the version is read from the operator's own chart label, and no older operator will ever write that
 condition. The refusal names the operator version found, the version needed, and `kubenest platform
 upgrade` as the path.
