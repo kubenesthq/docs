@@ -157,6 +157,9 @@ Being honest about the boundary is part of the product:
 - **You supply the machines.** And the network, and the disks — see [Why](/why#why-bring-your-own-infrastructure).
 - **You configure a backup target.** Once. Until you do, the cluster says so continuously rather
   than pretending.
+- **You check disk space before growing a volume.** Nothing refuses a request larger than the free
+  space yet, and such a request breaks the volume's next mount — see
+  [Growing a volume](/install#growing-a-volume).
 
 ## What this replaces
 

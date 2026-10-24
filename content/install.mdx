@@ -131,6 +131,47 @@ Creating a volume group from free space on the root disk is not supported.
 Which option you used is recorded against the cluster, because it determines what
 [uninstall](#uninstall) is allowed to remove.
 
+#### Growing a volume
+
+The default StorageClass, `kubenest-local`, allows a volume to grow while its pod keeps running.
+Raise the claim's request and the filesystem grows within about a minute, with no restart:
+
+```bash
+kubectl -n NAMESPACE patch pvc NAME -p '{"spec":{"resources":{"requests":{"storage":"20Gi"}}}}'
+```
+
+A volume can only grow from the free space in `kubenest-vg` on the node that holds it. Check that
+space first. Find the node, then read the free space on that host:
+
+```bash
+PV=$(kubectl -n NAMESPACE get pvc NAME -o jsonpath='{.spec.volumeName}')
+kubectl get pv "$PV" -o jsonpath='{.spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions[0].values[0]}'
+sudo vgs kubenest-vg      # on that node: VFree must exceed the growth you ask for
+```
+
+<Callout type="warning">
+**Not supported by the current release: refusing a request larger than the free space.** Nothing
+refuses it, in any bundle. The request is accepted, the resize fails on the node, and the claim
+shows `NodeResizeError` with only `exit status 5`. The pod that is running keeps working, but the
+next time a pod starts on that volume it cannot mount it, so a restart, an eviction or a patch-night
+reboot takes the workload down. Lowering the request alone does not recover it. Your data is not
+touched.
+
+To recover, set the request to a size that fits, then put the three records back to the size the
+volume really has. Read that size in bytes on the node with
+`sudo lvs --units b --nosuffix -o lv_size kubenest-vg/$PV`, and use it as SIZE below:
+
+```bash
+kubectl -n NAMESPACE patch pvc NAME -p '{"spec":{"resources":{"requests":{"storage":"FITS"}}}}'
+kubectl patch pv "$PV" --type merge -p '{"spec":{"capacity":{"storage":"SIZE"}}}'
+kubectl -n openebs patch lvmvolumes.local.openebs.io "$PV" --type merge -p '{"spec":{"capacity":"SIZE"}}'
+kubectl -n NAMESPACE patch pvc NAME --subresource=status --type merge \
+  -p '{"status":{"allocatedResources":{"storage":"SIZE"},"allocatedResourceStatuses":null}}'
+```
+
+The fitting request then completes, and pods mount the volume again with its data.
+</Callout>
+
 ### Backup
 
 Velero is installed as part of core. The install does not configure a backup target; where backups
