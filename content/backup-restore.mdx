@@ -634,11 +634,12 @@ that cluster is selected and checked — the same four questions `kubenest recov
 and a set that belongs to another cluster, or an incomplete one, is refused before anything is
 changed. Run the check itself first if you want the answers before typing the install command.
 
-The recovery starts from the newest completed backup the recovery set records. Today only
-`kubenest backup now` records a backup in the set: the nightly schedule's backups can be restored
-into a running cluster with `kubenest backup restore`, but they are not recovery points for this
-procedure. Take a `kubenest backup now` after any change you could not afford to lose, and before
-planned work on the host.
+The recovery starts from the newest completed backup the recovery set records. The set records
+every eligible backup: the cluster's operator adds each nightly backup once Velero finishes it,
+and `kubenest backup now` adds its own. A backup is eligible only when it copied every volume it
+was expected to; one that missed a volume, or ended partially failed, is never recorded, so the
+recovery falls back to the newest one that is complete. Take a `kubenest backup now` after any
+change you could not afford to lose, and before planned work on the host.
 
 ### Take recovery ownership, and fence the old host
 
@@ -798,8 +799,8 @@ A cluster registered after the checkpoint appears as unknown, and is registered 
 ### Restore the management cluster's own workloads
 
 The management cluster's project namespaces are restored from its own backup, and activated. As in
-a single-server recovery, the backup is the newest one the recovery set records, which today means
-the newest `kubenest backup now`. The recovery does this only when the backup records coverage of
+a single-server recovery, the backup is the newest eligible one the recovery set records, nightly or
+`kubenest backup now`. The recovery does this only when the backup records coverage of
 those namespaces. Where it does not — a
 bundle 1.1 fleet, whose operator writes no coverage records — the recovery restores the control plane,
 prints a **NOT RESTORED** block naming the backup, the reason, and the restore command to run by hand
