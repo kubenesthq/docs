@@ -39,14 +39,16 @@ jobs:
       # OPERATOR_REPO_TOKEN. It is allowed to fail rather than blocking the whole check:
       # a guard that is always red teaches people to ignore red. The render step below
       # skips when the chart is absent and runs for real once the token exists.
-      - name: Checkout operator chart contract
+      - name: Checkout operator code and chart contract
         id: operator_chart
         continue-on-error: true
         uses: actions/checkout@v4
         with:
           repository: kubenesthq/operator-v2
           ref: argo-cd
-          path: .operator-v2
+          # The allowed patch-reboot claim resolves ../op3 from the backend
+          # evidence root. Keep the chart and its evidence in this checkout.
+          path: op3
           token: ${{ secrets.OPERATOR_REPO_TOKEN || github.token }}
 
       # The content half needs nothing but this repo, so it runs unconditionally.
@@ -145,16 +147,26 @@ jobs:
           path: .kubenest-backend
           token: ${{ secrets.OPERATOR_REPO_TOKEN || github.token }}
 
+      # The patch-reboot claim also names the CLI's real-host gate. These
+      # paths sit beside .kubenest-backend so the existing evidence-root
+      # resolution checks every symbol without an exception or weaker rule.
+      - name: Checkout CLI for claim evidence
+        uses: actions/checkout@v4
+        with:
+          repository: kubenesthq/cli
+          ref: main
+          path: kubenest-cli
+
       - name: Retired-claim guard (code evidence)
-        if: steps.backend_repo.outcome == 'success'
+        if: steps.backend_repo.outcome == 'success' && steps.operator_chart.outcome == 'success'
         run: >-
           python3 scripts/check_retired_claims.py
           --content content/ --evidence-root .kubenest-backend
 
       - name: Note when the claim-evidence guard was skipped
-        if: steps.backend_repo.outcome != 'success'
+        if: steps.backend_repo.outcome != 'success' || steps.operator_chart.outcome != 'success'
         run: |
-          echo "::warning title=Claim-evidence guard skipped::Could not read kubenesthq/kubenest-backend." \
+          echo "::warning title=Claim-evidence guard skipped::Could not read kubenesthq/kubenest-backend or kubenesthq/operator-v2." \
                "Doc claims tied to code (scripts/retired-claims.json 'evidence') were NOT verified."
 
       - name: Install Helm
@@ -164,9 +176,9 @@ jobs:
       - name: Render published operator values
         if: steps.operator_chart.outcome == 'success'
         run: >-
-          python3 .operator-v2/scripts/check_docs_helm_values.py
+          python3 op3/scripts/check_docs_helm_values.py
           --docs-root .
-          --chart .operator-v2/charts/kubenest-operator
+          --chart op3/charts/kubenest-operator
 
       - name: Note when the drift guard was skipped
         if: steps.operator_chart.outcome != 'success'

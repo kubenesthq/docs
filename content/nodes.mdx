@@ -1,0 +1,93 @@
+---
+title: Nodes
+description: Add, remove, replace and reboot cluster nodes, with the storage, operation and fencing decisions each action requires.
+---
+
+import { Callout } from 'nextra/components'
+
+# Nodes
+
+<Callout type="warning">
+**Not supported by the current release.** This page describes the Bundle 1.2 candidate CLI. The node lifecycle commands become available with its promotion.
+</Callout>
+
+In 1.2, `add`, `remove` and `replace` act on **agents only**. `reboot` can act on an agent or a server. A single-server cluster's only server is [recovered from its recovery kit and off-host backup](/backup-restore), rather than replaced. Server add, remove and replace on the preview `ha` tier wait for that tier's promotion.
+
+| Action | Command | What happens |
+|---|---|---|
+| Add capacity | `kubenest node add --cluster C --agent HOST [--storage-device DEV]` | Pre-flights the host, joins it through a Ready server at the bundle's pinned k3s version, prepares its volume group and records it in the cluster inventory. Without `--storage-device`, `kubenest-vg` must already exist on the new host. |
+| Remove capacity | `kubenest node remove --cluster C --node N [--abandon-volumes]` | Checks local volumes before cordoning and draining, uninstalls k3s if the host is reachable, deletes the Node object and records the host as removed. `N` may be an inventory host ID, SSH address or Node name. |
+| Replace a machine | `kubenest node replace --cluster C --node N --with HOST [--storage-device DEV]` | For a reachable, Ready agent without bound local volumes, adds the replacement first and removes the old agent second. For an unreachable agent, requires provider isolation confirmation, removes the old node first and then adds the replacement. |
+| Reboot or restart k3s | `node reboot` | The manual reboot path for any node. See [OS patching and reboots](/os-patching) for the full candidate command, confirmation, maintenance window, drain and external wait rules. `--k3s-only` restarts k3s without rebooting the host. |
+
+For example, to add a new agent with a blank disk, then remove an agent whose local volumes have already been dealt with:
+
+```bash filename="terminal"
+kubenest node add --cluster prod-1 --agent 10.0.3.9 \
+  --storage-device /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive3 --wait
+kubenest node remove --cluster prod-1 --node 10.0.3.8 --wait
+```
+
+`--wait` waits for the cluster's maintenance window without holding a lock or touching a host. When the window opens, it takes the lock and checks the gates again. Outside the window, a command without `--wait` or `--now` refuses and names the next opening in local time and UTC. `--now` bypasses **only** the window; it does not bypass the operation lock, storage checks or the other safety gates. Use [OS patching and reboots](/os-patching) for the reboot procedure: in 1.2 **servers never reboot by themselves**. A server that needs a reboot waits for an operator to run `node reboot`.
+
+## One operation, from any laptop
+
+The control-plane cluster record holds the host inventory, including host IDs, addresses, roles, host-key fingerprints and lifecycle states. It has a revision; an inventory write using an old revision is refused. The install laptop's journal is not the source of which machines belong to the cluster. An authenticated operator with SSH access can run a node command from another laptop.
+
+The cluster's `kubenest-operation` record is also the lock: a second disruptive command is refused while one is running, and the refusal names the active operation. The CLI also takes kured's interlock before a disruptive step. If a command stops, use the reported operation ID with `--resume` and repeat the **same targets, device and other request flags**. Resume compares the immutable request, including targets and versions, and checks the recorded action's actual postcondition before repeating it. If the outcome cannot be established, it stops and names what needs reconciliation.
+
+If the record still says its executor is running, `--resume` refuses. `--take-over OPERATION_ID --confirm` is the operator's assertion that the previous executor **and its outstanding actions** have stopped; their outcomes must be reconciled. A stale record, lost connection or elapsed time does not release ownership. `--take-over` is separate from `--confirm-isolated`, which is a decision about the old host in a dead-node replacement.
+
+During an add, the new node carries `kubenest.io/auto-reboot=false` until it is Ready and recorded as active. It is excluded from automatic reboots while the join is unfinished.
+
+## Local volumes determine whether removal is safe
+
+Core uses OpenEBS LVM local volumes. A volume is bound to one node's disk; it does not follow a pod to another node. Replicated storage is a separate profile. `node remove` lists bound local claims and refuses while any remain, printing a [volume restore](/backup-restore) command per affected workload with all of that workload's claims grouped. It does not uninstall k3s before this decision. A reachable node holding such volumes is also refused by `node replace` **before the spare joins**: back up, move or restore the workload's claims elsewhere, then replace.
+
+If the volumes are deliberately disposable, `node remove --abandon-volumes` proceeds. That flag acknowledges data loss; **it certifies nothing about backups**. When a node is lost, anything written on it since its last backup's **capture began** is gone. A completed backup may still be ineligible for restore; check its coverage and location as described in [Backup and restore](/backup-restore). A dead-node replacement prints one restore command per affected workload after the replacement joins, but printing that command is not proof that the data has been restored. When logged in to the control plane, run the printed command as printed: backup restore reads the active server and bundle from the cluster record when `--server` and `--bundle-manifest` are omitted. Supply both flags if the control plane is unavailable, and check that the workload is not still pinned to the removed node.
+
+To shorten the potential data-loss window for the `payments` namespace, add a more frequent Velero `Schedule`. The resource lives in the cluster's **`velero` namespace**, alongside the default `daily` schedule; it selects the workload namespace in `spec.template.includedNamespaces`. Run this from a server with k3s, using SSH as the CLI does:
+
+```bash filename="terminal"
+ssh ubuntu@10.0.1.10 'sudo -n k3s kubectl apply -f -' <<'YAML'
+apiVersion: velero.io/v1
+kind: Schedule
+metadata:
+  name: payments-every-6h
+  namespace: velero
+spec:
+  schedule: '0 */6 * * *'
+  template:
+    includedNamespaces:
+      - payments
+    storageLocation: default
+    ttl: 336h0m0s
+YAML
+ssh ubuntu@10.0.1.10 \
+  "sudo -n k3s kubectl get schedule payments-every-6h -n velero -o jsonpath='{.status.phase}'"
+```
+
+Check that Velero reports `Enabled`, then verify that a backup actually completed and is eligible for `payments` before depending on it. The schedule supplements the bundle's daily schedule; it does not make a failed or incomplete backup a recovery point. See [Backup and restore](/backup-restore) for eligibility and the restore procedure.
+
+## Replacing a host that no longer answers
+
+First confirm at the provider that the old machine, named by its **host ID and SSH address** in the refusal, is powered off or isolated. Keep it that way until it has been wiped. Only then record that answer with `--confirm-isolated`:
+
+```bash filename="terminal"
+kubenest node replace --cluster prod-1 --node prod-1-agt-2 \
+  --with 10.0.3.9 --confirm-isolated --wait
+```
+
+Without that confirmation, the unreachable-host path refuses before removal. The dead-node path removes the old Node and its pods before adding the new agent; it prints the stranded workloads' restore commands after the join. Deleting a Node removes a Kubernetes object. It **does not** stop the old machine coming back or revoke credentials it already holds. The inventory retains the replaced host as `removed`, with its host-key fingerprint, to avoid accidentally re-adding that identity without a wipe. This is bookkeeping, not fencing: a returning, unwiped machine is **not automatically refused**.
+
+## Refusals to expect
+
+| Request | Why it stops |
+|---|---|
+| Remove an agent with bound local volumes | Its disk holds the claims' only local copy. Restore or migrate every affected workload's claims first, or explicitly accept their loss with `--abandon-volumes`. |
+| Replace a reachable agent with bound local volumes | The planned migration must move the data before a spare is added. The refusal prints backup and grouped restore steps. |
+| Replace an unreachable agent without `--confirm-isolated` | The CLI cannot fence a host at its provider. Confirm power-off or isolation, and keep it isolated until wiped. |
+| Add, remove or replace a server | These verbs are agents-only in 1.2. Recover a lost single server through the [recovery procedure](/backup-restore); `ha` server operations await promotion. |
+| Start a second operation while one is running | The active operation record owns the cluster until it ends or is explicitly resumed or taken over. |
+
+The commands establish node and inventory state; they do not promise that local data written after the last eligible backup's capture began survives, that an unwiped machine is fenced, or that a printed restore command has completed a restore.

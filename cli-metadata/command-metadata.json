@@ -1,7 +1,7 @@
 {
   "cli_version": "dev",
   "commit": "none",
-  "generated_at": "2026-09-25T18:43:13Z",
+  "generated_at": "2026-11-12T07:49:53Z",
   "commands": [
     {
       "path": "kubenest",
@@ -241,12 +241,48 @@
     },
     {
       "path": "kubenest backup restore",
-      "available": false,
-      "reason": "workload restores need a running cluster with workloads; they land with the wave-3 half of kn-mzn",
+      "available": true,
+      "reason": "Restore from a Velero backup into the live cluster.",
       "hidden": false,
       "flags": [
         {
+          "name": "--abort",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--accept-data-age",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--activate",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--bundle-manifest",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
           "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--confirm",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--from",
           "type": "string",
           "shorthand": "",
           "inherited": false
@@ -255,6 +291,78 @@
           "name": "--help",
           "type": "bool",
           "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--include-jobs",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--keep-desired",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--keep-restored",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--latest",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--namespace",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--pvc",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--replace",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--resume",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--server",
+          "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-key",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-user",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--take-over",
+          "type": "string",
+          "shorthand": "",
           "inherited": false
         }
       ]
@@ -424,6 +532,32 @@
       ]
     },
     {
+      "path": "kubenest health",
+      "available": true,
+      "reason": "Show the fleet's health: one line per cluster, worst verdict first, with the",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--json",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
       "path": "kubenest login",
       "available": true,
       "reason": "Obtain a revocable CLI token from your control plane and store it in",
@@ -445,6 +579,12 @@
           "name": "--help",
           "type": "bool",
           "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--scope",
+          "type": "stringArray",
+          "shorthand": "",
           "inherited": false
         },
         {
@@ -479,6 +619,80 @@
           "name": "--help",
           "type": "bool",
           "shorthand": "h",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest node add",
+      "available": true,
+      "reason": "Add a machine to an existing cluster as an agent.",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--agent",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--confirm",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--now",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--resume",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-key",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-user",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--storage-device",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--take-over",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--wait",
+          "type": "bool",
+          "shorthand": "",
           "inherited": false
         }
       ]
@@ -544,8 +758,174 @@
           "inherited": false
         },
         {
+          "name": "--take-over",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
           "name": "--wait",
           "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest node remove",
+      "available": true,
+      "reason": "Remove one agent from a cluster.",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--abandon-volumes",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--confirm",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--node",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--now",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--resume",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-key",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-user",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--take-over",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--wait",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        }
+      ]
+    },
+    {
+      "path": "kubenest node replace",
+      "available": true,
+      "reason": "Replace one agent of a cluster: a new machine joins, and the machine it",
+      "hidden": false,
+      "flags": [
+        {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--confirm",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--confirm-isolated",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--help",
+          "type": "bool",
+          "shorthand": "h",
+          "inherited": false
+        },
+        {
+          "name": "--node",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--now",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--resume",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-key",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--ssh-user",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--storage-device",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--take-over",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--wait",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--with",
+          "type": "string",
           "shorthand": "",
           "inherited": false
         }
@@ -598,7 +978,19 @@
       "hidden": false,
       "flags": [
         {
+          "name": "--acknowledge-single-operator",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
           "name": "--admin-email",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--admin-password",
           "type": "string",
           "shorthand": "",
           "inherited": false
@@ -606,6 +998,12 @@
         {
           "name": "--agent",
           "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--backup",
+          "type": "string",
           "shorthand": "",
           "inherited": false
         },
@@ -622,6 +1020,12 @@
           "inherited": false
         },
         {
+          "name": "--cluster",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
           "name": "--control-plane",
           "type": "bool",
           "shorthand": "",
@@ -629,6 +1033,12 @@
         },
         {
           "name": "--domain",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--fleet-key-file",
           "type": "string",
           "shorthand": "",
           "inherited": false
@@ -664,6 +1074,12 @@
           "inherited": false
         },
         {
+          "name": "--old-host-fenced",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
           "name": "--org",
           "type": "string",
           "shorthand": "",
@@ -672,6 +1088,18 @@
         {
           "name": "--profile",
           "type": "stringArray",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--recovery-kit",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--restore-from",
+          "type": "string",
           "shorthand": "",
           "inherited": false
         },
@@ -695,7 +1123,7 @@
         },
         {
           "name": "--storage-device",
-          "type": "string",
+          "type": "stringArray",
           "shorthand": "",
           "inherited": false
         }
@@ -918,6 +1346,12 @@
           "inherited": false
         },
         {
+          "name": "--confirm",
+          "type": "bool",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
           "name": "--control-plane",
           "type": "bool",
           "shorthand": "",
@@ -955,6 +1389,12 @@
         },
         {
           "name": "--ssh-user",
+          "type": "string",
+          "shorthand": "",
+          "inherited": false
+        },
+        {
+          "name": "--take-over",
           "type": "string",
           "shorthand": "",
           "inherited": false

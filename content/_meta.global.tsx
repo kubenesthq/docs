@@ -18,6 +18,7 @@ const meta: MetaRecord = {
 
   '-- operate': { type: 'separator', title: 'Operate it' },
   'day-2': 'Day 2',
+  nodes: 'Nodes',
   upgrades: 'Upgrades',
   'backup-restore': 'Backup and restore',
   ha: 'HA tiers',

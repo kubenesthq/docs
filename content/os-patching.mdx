@@ -23,14 +23,17 @@ a policy the installer writes rather than one the machine image happened to have
 unexpected package upgrade on a node running production workloads is its own kind of dread, and it
 is not one we are asked to solve.
 
-**The platform's own packages are held.** k3s and the container runtime are pinned by the bundle,
-and an APT upgrade that moved either of them would make the manifest's central claim false: the
-recorded version would no longer be the running version, and the next upgrade would be planned
-against a cluster that is not the one you have. Nothing outside the bundle changes what the bundle
-pins.
+**The policy installs nothing but security updates.** k3s and its container runtime are not APT
+packages, so this policy does not claim to hold them. The installer writes
+`/etc/apt/apt.conf.d/52kubenest-unattended-upgrades`: it clears the inherited allowed origins,
+allows only `${distro_id}:${distro_codename}-security`, and checks the effective policy with
+`apt-config dump` rather than trusting the drop-in alone.
 
-**Reboots are never APT's decision.** `unattended-upgrades` is configured not to reboot, because
-the reboot coordinator below owns that entirely.
+**Reboots are never APT's decision.** The drop-in sets
+`Unattended-Upgrade::Automatic-Reboot "false"`; the reboot coordinator below owns that decision.
+Other host services may restart when their packages update. The installer also puts
+`k3s.service` and `k3s-agent.service` on `needrestart`'s ignore list so a package update does not
+restart k3s outside the window.
 
 Writing the policy rather than inheriting one is the difference between a patching behaviour we
 chose, versioned and can vary per release, and whatever a given machine image does. Two customers
@@ -48,32 +51,28 @@ a reboot means the node's workloads move.
 
 So the two halves are separated:
 
-1. **Patches are applied immediately**, as they are published.
-2. **Reboots are held** until a coordinator decides it is safe, and are then taken one node at a
-   time.
+1. **Security updates install at Ubuntu's daily unattended-upgrades time**, outside the reboot
+   window if that is when they arrive.
+2. **Reboots wait for permission** from the window and the coordinator, and are taken one node at
+   a time.
 
 A node that has applied a patch requiring a reboot reports as **pending reboot** and keeps running
 normally until its turn.
 
-The hold is a file. Ubuntu marks a node that needs a reboot at `/var/run/reboot-required`, and
-`kured` is configured to ignore it and watch `/var/run/kubenest-reboot-approved` instead — a
-sentinel only the platform creates, and only once the checks below have passed. So a patch never
-reboots a node on the package manager's say-so. The decision is the platform's, and holding it is
-the default state rather than something the policy has to remember to do.
-
-**That redirection is shipped.** kured is installed pointing at the KubeNest sentinel, not
-Ubuntu's, on every cluster today.
-
-**KubeNest does not sell, require or configure kernel livepatching.** Enrolling your hosts would
-mean a commercial subscription and a credential in the install flow, and that is your relationship
-to have, not ours to broker.
+**Need is a signal; permission is a separate decision.** Ubuntu writes
+`/var/run/reboot-required` when a node needs a reboot. Fleet health reports the pending state and
+when the operator first saw it. That signal does not grant permission: the window must be active
+and open, and no other node may be in flight. A node carrying
+`kubenest.io/auto-reboot=false` does not run kured at all; its DaemonSet's node affinity excludes
+the label. That label is the whole hold. On an eligible agent, kured watches Ubuntu's ordinary
+reboot marker.
 
 ## How reboots are coordinated
 
-`kured` handles this — the standard tool for the job, adopted rather than rebuilt. It is part of
-core, installed at the bundle's pin (`kured` 6.1.0) as stage 9 of the install, and the install
-genuinely fails if it does not come up: acceptance check 2 of 5 waits on kured's DaemonSet by
-name, rather than on the namespace it shares with CoreDNS.
+`kured` handles automatic agent reboots — the standard tool for the job, adopted rather than
+rebuilt. An agent reboots for patches automatically, one at a time, inside the active window. It
+is part of core, installed at the bundle's chart pin (`kured` 6.1.0, app 1.23.0). Servers use
+the CLI's manual path below.
 
 For each node that needs one, in turn:
 
@@ -81,28 +80,27 @@ For each node that needs one, in turn:
 |---|---|
 | 1 | Check the reboot window is open |
 | 2 | Check no other node is currently rebooting — a cluster-wide lock, one holder at a time |
-| 3 | Check the cluster can lose this node: quorum holds, no unsatisfiable disruption budget |
-| 4 | Cordon and drain, within `limits.timeouts.node-drain` |
-| 5 | Reboot |
-| 6 | Wait for the node to return Ready, within `limits.timeouts.node-reboot` |
-| 7 | Uncordon, and only then consider the next node |
+| 3 | Cordon and drain within `limits.timeouts.node-drain`, respecting disruption budgets |
+| 4 | Reboot |
+| 5 | Wait for the node to return Ready |
+| 6 | Uncordon, and only then consider the next node |
 
-**One node at a time, always.** Quorum is never lost on the `ha` tier, and a stuck node halts the
-sequence rather than letting a second node go down behind it.
+**One node at a time, always.** kured's cluster-wide lock serialises eligible agents. A stuck node
+halts the sequence rather than letting a second node go down behind it. The manual CLI takes that
+same lock and also checks quorum, storage and the recovery point before acting.
 
-A node that does not come back inside `node-reboot` (default 20m) leaves the sequence halted with
-that node cordoned and drained. No further node is touched. This is the correct outcome: a machine
-that did not survive a reboot is a hardware or boot problem, and rebooting a second node while the
-first is missing turns one absent node into two.
+A node that does not return stops the current sequence and needs investigation before another
+reboot is attempted. For a manual reboot the CLI waits up to
+`limits.timeouts.node-reboot` (default 20m) and reports failure.
 
 ### Who is watching, and from where
 
-Step 6 has a problem the other steps do not, and it is worth being explicit because the naive
+Step 5 has a problem the other steps do not, and it is worth being explicit because the naive
 implementation cannot work.
 
-**On the `ha` tier**, `kured` runs in the cluster and the API server stays up throughout, so
-"wait for the node to return Ready" means what it says: another node's control plane observes the
-rebooting node and reports when it comes back.
+**On a multi-node cluster**, the API server can stay up while an agent reboots, so another node's
+control plane can report when it is Ready. Preview `ha` servers still require an operator's
+decision and the CLI's checks.
 
 **On the `single-server` tier, if the node being rebooted is the control-plane node, there is no
 API server to ask.** The observer went down with the observed. Anything waiting inside the cluster
@@ -157,16 +155,30 @@ sits on that absence is the entire safety net for the tier.
 
 ```bash filename="terminal"
 kubenest cluster set-window --cluster prod-1 \
-  --days sat,sun --start 02:00 --end 06:00 --timezone Asia/Kolkata
+  --days sun --start 06:00 --end 09:00 --timezone UTC
 ```
 
-One cluster, one window, one name: `kubenest cluster set-window` writes the setting that both the
-bundle upgrade and this reboot orchestration read. Two names would mean two windows — a cluster
-that reboots at 02:00 and upgrades at 03:00 by different rules — which is exactly what the single
-setting exists to prevent.
+One cluster, one window, one name: `kubenest cluster set-window` writes the setting that both
+bundle upgrades and reboots read. Set the first window explicitly; the standard choice is
+**Sunday 06:00–09:00 UTC**, after the nightly backup, as in the example above. Outside a window,
+the CLI's refusal shows the next opening in your local time and UTC. The backup schedule stays
+independent, and setting a window too close to a measured backup produces a warning.
 
-No node reboots outside its window. A patch applied on Tuesday waits until Saturday, reporting as
-pending reboot for the whole interval — visible, not forgotten.
+The control plane **stores** the window at a revision, then **applies** it through the operator's
+k3s `HelmChartConfig` for kured. It becomes **active** only when the operator has observed kured
+running the new configuration. Until a new cluster's first window is active, every node is held.
+Changing a window also holds every node while the new revision is applying. If the cluster is
+disconnected, the CLI reports that it may still be running its previous window; a stored revision
+is not a claim that the new one is in force. A missing or invalid window holds reboots and explains
+why; it never means “any time” for automatic reboots.
+
+No node reboots automatically outside its window. A patch applied on Tuesday waits until Sunday,
+reporting as pending reboot for the whole interval — visible, not forgotten. The window is permission to start:
+an operation already in progress when it closes finishes safely. Outside the window,
+the manual reboot command refuses and names the next opening in local time and UTC. With `--wait` it
+holds nothing while waiting; when the window opens it takes the lock and re-checks the window,
+quorum, storage, interlock and recovery point. `--now` bypasses only the window, never those
+safety checks.
 
 ## The single-server caveat
 
@@ -196,42 +208,83 @@ kubenest node reboot --cluster prod-1 --node server-1 --confirm
 </Callout>
 
 Agent nodes on a single-server cluster reboot automatically within the window as normal. It is
-only the last healthy control-plane node that requires a human.
+the server that requires a human. Preview `ha` servers also never reboot themselves in 1.2.
+Each server waits for an explicit CLI reboot decision, one server at a time. For a
+normal patch reboot, wait for the window and for the node to return:
 
 <Callout type="warning">
-This is a real, recurring operational task that the `single-server` tier hands you and the `ha`
-tier does not. On the `ha` tier, control-plane nodes reboot automatically one at a time while
-quorum holds and the API stays up. Worth weighing when choosing a tier — see
-[HA tiers](/ha).
+**Not supported by the current release.** This manual reboot command arrives with **Bundle 1.2, on promotion**.
+
+```bash filename="terminal"
+kubenest node reboot --cluster prod-1 --node server-1 --confirm --wait
+```
+
+</Callout>
+
+<Callout type="warning">
+This is a real, recurring operational task for both server tiers in 1.2. On `ha`, the CLI checks
+quorum before touching a server. See [HA tiers](/ha).
 </Callout>
 
 ## Seeing patch state
 
-Every node reports through fleet telemetry:
+Every node reports through fleet telemetry. The `os_patching` health group carries the updates
+timer's last attempt, last success and last failure, with the age of that evidence; whether a
+reboot is pending, since when it was first seen, and for how long; whether the node is eligible
+for automatic reboots or requires a manual one; and when its boot ID last changed. A missing
+reporter or missing evidence reads `unknown`, never “current.” These are observations of the update
+process and reboot state, not an inventory of installed patches.
 
-- Which security patches are applied
-- Which nodes are pending reboot, and for how long
-- When each node last rebooted
-- Whether any node has fallen behind
+<Callout type="warning">
+**Not supported by the current release.** This health command arrives with **Bundle 1.2, on promotion**.
 
-This is in core, not a profile. Not knowing which of your hosts is unpatched is precisely the
-situation the product is sold to prevent.
+```bash filename="terminal"
+kubenest health --cluster prod-1 --json
+```
 
-Patch state is one of the health groups the fleet report is built from, alongside the ones for
-backup, nodes and the control plane. When it is populated, it distinguishes three cases:
-security updates available and unapplied, nodes applied but awaiting a reboot, and hosts current.
+</Callout>
+
+This is in core, not a profile. Patch state is one of the fleet health groups alongside backup,
+nodes and the control plane.
 
 **A pending reboot warns after seven days and goes critical after fourteen** — the same
 warning-then-critical shape the bundle already uses for expiring certificates, and both numbers
 live in the manifest so a release can retune them without shipping a backend. Seven days is a
 missed window; fourteen is a pattern.
 
-**A reboot required by a critical kernel vulnerability does not wait for that clock.** It
-escalates when it arrives and is scheduled for the next window rather than the one after the
-threshold expires. A routine library update and an unauthenticated kernel RCE are not the same
-event, and an alert that cannot tell you which one you have is not doing the job.
+The report cannot determine the severity of an individual uninstalled or applied patch. If you
+need to prioritise a particular advisory, check Ubuntu's advisory and the host's package state.
 
-Alerting immediately on any pending reboot was the alternative, and it is the wrong one: a stock
-Ubuntu image accrues pending reboots as a matter of routine, and an alerting system that cries
-wolf gets muted — which is the same end state as having none.
+## Certificates
+
+k3s leaf certificates renew when k3s restarts within 120 days of expiry. An agent that reboots
+for patches gets that renewal as a side effect. Servers do not reboot automatically, so renew
+their leaf certificates deliberately, one server at a time, by restarting k3s without rebooting
+the host:
+
+<Callout type="warning">
+**Not supported by the current release.** This k3s-only reboot command arrives with **Bundle 1.2, on promotion**.
+
+```bash filename="terminal"
+kubenest node reboot --cluster prod-1 --node server-1 --k3s-only --confirm --wait
+```
+
+</Callout>
+
+On a `single-server` cluster this briefly interrupts the Kubernetes API. The CLI waits from
+outside for k3s and the API to return.
+
+## What S3 measured
+
+The 2026-09-28 S3 patch-night run used a three-node lab (one server, two agents) at bundle 1.2,
+plus a separate single-server cluster. On that fixture the first agent rebooted 19 minutes after
+the window opened and the second 70 minutes after. Across 2,339 watcher samples no two nodes were
+cordoned or NotReady together. All 4,273 outside workload probes succeeded with two ready
+replicas. The single-server manual reboot returned in 2m37s. The original bead wrote a 45-minute
+two-agent limit, but kured 1.23.0 checks each node hourly and permits one reboot at a time; the
+current gate allows two periods plus 15 minutes after opening. The 70-minute second reboot fits
+that cadence. Fresh Ubuntu 24.04 hosts had no pending security update to exercise the real
+unattended-upgrades path, and the automated server-reboot arm did not pass in that run. S3 remains
+a partial hardware result until a current-candidate gate run passes every arm. These numbers
+describe this fixture, not a general reboot-time guarantee.
 

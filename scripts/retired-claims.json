@@ -73,6 +73,25 @@
       ]
     },
     {
+      "id": "kured-watches-a-kubenest-sentinel-file",
+      "retired_by": "kn-t38 / T3.3",
+      "because": "T3.3 removed the rebootSentinel override. kured watches Ubuntu's /var/run/reboot-required on eligible nodes; kubenest.io/auto-reboot=false excludes a node from the DaemonSet and is the whole hold.",
+      "patterns": [
+        "\\b(kured|reboot\\s+coordinator)\\b[^.]{0,100}\\b(watch\\w*|read\\w*|use\\w*|point\\w*\\s+at)\\b[^.]{0,90}\\b(kubenest[- ]reboot[- ]approved|kubenest\\s+sentinel|platform'?s?\\s+own\\s+sentinel)\\b",
+        "\\b(hold|reboot\\s+permission)\\b[^.]{0,35}\\b(is|comes\\s+from|uses)\\b[^.]{0,25}\\b(a\\s+)?(sentinel|file)\\b[^.]{0,70}\\b(kubenest|kured)\\b",
+        "/var/run/kubenest-reboot-approved"
+      ]
+    },
+    {
+      "id": "reboot-window-is-a-separate-command",
+      "retired_by": "kn-t38 / T3.1",
+      "because": "Bundle upgrades and patch reboots use one cluster window. The old set-reboot-window verb does not exist in the candidate CLI.",
+      "patterns": [
+        "\\bset[- ]reboot[- ]window\\b",
+        "\\b(reboot|patch)\\s+window\\b[^.]{0,75}\\b(separate|different|independent)\\b[^.]{0,35}\\b(upgrade|maintenance)\\s+window\\b"
+      ]
+    },
+    {
       "id": "velero-default-repo-password",
       "retired_by": "kn-t46 / kn-t47 / T4.10",
       "because": "1.2 generates a random Velero repository password per cluster at install (recoverykit.KeyVeleroRepoPassword), installs it before Velero creates its repository, and carries it in the cluster kit. Nothing sets the vendored default, so volume data is not protected by a key anyone can read out of Velero's source.",
@@ -116,6 +135,31 @@
     }
   ],
   "allowed": [
+    {
+      "id": "agents-reboot-for-patches-inside-the-window",
+      "says": "An agent reboots for patches automatically, one at a time, inside the window.",
+      "true_because": "P1 allowed automatic agent reboots. T3.3 writes the window to kured, holds nodes while it applies and lifts only agents afterward; T3.7's real-host S3 gate checks the sequence.",
+      "patterns": [
+        "\\bagents?\\b[^.]{0,65}\\breboot\\w*\\b[^.]{0,70}\\bautomatically\\b[^.]{0,70}\\b(one\\s+at\\s+a\\s+time|serial\\w*)\\b[^.]{0,70}\\bwindow\\b"
+      ],
+      "evidence": [
+        {
+          "file": "../op3/internal/controller/rebootpolicy_controller.go",
+          "symbol": "func \\(r \\*RebootPolicyReconciler\\) reconcileWindowConfig",
+          "must": "present"
+        },
+        {
+          "file": "../op3/internal/controller/rebootpolicy_controller.go",
+          "symbol": "func \\(r \\*RebootPolicyReconciler\\) liftTheHoldFromAgents",
+          "must": "present"
+        },
+        {
+          "file": "../kubenest-cli/e2e/patch_night_test.go",
+          "symbol": "func TestS3PatchNightGate",
+          "must": "present"
+        }
+      ]
+    },
     {
       "id": "no-tenant-kubernetes-client-on-app-paths",
       "says": "For application, addon and component-secret operations the control plane builds no Kubernetes client for your cluster at all.",

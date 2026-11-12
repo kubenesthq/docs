@@ -27,10 +27,9 @@ WHAT THIS ASSERTS
      problems found".
   5. THE ALLOWLIST IS A DEFERRAL, NOT A HOLE: a matching entry is reported and
      not fatal, and an entry whose page no longer shows its command fails.
-  6. THE REAL PAGES pass against the committed metadata with a non-zero number
-     of invocations checked, so the guard is not vacuous on the corpus that
-     ships. A defect on a real page fails HERE, which is why the deploy workflow
-     can gate the publish on this file.
+  6. THE REAL PAGES pass against the committed candidate metadata with a non-zero
+     number of invocations checked, so the guard is not vacuous on the corpus
+     that ships. A defect on a real page fails HERE.
 
 WHAT THIS DOES NOT PROVE. That the committed metadata is the RELEASED binary's
 tree (that is cli-contract.json, and moving the target release is a review
@@ -243,21 +242,19 @@ def main() -> int:
 
 
 def _real_metadata_expectations(metadata: Path) -> list[str]:
-    """The committed metadata must still say what the guard's fixtures assume."""
+    """The committed candidate snapshot must contain the landed commands."""
     doc = json.loads((REPO / metadata).read_text(encoding="utf-8"))
     commands = {c["path"]: c for c in doc["commands"]}
     out: list[str] = []
     if len(commands) < 15:
         out.append(
-            f"{metadata} carries {len(commands)} command(s); the released CLI's tree has more than "
+            f"{metadata} carries {len(commands)} command(s); the candidate CLI's tree has more than "
             "that, so this file looks truncated."
         )
-    stub = commands.get("kubenest backup restore")
-    if stub is None or stub["available"] or not stub["reason"]:
-        out.append(
-            f"{metadata} does not report `kubenest backup restore` as available: false with a "
-            "reason, which is the stub the guard's fixture and the pages rely on."
-        )
+    for path in ("kubenest backup restore", "kubenest health"):
+        command = commands.get(path)
+        if command is None or not command["available"]:
+            out.append(f"{metadata} does not report `{path}` as available in the candidate CLI.")
     install = commands.get("kubenest platform install")
     if install is None or {"--ha", "--server"} - {f["name"] for f in install["flags"]}:
         out.append(

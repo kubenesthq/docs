@@ -18,6 +18,10 @@ objects restored and matched, and volume bytes read back.
 KubeNest does not sell, require or configure kernel livepatching; enrolling your hosts would mean a
 commercial subscription and a credential in the install flow.
 
+kured watches Ubuntu's ordinary /var/run/reboot-required marker on agents that may reboot.
+The node label holds kured off a server; it is not a file.
+One maintenance window governs both upgrades and patch reboots.
+
 ## The truths that replaced the retired claims
 
 Volume data is protected by a per-cluster repository password, generated at install and carried in
