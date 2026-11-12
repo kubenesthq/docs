@@ -7,6 +7,8 @@ import { Callout, Steps } from 'nextra/components'
 
 # Upgrades
 
+Minimum versions: CLI v2.1.0; bundle 1.2.
+
 
 Upgrading is one operation: **`Platform N → N+1`, for your cluster's exact recorded profile set.**
 
@@ -228,11 +230,7 @@ hosts, so a fresh cluster has nothing to do here: Ubuntu's APT policy — securi
 `kubenest.io/auto-reboot=false` hold. A cluster upgraded from an earlier release gets both here,
 before Kubernetes moves.
 
-<Callout type="warning">
-**Not supported by the current release.** With the hold in place, `kubenest node reboot`, rather
-than luck, decides when a node reboots. That command is not in the released command tree; it
-arrives with **Bundle 1.2, on promotion**.
-</Callout>
+With the hold in place, `kubenest node reboot`, rather than luck, decides when a node reboots.
 
 Two properties matter operationally. It is **idempotent**: a re-run on a cluster that already
 carries the policy writes nothing and reports no change. And it is **reversible per node**: servers

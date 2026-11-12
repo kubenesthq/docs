@@ -7,6 +7,8 @@ import { Callout } from 'nextra/components'
 
 # OS patching and reboots
 
+Minimum versions: CLI v2.1.0; bundle 1.2.
+
 
 Kubernetes upgrades get the attention. **Unpatched hosts are what actually gets people owned.**
 
@@ -108,17 +110,12 @@ for a `Ready` condition is waiting on a component that does not exist for the du
 
 So on that path the wait is external, and belongs to whoever issued the reboot:
 
-<Callout type="warning">
-**Not supported by the current release.** The CLI half of this table is `kubenest node reboot`,
-which is not in the command tree yet; it arrives with **Bundle 1.2, on promotion**. Fleet telemetry
-observes the reboot today.
+Fleet telemetry observes the reboot today.
 
 | Observer | Waits on | Reports |
 |---|---|---|
 | The CLI that ran `kubenest node reboot` | SSH reachable, then k3s active, then the node's own API answering | Progress, then Ready or the `node-reboot` deadline |
 | Fleet telemetry | The agent's heartbeat resuming | The cluster as **unreachable** while it is down, recovered when the heartbeat returns |
-
-</Callout>
 
 A cluster that misses its configured number of reports goes critical as `CLUSTER_SILENT`, and every
 other check it was reporting turns to `unknown` rather than staying green. The cluster showing as
@@ -197,29 +194,18 @@ every workload is on that node and the reboot is a full application outage.
 That is an announced, deliberate action, not something a daemon does at 3am. So the node reports
 pending reboot and **waits for an explicit decision**:
 
-<Callout type="warning">
-**Not supported by the current release.** `kubenest node reboot` is not in the command tree; it
-arrives with **Bundle 1.2, on promotion**, and until then no released CLI has this verb.
-
 ```bash filename="terminal"
 kubenest node reboot --cluster prod-1 --node server-1 --confirm
 ```
-
-</Callout>
 
 Agent nodes on a single-server cluster reboot automatically within the window as normal. It is
 the server that requires a human. Preview `ha` servers also never reboot themselves in 1.2.
 Each server waits for an explicit CLI reboot decision, one server at a time. For a
 normal patch reboot, wait for the window and for the node to return:
 
-<Callout type="warning">
-**Not supported by the current release.** This manual reboot command arrives with **Bundle 1.2, on promotion**.
-
 ```bash filename="terminal"
 kubenest node reboot --cluster prod-1 --node server-1 --confirm --wait
 ```
-
-</Callout>
 
 <Callout type="warning">
 This is a real, recurring operational task for both server tiers in 1.2. On `ha`, the CLI checks
@@ -235,14 +221,9 @@ for automatic reboots or requires a manual one; and when its boot ID last change
 reporter or missing evidence reads `unknown`, never “current.” These are observations of the update
 process and reboot state, not an inventory of installed patches.
 
-<Callout type="warning">
-**Not supported by the current release.** This health command arrives with **Bundle 1.2, on promotion**.
-
 ```bash filename="terminal"
 kubenest health --cluster prod-1 --json
 ```
-
-</Callout>
 
 This is in core, not a profile. Patch state is one of the fleet health groups alongside backup,
 nodes and the control plane.
@@ -262,14 +243,9 @@ for patches gets that renewal as a side effect. Servers do not reboot automatica
 their leaf certificates deliberately, one server at a time, by restarting k3s without rebooting
 the host:
 
-<Callout type="warning">
-**Not supported by the current release.** This k3s-only reboot command arrives with **Bundle 1.2, on promotion**.
-
 ```bash filename="terminal"
 kubenest node reboot --cluster prod-1 --node server-1 --k3s-only --confirm --wait
 ```
-
-</Callout>
 
 On a `single-server` cluster this briefly interrupts the Kubernetes API. The CLI waits from
 outside for k3s and the API to return.

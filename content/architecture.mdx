@@ -7,6 +7,8 @@ import { Callout } from 'nextra/components'
 
 # Architecture Overview
 
+Minimum versions: CLI v2.1.0; bundle 1.2.
+
 kubenest is a distributed system with five cooperating components. Each component has a single, well-bounded responsibility, and the boundaries between them are deliberately strict. This page explains what each component does, how they communicate, and why the system is designed the way it is.
 
 Understanding the architecture pays off quickly: it tells you where to look when a deployment stalls, why certain operations are async, and exactly what the control plane can and cannot reach inside your cluster.

@@ -7,6 +7,8 @@ import { Callout, Steps } from 'nextra/components'
 
 # Backup and restore
 
+Minimum versions: CLI v2.1.0; bundle 1.2.
+
 **A backup that has never been restored is not a backup.** It is a file, and an assumption.
 
 Everyone ships backup. Almost nobody ships evidence that restore works. This page says what
@@ -88,11 +90,6 @@ with the specific missing piece.
 
 ## Restoring a namespace
 
-<Callout type="warning">
-**Not supported by the current release.** `kubenest backup restore` is in the command tree of the
-**Bundle 1.2, on promotion** candidate, and this section describes how it behaves. Until that bundle
-is promoted and downloadable, the released CLI does not have it.
-
 Restore one namespace into the live cluster:
 
 ```bash filename="terminal"
@@ -102,8 +99,6 @@ kubenest backup restore --cluster prod-1 --namespace payments --latest --replace
   --server 10.0.1.10 --ssh-user ubuntu \
   --bundle-manifest bundles/platform-1.1.yaml
 ```
-
-</Callout>
 
 In practice the reconcilers have usually recreated a deleted namespace with empty claims before
 anyone runs a restore, and Velero skips objects that already exist, so `--replace` is the ordinary
@@ -170,10 +165,6 @@ over.
 
 ### After the data is back: activation, resume, abort, take over
 
-<Callout type="warning">
-**Not supported by the current release.** These are follow-on commands of `kubenest backup restore`,
-which arrives with **Bundle 1.2, on promotion**.
-
 ```bash filename="terminal"
 kubenest backup restore --activate <operation-id> --cluster prod-1 \
   --server 10.0.1.10 --ssh-user ubuntu \
@@ -188,8 +179,6 @@ kubenest backup restore --take-over <operation-id> --confirm --cluster prod-1 \
   --server 10.0.1.10 --ssh-user ubuntu \
   --bundle-manifest bundles/platform-1.1.yaml
 ```
-
-</Callout>
 
 A restore whose data is back ends in the state **`restored — awaiting activation`**. That is a state
 and not a finished restore: the project stays paused, durably and visibly, and nothing scheduled or
@@ -221,10 +210,6 @@ When a worker node dies, a workload's local volumes are gone and its pods cannot
 whole namespace would destroy the volumes of the same workload that are still fine on live nodes, so
 this mode restores only the claims you name, in place.
 
-<Callout type="warning">
-**Not supported by the current release.** The volume mode of `kubenest backup restore` arrives with
-**Bundle 1.2, on promotion**.
-
 ```bash filename="terminal"
 KUBENEST_BACKUP_ACCESS_KEY_ID=… KUBENEST_BACKUP_SECRET_ACCESS_KEY=… \
 kubenest backup restore --cluster prod-1 --namespace payments --pvc data-0 --pvc data-1 \
@@ -232,8 +217,6 @@ kubenest backup restore --cluster prod-1 --namespace payments --pvc data-0 --pvc
   --server 10.0.1.10 --ssh-user ubuntu \
   --bundle-manifest bundles/platform-1.1.yaml
 ```
-
-</Callout>
 
 `--pvc` is repeatable, and the claims of one workload are restored together: refilling one claim
 while another of the same pod stays stranded leaves the pod unable to start. The command records each

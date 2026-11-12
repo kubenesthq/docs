@@ -38,6 +38,7 @@ REPO = HERE.parent
 GUARD = HERE / "check_unsupported_callouts.py"
 LIST = HERE / "unsupported-commands.json"
 FIXTURES = REPO / "tests" / "unsupported-callouts"
+METADATA = REPO / "cli-metadata" / "command-metadata.json"
 
 
 def fixture_stem(page: str, command: str) -> str:
@@ -48,16 +49,35 @@ def fixture_stem(page: str, command: str) -> str:
 
 def run_guard(content_dir: pathlib.Path) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [sys.executable, str(GUARD), "--content", str(content_dir)],
+        [sys.executable, str(GUARD), "--content", str(content_dir),
+         "--include-promoted-fixtures"],
         capture_output=True, text=True,
     )
 
 
 def main() -> int:
-    entries = json.loads(LIST.read_text(encoding="utf-8"))["unsupported"]
+    registry = json.loads(LIST.read_text(encoding="utf-8"))
+    active = registry["unsupported"]
+    promoted = registry.get("promoted_fixtures", [])
+    entries = active + promoted
+    available = {
+        entry["path"] for entry in json.loads(METADATA.read_text(encoding="utf-8"))["commands"]
+        if entry.get("available") is True
+    }
     trip_dir = FIXTURES / "must-trip"
     pass_dir = FIXTURES / "must-pass"
     problems: list[str] = []
+
+    for entry in active:
+        if entry["command"] in available:
+            problems.append(
+                f"LIST IS STALE: {entry['command']} is available in the committed CLI metadata."
+            )
+    for entry in promoted:
+        if entry["command"] not in available:
+            problems.append(
+                f"PROMOTED FIXTURE IS STALE: {entry['command']} is not available in the committed CLI metadata."
+            )
 
     # 1: the pair still describes the repository it names.
     for entry in entries:

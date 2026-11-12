@@ -43,8 +43,11 @@ RELEASE = re.compile(r"\bBundle\s+\d+\.\d+\b")
 CALLOUT = re.compile(r"<Callout\b[^>]*>(.*?)</Callout>", re.S)
 
 
-def load_commands() -> list[str]:
-    entries = json.loads(LIST.read_text(encoding="utf-8"))["unsupported"]
+def load_commands(include_promoted_fixtures: bool = False) -> list[str]:
+    registry = json.loads(LIST.read_text(encoding="utf-8"))
+    entries = registry["unsupported"]
+    if include_promoted_fixtures:
+        entries += registry.get("promoted_fixtures", [])
     return [e["command"] for e in entries]
 
 
@@ -98,9 +101,11 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--content", type=Path, default=REPO / "content",
                     help="directory of MDX to scan (default: content/)")
+    ap.add_argument("--include-promoted-fixtures", action="store_true",
+                    help="exercise historical must-trip fixtures in the self-test only")
     args = ap.parse_args()
 
-    commands = load_commands()
+    commands = load_commands(args.include_promoted_fixtures)
     failures: list[str] = []
     covered = 0
     scanned = 0
@@ -117,6 +122,10 @@ def main() -> int:
         print(f"{len(failures)} problem(s). A command the released CLI does not have is on the")
         print("page without the one callout that says so. See scripts/unsupported-commands.json.")
         return 1
+
+    if not commands:
+        print(f"unsupported-command guard: clean (0 active unsupported commands, {scanned} file(s) scanned)")
+        return 0
 
     if covered == 0:
         print("unsupported-command guard: nothing checked. No listed command occurs under")

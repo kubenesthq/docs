@@ -11,17 +11,20 @@ GUARD = ROOT / "scripts" / "check_release_docs.py"
 METADATA = FIXTURES / "command-metadata.json"
 
 
-def run(name: str, mode: str) -> subprocess.CompletedProcess[str]:
+def run(name: str, mode: str, *, root: bool = False) -> subprocess.CompletedProcess[str]:
+    command = [sys.executable, str(GUARD), mode, "--content", str(FIXTURES / name),
+               "--metadata", str(METADATA), "--cli-version", "v2.1.0",
+               "--bundle-version", "1.2"]
+    if root:
+        command.append(".")
     return subprocess.run(
-        [sys.executable, str(GUARD), mode, "--content", str(FIXTURES / name),
-         "--metadata", str(METADATA), "--cli-version", "v2.1.0",
-         "--bundle-version", "1.2"],
+        command,
         text=True, capture_output=True, check=False,
     )
 
 
 def main() -> int:
-    passing = run("must-pass.mdx", "--check")
+    passing = run("must-pass.mdx", "--check", root=True)
     stale = run("must-trip-stale-callout.mdx", "--check")
     too_new = run("must-trip-future-minimum.mdx", "--check")
     preview = run("must-pass.mdx", "--dry-run")

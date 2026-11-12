@@ -73,11 +73,15 @@ def main() -> int:
                         default=ROOT / "cli-metadata/command-metadata.json")
     parser.add_argument("--cli-version", default="v2.1.0")
     parser.add_argument("--bundle-version", default="1.2")
+    parser.add_argument("root", nargs="?", type=Path, default=Path("."),
+                        help="repository root for relative content and metadata paths")
     args = parser.parse_args()
     try:
+        content = args.content if args.content.is_absolute() else args.root / args.content
+        metadata_path = args.metadata if args.metadata.is_absolute() else args.root / args.metadata
         cli = version(args.cli_version, 3)
         bundle = version(args.bundle_version, 2)
-        metadata = json.loads(args.metadata.read_text(encoding="utf-8"))
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         commands = metadata.get("commands")
         if not isinstance(commands, list) or not commands:
             raise Refusal("CLI metadata has no command tree")
@@ -88,8 +92,8 @@ def main() -> int:
         if missing:
             raise Refusal("promoted CLI metadata lacks released command(s): "
                           + ", ".join(sorted(missing)))
-        paths = ([args.content] if args.content.is_file()
-                 else sorted(args.content.rglob("*.mdx")))
+        paths = ([content] if content.is_file()
+                 else sorted(content.rglob("*.mdx")))
         if not paths:
             raise Refusal("no MDX pages found")
         if args.dry_run:
