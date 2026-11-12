@@ -1,0 +1,1 @@
+{"commands": [{"path": "kubenest health", "available": true}, {"path": "kubenest node reboot", "available": true}, {"path": "kubenest backup", "available": true}, {"path": "kubenest backup restore", "available": true}, {"path": "kubenest deploy", "available": false}]}
