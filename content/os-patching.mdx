@@ -276,15 +276,14 @@ outside for k3s and the API to return.
 
 ## What S3 measured
 
-The 2026-09-28 S3 patch-night run used a three-node lab (one server, two agents) at bundle 1.2,
-plus a separate single-server cluster. On that fixture the first agent rebooted 19 minutes after
-the window opened and the second 70 minutes after. Across 2,339 watcher samples no two nodes were
-cordoned or NotReady together. All 4,273 outside workload probes succeeded with two ready
-replicas. The single-server manual reboot returned in 2m37s. The original bead wrote a 45-minute
-two-agent limit, but kured 1.23.0 checks each node hourly and permits one reboot at a time; the
-current gate allows two periods plus 15 minutes after opening. The 70-minute second reboot fits
-that cadence. Fresh Ubuntu 24.04 hosts had no pending security update to exercise the real
-unattended-upgrades path, and the automated server-reboot arm did not pass in that run. S3 remains
-a partial hardware result until a current-candidate gate run passes every arm. These numbers
+The 2026-11-12 S3 patch-night run used a three-node lab (one server, two agents) at bundle 1.2,
+plus a separate single-server cluster. Every arm of the gate passed. On that fixture the first
+agent rebooted 42 minutes after the window opened and the second 2 hours 13 minutes after. kured
+1.23.0 checks each node hourly and permits one reboot at a time, so plan for about one agent an
+hour and size the window to match; the gate allows two periods plus 15 minutes after opening for
+two agents. Across 4,249 watcher samples no two nodes were cordoned or NotReady together. All
+7,517 outside workload probes succeeded with two ready replicas. One agent took the real
+unattended-upgrades path (a libc6 security update); the other nodes were marked by hand. The
+server's manual reboot returned in 2m46s and the single-server cluster's in 2m35s. These numbers
 describe this fixture, not a general reboot-time guarantee.
 
