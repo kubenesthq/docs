@@ -15,7 +15,7 @@ Understanding the architecture pays off quickly: it tells you where to look when
 
 ### kubenest-backend
 
-The backend is the control plane. It is a FastAPI application that owns every user-facing resource: organizations, users, clusters, projects, apps, stack templates, addon instances, and deployment history. All persistent state lives in PostgreSQL. Redis handles job queues, rate-limit counters, and short-lived cache entries (including chart inspection results).
+The backend is the control plane. It is a FastAPI application that owns user-facing resources including organizations, users, clusters, projects, apps, addon instances, and deployment history. All persistent state lives in PostgreSQL. Redis handles job queues and rate-limit counters.
 
 Application, addon and component-secret operations are **dispatched as schema-validated JSON events**
 to the hub and acknowledged asynchronously, rather than executed against your cluster from inside
@@ -152,7 +152,7 @@ sequenceDiagram
     BE-->>UI: 201 Created
 ```
 
-Examples: creating a project record, listing clusters, reading deployment history, fetching a stack template.
+Examples: creating a project record, listing clusters, and reading deployment history.
 
 ### Asynchronous cluster operations
 

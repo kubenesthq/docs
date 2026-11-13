@@ -34,7 +34,7 @@ kubenest-docs/
 │   ├── connect-cluster.mdx         # A Kubernetes cluster you already run
 │   ├── concepts.mdx                # The object model
 │   ├── deploying.mdx               # Apps: deploy, wire, scale, roll back
-│   ├── addons.mdx                  # Backing services and stack templates
+│   ├── addons.mdx                  # Backing services and their lifecycle
 │   ├── upgrades.mdx                # Gates, ordering, rollback
 │   ├── backup-restore.mdx          # Backups and the restore drill
 │   ├── ha.mdx                      # single-server versus ha

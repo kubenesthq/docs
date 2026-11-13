@@ -1,11 +1,11 @@
 ---
-title: Addons and templates
-description: Backing services as pinned charts, the values they publish, revisions and rollback — and reusable templates.
+title: Addons
+description: Backing services as pinned charts, the values they publish, revisions and rollback.
 ---
 
 import { Callout } from 'nextra/components'
 
-# Addons and templates
+# Addons
 
 An addon is a backing service: PostgreSQL, Redis, Kafka, Elasticsearch, RabbitMQ. Anything your
 application depends on but that is not itself your application.
@@ -16,8 +16,8 @@ the whole reason the concept exists: without it, deploying a database is half th
 still has to wire the consumer to it by hand.
 
 <Callout type="warning">
-**Not supported by the current release.** The commands on this page — `kubenest deploy`,
-`kubenest addon` and `kubenest template` — were removed from the command tree and are frozen scope
+**Not supported by the current release.** The commands on this page — `kubenest deploy`
+and `kubenest addon` — were removed from the command tree and are frozen scope
 under decision D1. The released CLI installs and operates the platform only, so this callout comes
 off only when a release that lifts that decision is promoted.
 
@@ -169,84 +169,6 @@ data:
 ```bash filename="terminal"
 kubenest addon detach my-api/postgres --as shared-postgres
 ```
-
----
-
-# Templates
-
-A template is the shape of a working app with the varying parts pulled out: components, wiring and
-dependencies fixed, image tag and replica count and database name exposed as parameters.
-
-Think of it the way you think of a Helm chart, one level up. A chart describes Kubernetes resources;
-a template describes a whole multi-component application.
-
-## Making one
-
-**From an app that already works** — the natural way, because you have already debugged it:
-
-```bash filename="terminal"
-kubenest template save my-api --as acme/api-service --version 1.0.0
-```
-
-Wiring and ordering come along. The CLI proposes parameters for the fields that usually vary and you
-edit the list.
-
-**From a Helm chart** — wrap any public chart so it can be deployed with a few named inputs instead
-of a values file:
-
-```bash filename="terminal"
-kubenest template from-chart oci://…/postgresql --version 13.4.4 --as acme/postgres
-```
-
-**From a file** — templates are portable, and this is what the registry ships:
-
-```bash filename="terminal"
-kubenest template import ./api-service.yaml
-```
-
-## Parameters
-
-```yaml filename="acme/api-service"
-parameters:
-  image_tag:
-    type: string
-    required: true
-    binds: components.api.image
-  replicas:
-    type: integer
-    default: 2
-    binds: components.api.replicas
-  db_password:
-    type: string
-    generate: password
-    binds: components.postgres.values.auth.password
-```
-
-`generate` fills a parameter at deploy time when nobody supplies one — `password`, `hex32`, `hex16`,
-`uuid`. That is the pattern for secrets: nobody has to invent one, and nobody has to store one.
-
-## Deploying one
-
-```bash filename="terminal"
-kubenest template deploy acme/api-service \
-  --project acme-staging \
-  --set image_tag=v1.2.0 \
-  --set replicas=3
-```
-
-The result is an ordinary app. Patch it, scale it, roll it back, save it as a new template.
-
-## The registry
-
-Templates published by us and by other users:
-
-```bash filename="terminal"
-kubenest template search postgres
-kubenest template deploy community/postgres-ha --project acme-prod
-```
-
-Deploying from the registry installs a local copy first, so a template you are running cannot change
-under you when its author publishes a new version.
 
 ---
 

@@ -88,9 +88,9 @@ Logout requires both the bearer access token and the refresh-token cookie. It bl
 
 ## Request conventions
 
-**Content-Type.** JSON request bodies use `Content-Type: application/json`. `POST /login` uses `application/x-www-form-urlencoded`; `POST /stack-templates/from-yaml` uses `multipart/form-data`. Requests without a body do not need a content type.
+**Content-Type.** JSON request bodies use `Content-Type: application/json`. `POST /login` uses `application/x-www-form-urlencoded`. Requests without a body do not need a content type.
 
-**Namespaced resources.** Apps and stack templates are addressed by `{namespace}/{name}` rather than by UUID. The namespace maps to the project's Kubernetes namespace, and the name is the App or template name you chose at create time. This makes URLs human-readable and stable.
+**Namespaced resources.** Apps are addressed by `{namespace}/{name}` rather than by UUID. The namespace maps to the project's Kubernetes namespace, and the name is the App name you chose at create time. This makes URLs human-readable and stable.
 
 **Pagination.** Paginated endpoints return pagination fields beside the `data` array:
 
@@ -289,24 +289,6 @@ Every route below that contains `{namespace}/{name}` requires `?project_id=<UUID
 | `GET` | `/apps/{namespace}/{name}/components/{component}/secrets` | List a component's secret keys. |
 | `PATCH` | `/apps/{namespace}/{name}/components/{component}/secrets` | Set or update a component's secret values. |
 | `DELETE` | `/apps/{namespace}/{name}/components/{component}/secrets/{key}` | Remove a single secret key from a component. |
-
----
-
-### Stack Templates
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/stack-templates` | List templates. Optional filters: `?namespace=` and `?scope=`. |
-| `POST` | `/stack-templates` | Create a template directly (full template body). |
-| `GET` | `/stack-templates/{namespace}/{name}` | Get template details including parameters and component specs. |
-| `PUT` | `/stack-templates/{namespace}/{name}` | Update description, icon, tags, components, or parameters in place. The version is unchanged. |
-| `DELETE` | `/stack-templates/{namespace}/{name}` | Delete a template. The backend does not check for deployed instances that reference it. |
-| `POST` | `/stack-templates/from-app/{namespace}/{name}` | Capture a running app as a new template. Required query: `?project_id=<UUID>`. Body includes `name`, `version`, `scope`, and `preserve_export_refs`. |
-| `POST` | `/stack-templates/from-chart` | Create a template wrapping a Helm chart with promoted parameters. |
-| `POST` | `/stack-templates/from-yaml` | Validate YAML supplied as multipart `file` or `yaml_content`. It validates only by default; add `?create=true&namespace=...` to create the template. |
-| `POST` | `/stack-templates/{namespace}/{name}/deploy` | Deploy a template to a project. Body: `{project_id, parameters, timeout}`. Returns `201 Created` with `message`, `deploy_name`, and `namespace`. |
-| `GET` | `/stack-templates/inspect-chart` | Fetch schema and defaults for a Helm chart. Query params: `?repo=&name=&version=`. Responses are cached for 1 hour when Redis is available. |
-| `GET` | `/stack-templates/registry` | Browse the community template registry. |
 
 ---
 

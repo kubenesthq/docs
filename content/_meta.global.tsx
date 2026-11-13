@@ -13,7 +13,7 @@ const meta: MetaRecord = {
   '-- use': { type: 'separator', title: 'Use it' },
   concepts: 'Concepts',
   deploying: 'Deploying apps',
-  addons: 'Addons and templates',
+  addons: 'Addons',
   console: 'Console',
 
   '-- operate': { type: 'separator', title: 'Operate it' },

@@ -1,6 +1,6 @@
 ---
 title: Concepts
-description: The object model — organizations, clusters, projects, apps and their components, addons, and templates.
+description: The object model — organizations, clusters, projects, apps, their components, and addons.
 ---
 
 import { Callout } from 'nextra/components'
@@ -125,14 +125,6 @@ Apps can share one database.
 Addons carry revision history independently of the Apps that use them: upgrade the chart version or
 change its values, and roll back to any previous revision.
 
-## Stack Templates
-
-A reusable blueprint of one or more components with parameter slots — the shape of an App without
-the specifics. Create one from a running App, from any public Helm chart, or from exported JSON,
-then deploy it into a project by filling in its parameters.
-
-Templates carry `project`, `cluster` or `global` scope.
-
 ---
 
-Next: [Deploying apps](/deploying) · [Addons and templates](/addons)
+Next: [Deploying apps](/deploying) · [Addons](/addons)
