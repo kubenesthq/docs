@@ -106,6 +106,12 @@ root and writes workload backups under `<prefix>/workload/` and datastore snapsh
 snapshot objects inside its repository root. Without that separation Velero correctly rejects the
 location as containing an unknown top-level directory.
 
+Give every new cluster a prefix no other cluster has used. The install and `kubenest backup
+set-target` accept a prefix that already holds another cluster's backups, and every backup then
+partially fails, because the file-copy repositories under that prefix open only with the other
+cluster's password. The one exception is recovering that same cluster with `--recover`, which
+reuses its prefix on purpose.
+
 You can supply the same target during the install itself, with `kubenest platform install
 --backup-target s3://<bucket>/<prefix>?endpoint=<host>&region=<region>`.
 
