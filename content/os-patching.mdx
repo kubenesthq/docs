@@ -127,6 +127,11 @@ other check it was reporting turns to `unknown` rather than staying green. The c
 unreachable during an announced reboot is correct and expected, not an incident — and it is the
 only signal available once the operator's terminal is closed.
 
+On a cluster with one server, health can also miss that the reboot was planned. The cluster reports
+its state once a minute, and the server can go down before a report carries the planned-reboot
+mark. A node-not-ready alert can then fire for a reboot you ran yourself. If it names the server
+you just rebooted and the CLI reported Ready, it is not an incident.
+
 ```mermaid
 flowchart TD
     HA1["ha tier<br/>server-1 rebooting"]

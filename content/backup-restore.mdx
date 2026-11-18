@@ -250,6 +250,11 @@ was taken and absent now, or the reverse.
 or did not return. The result records how many restored and matched; operator logs carry the
 underlying object for diagnosis.
 
+A drill run after a node was replaced can report this against a backup taken before the
+replacement, because the operator rebuilds the proof objects on the new node and the older backup
+holds the old ones. The backup is not at fault: take a fresh backup, or wait for the next scheduled
+one, and run the drill again.
+
 **Volume data mismatched** — the most serious. Object storage has the volume but its contents do
 not match. Suspect the node-agent/Kopia data path rather than PVC metadata or the API restore.
 
